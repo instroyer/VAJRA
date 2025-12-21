@@ -18,7 +18,6 @@ class Sidebar(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        # 🔴 DIFFERENT METHOD: darker bg + border separation
         self.setStyleSheet("""
             QWidget {
                 background-color: #02040A;
@@ -30,7 +29,6 @@ class Sidebar(QWidget):
         layout.setContentsMargins(16, 20, 16, 16)
         layout.setSpacing(8)
 
-        # ===== TOOLS =====
         tools_label = QLabel("TOOLS")
         tools_label.setStyleSheet(
             "color:#60A5FA;font-size:20px;font-weight:900;"
@@ -38,12 +36,9 @@ class Sidebar(QWidget):
         layout.addWidget(tools_label)
 
         self.btn_automation = self._tool_button("Automation")
-        self.btn_automation.clicked.connect(
-            lambda: self._activate(self.btn_automation, self.automation_clicked)
-        )
+        self.btn_automation.clicked.connect(self.automation_clicked.emit)
         layout.addWidget(self.btn_automation)
 
-        # ===== RECON =====
         self.recon_toggle = QPushButton("RECON  ▾")
         self.recon_toggle.setCursor(Qt.PointingHandCursor)
         self.recon_toggle.setStyleSheet(
@@ -65,22 +60,18 @@ class Sidebar(QWidget):
         self.recon_toggle.clicked.connect(self._toggle_recon)
         layout.addWidget(self.recon_toggle)
 
-        # ===== RECON CONTAINER =====
         self.recon_container = QWidget()
         recon_layout = QVBoxLayout(self.recon_container)
         recon_layout.setContentsMargins(20, 4, 0, 4)
         recon_layout.setSpacing(6)
 
         self.btn_whois = self._sub_tool_button("Whois")
-        self.btn_whois.clicked.connect(
-            lambda: self._activate(self.btn_whois, self.whois_clicked)
-        )
+        self.btn_whois.clicked.connect(self.whois_clicked.emit)
         recon_layout.addWidget(self.btn_whois)
 
         self.recon_container.setVisible(True)
         layout.addWidget(self.recon_container)
 
-        # ===== SUBDOMAIN ENUMERATION =====
         self.subdomain_toggle = QPushButton("SUBDOMAIN ENUMERATION  ▾")
         self.subdomain_toggle.setCursor(Qt.PointingHandCursor)
         self.subdomain_toggle.setStyleSheet(
@@ -102,25 +93,19 @@ class Sidebar(QWidget):
         self.subdomain_toggle.clicked.connect(self._toggle_subdomain)
         layout.addWidget(self.subdomain_toggle)
 
-        # ===== SUBDOMAIN CONTAINER =====
         self.subdomain_container = QWidget()
         subdomain_layout = QVBoxLayout(self.subdomain_container)
         subdomain_layout.setContentsMargins(20, 4, 0, 4)
         subdomain_layout.setSpacing(6)
 
         self.btn_amass = self._sub_tool_button("Amass")
-        self.btn_amass.clicked.connect(
-            lambda: self._activate(self.btn_amass, self.amass_clicked)
-        )
+        self.btn_amass.clicked.connect(self.amass_clicked.emit)
         subdomain_layout.addWidget(self.btn_amass)
 
         self.btn_subfinder = self._sub_tool_button("Subfinder")
-        self.btn_subfinder.clicked.connect(
-            lambda: self._activate(self.btn_subfinder, self.subfinder_clicked)
-        )
+        self.btn_subfinder.clicked.connect(self.subfinder_clicked.emit)
         subdomain_layout.addWidget(self.btn_subfinder)
 
-        # ===== LIVE ENUMERATION SUBCATEGORY =====
         self.live_enum_toggle = QPushButton("Live Enumeration  ▾")
         self.live_enum_toggle.setCursor(Qt.PointingHandCursor)
         self.live_enum_toggle.setStyleSheet(
@@ -143,16 +128,13 @@ class Sidebar(QWidget):
         self.live_enum_toggle.clicked.connect(self._toggle_live_enum)
         subdomain_layout.addWidget(self.live_enum_toggle)
 
-        # ===== LIVE ENUMERATION CONTAINER =====
         self.live_enum_container = QWidget()
         live_enum_layout = QVBoxLayout(self.live_enum_container)
         live_enum_layout.setContentsMargins(30, 4, 0, 4)
         live_enum_layout.setSpacing(6)
 
         self.btn_httpx = self._sub_tool_button("HTTPX")
-        self.btn_httpx.clicked.connect(
-            lambda: self._activate(self.btn_httpx, self.httpx_clicked)
-        )
+        self.btn_httpx.clicked.connect(self.httpx_clicked.emit)
         live_enum_layout.addWidget(self.btn_httpx)
 
         self.live_enum_container.setVisible(True)
@@ -161,7 +143,6 @@ class Sidebar(QWidget):
         self.subdomain_container.setVisible(True)
         layout.addWidget(self.subdomain_container)
 
-        # ===== SCAN =====
         self.scan_toggle = QPushButton("SCAN  ▾")
         self.scan_toggle.setCursor(Qt.PointingHandCursor)
         self.scan_toggle.setStyleSheet(
@@ -183,22 +164,18 @@ class Sidebar(QWidget):
         self.scan_toggle.clicked.connect(self._toggle_scan)
         layout.addWidget(self.scan_toggle)
 
-        # ===== SCAN CONTAINER =====
         self.scan_container = QWidget()
         scan_layout = QVBoxLayout(self.scan_container)
         scan_layout.setContentsMargins(20, 4, 0, 4)
         scan_layout.setSpacing(6)
 
         self.btn_nmap = self._sub_tool_button("Nmap")
-        self.btn_nmap.clicked.connect(
-            lambda: self._activate(self.btn_nmap, self.nmap_clicked)
-        )
+        self.btn_nmap.clicked.connect(self.nmap_clicked.emit)
         scan_layout.addWidget(self.btn_nmap)
 
         self.scan_container.setVisible(True)
         layout.addWidget(self.scan_container)
 
-        # ===== SCREENSHOT =====
         self.screenshot_toggle = QPushButton("SCREENSHOT  ▾")
         self.screenshot_toggle.setCursor(Qt.PointingHandCursor)
         self.screenshot_toggle.setStyleSheet(
@@ -220,16 +197,13 @@ class Sidebar(QWidget):
         self.screenshot_toggle.clicked.connect(self._toggle_screenshot)
         layout.addWidget(self.screenshot_toggle)
 
-        # ===== SCREENSHOT CONTAINER =====
         self.screenshot_container = QWidget()
         screenshot_layout = QVBoxLayout(self.screenshot_container)
         screenshot_layout.setContentsMargins(20, 4, 0, 4)
         screenshot_layout.setSpacing(6)
 
         self.btn_screenshot = self._sub_tool_button("Screenshot")
-        self.btn_screenshot.clicked.connect(
-            lambda: self._activate(self.btn_screenshot, self.screenshot_clicked)
-        )
+        self.btn_screenshot.clicked.connect(self.screenshot_clicked.emit)
         screenshot_layout.addWidget(self.btn_screenshot)
 
         self.screenshot_container.setVisible(True)
@@ -237,9 +211,6 @@ class Sidebar(QWidget):
 
         layout.addStretch()
 
-    # =========================
-    # TOGGLE
-    # =========================
     def _toggle_recon(self):
         visible = self.recon_container.isVisible()
         self.recon_container.setVisible(not visible)
@@ -265,25 +236,6 @@ class Sidebar(QWidget):
         self.screenshot_container.setVisible(not visible)
         self.screenshot_toggle.setText("SCREENSHOT  ▸" if visible else "SCREENSHOT  ▾")
 
-    # =========================
-    # ACTIVE STATE
-    # =========================
-    def _activate(self, button, signal):
-        if self.active_button:
-            self.active_button.setProperty("active", False)
-            self.active_button.style().unpolish(self.active_button)
-            self.active_button.style().polish(self.active_button)
-
-        self.active_button = button
-        button.setProperty("active", True)
-        button.style().unpolish(button)
-        button.style().polish(button)
-
-        signal.emit()
-
-    # =========================
-    # BUTTON STYLES
-    # =========================
     def _tool_button(self, text):
         btn = QPushButton(text)
         btn.setCursor(Qt.PointingHandCursor)
@@ -334,3 +286,16 @@ class Sidebar(QWidget):
 
     def toggle(self):
         self.setVisible(not self.isVisible())
+
+    def _activate(self, button, signal):
+        if self.active_button:
+            self.active_button.setProperty("active", False)
+            self.active_button.style().unpolish(self.active_button)
+            self.active_button.style().polish(self.active_button)
+
+        self.active_button = button
+        button.setProperty("active", True)
+        button.style().unpolish(button)
+        button.style().polish(button)
+
+        signal.emit()

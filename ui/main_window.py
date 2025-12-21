@@ -4,7 +4,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
     QLabel,
-    QPushButton
+    QPushButton,
+    QTabWidget,
+    QTabBar
 )
 from PySide6.QtCore import Qt
 
@@ -27,14 +29,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("VAJRA – Offensive Security Platform")
         self.setMinimumSize(1200, 720)
 
-        # Global execution tracking (logic unchanged)
         self.active_process = None
         self.active_process_type = None
+        self.open_tabs = {}
 
         self._build_ui()
 
     def _build_ui(self):
-        # ===== ROOT =====
         central = QWidget()
         central.setStyleSheet("background-color: #0B1220;")
         self.setCentralWidget(central)
@@ -43,14 +44,12 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # ===== TOP BAR =====
         top_bar = QWidget()
         top_bar.setFixedHeight(58)
         top_bar.setStyleSheet("""
             background-color: #0F172A;
             border-bottom: 1px solid #1E293B;
         """)
-
         top_layout = QHBoxLayout(top_bar)
         top_layout.setContentsMargins(16, 0, 16, 0)
 
@@ -58,35 +57,18 @@ class MainWindow(QMainWindow):
         toggle_btn.setFixedSize(36, 36)
         toggle_btn.setStyleSheet("""
             QPushButton {
-                color: #E5E7EB;
-                background: transparent;
-                border: none;
-                font-size: 18px;
+                color: #E5E7EB; background: transparent; border: none; font-size: 18px;
             }
-            QPushButton:hover {
-                color: #93C5FD;
-            }
+            QPushButton:hover { color: #93C5FD; }
         """)
 
         title = QLabel("VAJRA")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("""
-            QLabel {
-                font-size: 40px;
-                font-weight: 800;
-                letter-spacing: 2px;
-                color: #FFFFFF;
-            }
-        """)
+        title.setStyleSheet("font-size: 40px; font-weight: 800; letter-spacing: 2px; color: #FFFFFF;")
 
         subtitle = QLabel("Offensive Security Platform")
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                color: #9CA3AF;
-            }
-        """)
+        subtitle.setStyleSheet("font-size: 13px; color: #9CA3AF;")
 
         title_container = QWidget()
         title_layout = QVBoxLayout(title_container)
@@ -98,29 +80,15 @@ class MainWindow(QMainWindow):
         self.notification_btn = QPushButton("🔔")
         self.notification_btn.setFixedSize(32, 32)
         self.notification_btn.setStyleSheet("""
-            QPushButton {
-                color: #FACC15;
-                background: transparent;
-                border: none;
-                font-size: 18px;
-            }
-            QPushButton:hover {
-                color: #FDE047;
-            }
+            QPushButton { color: #FACC15; background: transparent; border: none; font-size: 18px; }
+            QPushButton:hover { color: #FDE047; }
         """)
 
         self.settings_btn = QPushButton("⚙️")
         self.settings_btn.setFixedSize(32, 32)
         self.settings_btn.setStyleSheet("""
-            QPushButton {
-                color: #9CA3AF;
-                background: transparent;
-                border: none;
-                font-size: 18px;
-            }
-            QPushButton:hover {
-                color: #E5E7EB;
-            }
+            QPushButton { color: #9CA3AF; background: transparent; border: none; font-size: 18px; }
+            QPushButton:hover { color: #E5E7EB; }
         """)
 
         top_layout.addWidget(toggle_btn)
@@ -132,52 +100,43 @@ class MainWindow(QMainWindow):
 
         root_layout.addWidget(top_bar)
 
-        # ===== MAIN CONTENT =====
         content = QWidget()
         content.setStyleSheet("background-color: #0B1220;")
         content_layout = QHBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
 
-        # ===== SIDEBAR =====
         self.sidebar = Sidebar()
-        self.sidebar.setStyleSheet("""
-            background-color: #020617;
-            border-right: 1px solid #1E293B;
-        """)
         content_layout.addWidget(self.sidebar)
 
-        # ===== WORKSPACE =====
-        self.workspace_container = QWidget()
-        self.workspace_container.setStyleSheet("""
-            background-color: #0B1220;
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane { border: none; }
+            QTabBar::tab {
+                background: #0F172A; color: #9CA3AF; padding: 10px 20px;
+                border-top-left-radius: 6px; border-top-right-radius: 6px;
+                border: 1px solid #1E293B; border-bottom: none; margin-right: 2px;
+            }
+            QTabBar::tab:selected { background: #0B1220; color: #E5E7EB; }
+            QTabBar::tab:hover { background: #1E293B; }
         """)
-        self.workspace_layout = QVBoxLayout(self.workspace_container)
-        self.workspace_layout.setContentsMargins(0, 0, 0, 0)
-        self.workspace_layout.setSpacing(0)
 
-        content_layout.addWidget(self.workspace_container)
+        content_layout.addWidget(self.tabs)
         root_layout.addWidget(content)
 
-        # ===== NOTIFICATIONS =====
         self.notification_panel = NotificationPanel(self)
         self.notification_manager = NotificationManager(self)
-
         self.notification_btn.clicked.connect(
             lambda: self.notification_panel.show_below(self.notification_btn)
         )
 
-        # ===== SETTINGS =====
         self.settings_panel = SettingsPanel(self)
-
         self.settings_btn.clicked.connect(
             lambda: self.settings_panel.show_below(self.settings_btn)
         )
 
-        # ===== INITIAL VIEW =====
         self.load_automation()
 
-        # ===== SIGNALS =====
         toggle_btn.clicked.connect(self.sidebar.toggle)
         self.sidebar.automation_clicked.connect(self.load_automation)
         self.sidebar.whois_clicked.connect(self.load_whois)
@@ -187,9 +146,6 @@ class MainWindow(QMainWindow):
         self.sidebar.nmap_clicked.connect(self.load_nmap)
         self.sidebar.screenshot_clicked.connect(self.load_screenshot)
 
-    # ==================================================
-    # GLOBAL STOP (LOGIC UNCHANGED)
-    # ==================================================
     def stop_active_process(self):
         if self.active_process and self.active_process.poll() is None:
             self.active_process.kill()
@@ -197,54 +153,64 @@ class MainWindow(QMainWindow):
             self.active_process_type = None
             self.notification_manager.notify("Execution stopped")
 
-    # ==================================================
-    # VIEW LOADERS
-    # ==================================================
-    def _clear_workspace(self):
-        while self.workspace_layout.count():
-            item = self.workspace_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
+    def close_tab_for_widget(self, widget):
+        index = self.tabs.indexOf(widget)
+        if index != -1:
+            self._close_tab(index)
+
+    def _open_tab(self, name, widget_class):
+        if name in self.open_tabs:
+            self.tabs.setCurrentWidget(self.open_tabs[name])
+        else:
+            widget = widget_class(main_window=self)
+            index = self.tabs.addTab(widget, name)
+            self.tabs.setCurrentIndex(index)
+            self.open_tabs[name] = widget
+
+            close_button = QPushButton("×")
+            close_button.setFixedSize(24, 24)
+            close_button.setStyleSheet("""
+                QPushButton {
+                    color: #eaeaea;
+                    background: transparent;
+                    border: none;
+                    font-size: 20px;
+                    font-weight: bold;
+                }
+                QPushButton:hover { color: #DC2626; }
+                QPushButton:pressed { color: #B91C1C; }
+            """)
+            close_button.setCursor(Qt.PointingHandCursor)
+            self.tabs.tabBar().setTabButton(index, QTabBar.RightSide, close_button)
+            close_button.clicked.connect(lambda: self.close_tab_for_widget(widget))
+
+    def _close_tab(self, index):
+        widget = self.tabs.widget(index)
+        if widget:
+            for name, w in self.open_tabs.items():
+                if w == widget:
+                    del self.open_tabs[name]
+                    break
+            widget.deleteLater()
+        self.tabs.removeTab(index)
 
     def load_automation(self):
-        self._clear_workspace()
-        self.workspace_layout.addWidget(
-            AutomationView(main_window=self)
-        )
+        self._open_tab("Automation", AutomationView)
 
     def load_whois(self):
-        self._clear_workspace()
-        self.workspace_layout.addWidget(
-            WhoisView(main_window=self)
-        )
+        self._open_tab("Whois", WhoisView)
 
     def load_amass(self):
-        self._clear_workspace()
-        self.workspace_layout.addWidget(
-            AmassView(main_window=self)
-        )
+        self._open_tab("Amass", AmassView)
 
     def load_subfinder(self):
-        self._clear_workspace()
-        self.workspace_layout.addWidget(
-            SubfinderView(main_window=self)
-        )
+        self._open_tab("Subfinder", SubfinderView)
 
     def load_httpx(self):
-        self._clear_workspace()
-        self.workspace_layout.addWidget(
-            HttpxView(main_window=self)
-        )
+        self._open_tab("Httpx", HttpxView)
 
     def load_nmap(self):
-        self._clear_workspace()
-        self.workspace_layout.addWidget(
-            NmapView(main_window=self)
-        )
+        self._open_tab("Nmap", NmapView)
 
     def load_screenshot(self):
-        self._clear_workspace()
-        self.workspace_layout.addWidget(
-            ScreenshotView(main_window=self)
-        )
+        self._open_tab("Screenshot", ScreenshotView)

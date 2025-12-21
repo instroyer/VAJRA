@@ -1,285 +1,105 @@
+
 import os
-import subprocess
-
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QPlainTextEdit,
-    QFrame
-)
-
-from core.tgtinput import TargetInput
-from ui.worker import ProcessWorker
+from ui.main_window import BaseToolView
 from core.tgtinput import parse_targets
+from ui.worker import ProcessWorker
 from core.fileops import create_target_dirs, get_group_name_from_file
+from modules.bases import ToolBase, ToolCategory
 
-
-def run_screenshot(target: str, output_dir: str) -> str:
-    """
-    Run eyewitness tool on the target.
-    Returns the output as string.
-    """
-    if not target:
-        raise ValueError("Target is empty")
-
-    try:
-        screenshot_dir = os.path.join(output_dir, "Screenshots")
-        os.makedirs(screenshot_dir, exist_ok=True)
-
-        if target.startswith('@'):
-            input_file = target[1:]
-            if not os.path.isfile(input_file):
-                raise RuntimeError(f"File not found: {input_file}")
-            command = f"eyewitness --web --timeout 30 --threads 500 --prepend-https -f {input_file} -d {screenshot_dir} --no-prompt"
-        else:
-            if not target.startswith(('http://', 'https://')):
-                target_url = f"https://{target}"
-            else:
-                target_url = target
-            command = f"eyewitness --web --timeout 30 --threads 500 --prepend-https --single {target_url} -d {screenshot_dir} --no-prompt"
-
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-
-        if result.returncode == 0:
-            return f"Screenshots saved to: {screenshot_dir}"
-        else:
-            raise RuntimeError(f"Eyewitness failed: {result.stderr}")
-    except Exception as e:
-        raise RuntimeError(str(e))
-
-
-class ScreenshotView(QWidget):
-    """
-    Web screenshot capture via Eyewitness.
-    """
-
-    def __init__(self, main_window=None):
-        super().__init__()
-        self.main_window = main_window
-        self.worker = None
+class ScreenshotView(BaseToolView):
+    def __init__(self, name, category, main_window=None):
+        super().__init__(name, category, main_window)
+        self.targets_queue = []
+        self.group_name = None
         self.log_file = None
         self.all_output = []
-        self._build_ui()
 
-    # ================= UI =================
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(14)
+    def update_command(self):
+        target = self.target_input.get_target().strip()
+        if not target:
+            target = "<target>"
+        
+        # The actual output directory will be determined at scan time
+        self.command_input.setText(f"screenshot -l {target} -o <output_dir>")
 
-        header = QLabel("RECON  ›  Screenshot")
-        header.setStyleSheet("""
-            QLabel {
-                background-color: #0F172A;
-                color: #93C5FD;
-                font-size: 18px;
-                font-weight: 700;
-                padding: 12px;
-                border-radius: 8px;
-            }
-        """)
-        layout.addWidget(header)
-
-        controls = QHBoxLayout()
-        controls.setSpacing(10)
-
-        self.target_input = TargetInput()
-        self.target_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #020617;
-                color: #E5E7EB;
-                border: 1px solid #1E293B;
-                padding: 10px;
-                border-radius: 6px;
-                font-size: 14px;
-            }
-        """)
-
-        self.run_button = QPushButton("RUN")
-        self.run_button.setFixedSize(90, 36)
-        self.run_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2563EB;
-                color: white;
-                font-weight: 600;
-                border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: #1D4ED8;
-            }
-        """)
-        self.run_button.clicked.connect(self.run_scan)
-
-        self.stop_button = QPushButton("■")
-        self.stop_button.setFixedSize(44, 36)
-        self.stop_button.setToolTip("Stop Screenshot execution")
-        self.stop_button.setStyleSheet("""
-            QPushButton {
-                background-color: #DC2626;
-                color: white;
-                font-size: 16px;
-                font-weight: 900;
-                border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: #B91C1C;
-            }
-        """)
-        self.stop_button.clicked.connect(self.stop_scan)
-
-        controls.addWidget(self.target_input)
-        controls.addWidget(self.run_button)
-        controls.addWidget(self.stop_button)
-        layout.addLayout(controls)
-
-        divider = QFrame()
-        divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet("color: #1E293B;")
-        layout.addWidget(divider)
-
-        self.output = QPlainTextEdit()
-        self.output.setReadOnly(True)
-        self.output.setMinimumHeight(420)
-        self.output.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: #020617;
-                color: #E5E7EB;
-                border: 1px solid #1E293B;
-                border-radius: 8px;
-                padding: 12px;
-                font-family: Consolas, monospace;
-                font-size: 13px;
-            }
-        """)
-        self.output.setPlaceholderText("Screenshot results will appear here...")
-        layout.addWidget(self.output)
-
-    # ================= LOGIC =================
     def run_scan(self):
         raw_input = self.target_input.get_target()
-
         if not raw_input:
-            self._notify("Please enter a target or select a file")
+            self._notify("Please enter a target or select a file.")
             return
 
         targets, source = parse_targets(raw_input)
-
         if not targets:
-            self._notify("No valid targets found")
+            self._notify("No valid targets found.")
             return
-
-        group_name = None
-        if source == "file":
-            group_name = get_group_name_from_file(raw_input)
-            self._info(f"Loaded {len(targets)} targets from file: {group_name}.txt")
-        else:
-            self._info(f"Target loaded: {targets[0]}")
 
         self.run_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.output.clear()
 
         self.targets_queue = list(targets)
-        self.group_name = group_name
+        self.group_name = get_group_name_from_file(raw_input) if source == "file" else None
+        self.all_output = []
         self._process_next_target()
 
     def _process_next_target(self):
-        """Process targets one by one"""
         if not self.targets_queue:
-            self.run_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
-            self._notify("Screenshot capture completed")
+            self._on_scan_completed()
+            self._notify("Screenshot scan finished.")
             return
 
         target = self.targets_queue.pop(0)
-        self._info(f"Capturing screenshots for: {target}")
+        self._info(f"Running Screenshot for: {target}")
         self._section(f"SCREENSHOT: {target}")
 
-        base_dir = create_target_dirs(target, group_name=self.group_name)
+        base_dir = create_target_dirs(target, self.group_name)
+        screenshots_dir = os.path.join(base_dir, "Screenshots")
+        os.makedirs(screenshots_dir, exist_ok=True)
+        
         self.log_file = os.path.join(base_dir, "Logs", "screenshot.txt")
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
-        self.all_output = []
-        self.last_base_dir = base_dir
+        
+        # Build command dynamically
+        cmd = ["screenshot", "-l", target, "-o", screenshots_dir]
 
-        try:
-            screenshot_dir = os.path.join(base_dir, "Screenshots")
-            os.makedirs(screenshot_dir, exist_ok=True)
+        self.worker = ProcessWorker(cmd)
+        self.worker.output_ready.connect(self._on_output)
+        self.worker.finished.connect(self._on_process_finished)
+        self.worker.error.connect(self._on_process_error)
+        self.worker.start()
 
-            if target.startswith('@'):
-                input_file = target[1:]
-                command = f"eyewitness --web --timeout 30 --threads 500 --prepend-https -f {input_file} -d {screenshot_dir} --no-prompt"
-            else:
-                if not target.startswith(('http://', 'https://')):
-                    target_url = f"https://{target}"
-                else:
-                    target_url = target
-                command = f"eyewitness --web --timeout 30 --threads 500 --prepend-https --single {target_url} -d {screenshot_dir} --no-prompt"
-
-            # Create and start worker thread
-            self.worker = ProcessWorker(command, shell=True)
-            self.worker.output_ready.connect(self._on_output)
-            self.worker.finished.connect(self._on_process_finished)
-            self.worker.error.connect(self._on_process_error)
-            self.worker.start()
-
-            if self.main_window:
-                self.main_window.active_process = self.worker
-        except Exception as e:
-            self._error(str(e))
-            self.run_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
+        if self.main_window:
+            self.main_window.active_process = self.worker
 
     def _on_output(self, line):
-        """Handle output from worker thread"""
         self.all_output.append(line + "\n")
         self.output.appendPlainText(line)
 
     def _on_process_finished(self):
-        """Handle process completion"""
         if self.log_file:
             with open(self.log_file, "w") as f:
                 f.writelines(self.all_output)
-
+        
         self.output.appendPlainText("\n")
-
-        # Process next target
+        
         if self.targets_queue:
             self._process_next_target()
         else:
-            self.run_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
-            if hasattr(self, 'last_base_dir'):
-                self._notify(f"Screenshots saved under:\n{os.path.dirname(self.last_base_dir)}")
+            self._on_scan_completed()
+            self._notify("Screenshot scan finished.")
 
     def _on_process_error(self, error):
-        """Handle process error"""
         self._error(f"Process error: {error}")
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
+        self._on_scan_completed()
 
-    def stop_scan(self):
-        if self.worker:
-            self.worker.stop()
-            self.worker.wait()
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self._notify("Screenshot capture stopped")
+class ScreenshotTool(ToolBase):
+    @property
+    def name(self) -> str:
+        return "Screenshot"
 
-    # ================= HELPERS =================
-    def _info(self, message: str):
-        self.output.appendHtml(f'<span style="color:#60A5FA;">[INFO]</span> {message}')
+    @property
+    def category(self) -> ToolCategory:
+        return ToolCategory.WEB_SCREENSHOTS
 
-    def _error(self, message: str):
-        self.output.appendHtml(f'<span style="color:#F87171;">[ERROR]</span> {message}')
-
-    def _section(self, title: str):
-        self.output.appendHtml(
-            f'<br><span style="color:#FACC15;font-weight:700;">'
-            f'===== {title} =====</span><br>'
-        )
-
-    def _notify(self, message: str):
-        if self.main_window:
-            self.main_window.notification_manager.notify(message)
+    def get_widget(self, main_window):
+        return ScreenshotView(self.name, self.category, main_window=main_window)

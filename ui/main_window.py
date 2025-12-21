@@ -1,216 +1,355 @@
+
+import inspect
+import importlib
+import pkgutil
 from PySide6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QHBoxLayout,
-    QVBoxLayout,
-    QLabel,
-    QPushButton,
-    QTabWidget,
-    QTabBar
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, 
+    QTabWidget, QTabBar, QPushButton, QStatusBar, QSplitter, 
+    QLineEdit, QApplication, QGridLayout, QPlainTextEdit
 )
 from PySide6.QtCore import Qt
 
-from ui.sidebar import Sidebar
-from modules.automation import AutomationView
-from modules.whois import WhoisView
-from modules.amass import AmassView
-from modules.subfinder import SubfinderView
-from modules.httpx import HttpxView
-from modules.nmap import NmapView
-from modules.screenshot import ScreenshotView
-from ui.notification import NotificationPanel, NotificationManager
-from ui.settingpanel import SettingsPanel
+from ui.sidepanel import Sidepanel
+from modules.bases import ToolBase
+from ui.notification import NotificationManager
+from ui.styles import (
+    MAIN_WINDOW_STYLE, TAB_WIDGET_STYLE, COLOR_TEXT_PRIMARY, 
+    COLOR_TEXT_SECONDARY, COLOR_BACKGROUND_SECONDARY, COLOR_BORDER,
+    COLOR_BACKGROUND_PRIMARY, TOOL_HEADER_STYLE, LABEL_STYLE, 
+    TARGET_INPUT_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE, 
+    OUTPUT_TEXT_EDIT_STYLE, TOOL_VIEW_STYLE
+)
+from core.tgtinput import TargetInput
 
+class WelcomeWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(10)
+
+        title = QLabel("Welcome to VAJRA - Offensive Security Platform")
+        title.setStyleSheet(f"font-size: 28px; font-weight: 300; color: {COLOR_TEXT_PRIMARY};")
+
+        subtitle = QLabel("Select a tool from the sidepanel to begin.")
+        subtitle.setStyleSheet(f"font-size: 16px; color: {COLOR_TEXT_SECONDARY};")
+        
+        layout.addWidget(title, alignment=Qt.AlignCenter)
+        layout.addWidget(subtitle, alignment=Qt.AlignCenter)
+        self.setStyleSheet("background-color: transparent;")
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-
-        self.setWindowTitle("VAJRA – Offensive Security Platform")
+        self.setWindowTitle("VAJRA - Offensive Security Platform")
         self.setMinimumSize(1200, 720)
+        self.setStyleSheet(MAIN_WINDOW_STYLE)
 
         self.active_process = None
-        self.active_process_type = None
-        self.open_tabs = {}
-
+        self.open_tool_widgets = {}
+        self.tools = self._discover_tools()
         self._build_ui()
 
-    def _build_ui(self):
-        central = QWidget()
-        central.setStyleSheet("background-color: #0B1220;")
-        self.setCentralWidget(central)
+    def _discover_tools(self):
+        tools = {}
+        module_path = "modules"
+        try:
+            package = importlib.import_module(module_path)
+            for _, name, is_pkg in pkgutil.walk_packages(package.__path__):
+                if not is_pkg:
+                    try:
+                        module = importlib.import_module(f'{module_path}.{name}')
+                        for _, obj in inspect.getmembers(module, inspect.isclass):
+                            if issubclass(obj, ToolBase) and obj is not ToolBase:
+                                tool_instance = obj()
+                                tools[tool_instance.name] = tool_instance
+                    except ImportError as e:
+                        print(f"Could not import module '{name}': {e}")
+        except (ImportError, AttributeError) as e:
+            print(f"Error discovering tools: {e}")
+        return tools
 
-        root_layout = QVBoxLayout(central)
-        root_layout.setContentsMargins(0, 0, 0, 0)
+    def _build_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        root_layout = QVBoxLayout(central_widget)
+        root_layout.setContentsMargins(0,0,0,0)
         root_layout.setSpacing(0)
 
-        top_bar = QWidget()
-        top_bar.setFixedHeight(58)
-        top_bar.setStyleSheet("""
-            background-color: #0F172A;
-            border-bottom: 1px solid #1E293B;
-        """)
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(16, 0, 16, 0)
+        # --- Title Bar ---
+        title_bar = QWidget()
+        title_bar.setFixedHeight(40)
+        title_bar.setStyleSheet(f"background-color: {COLOR_BACKGROUND_PRIMARY}; border-bottom: 1px solid {COLOR_BORDER};")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(5, 0, 5, 0)
+        title_layout.setSpacing(10)
 
-        toggle_btn = QPushButton("☰")
-        toggle_btn.setFixedSize(36, 36)
-        toggle_btn.setStyleSheet("""
-            QPushButton {
-                color: #E5E7EB; background: transparent; border: none; font-size: 18px;
-            }
-            QPushButton:hover { color: #93C5FD; }
-        """)
-
-        title = QLabel("VAJRA")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 40px; font-weight: 800; letter-spacing: 2px; color: #FFFFFF;")
-
-        subtitle = QLabel("Offensive Security Platform")
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("font-size: 13px; color: #9CA3AF;")
-
-        title_container = QWidget()
-        title_layout = QVBoxLayout(title_container)
-        title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(0)
-        title_layout.addWidget(title)
-        title_layout.addWidget(subtitle)
+        self.sidepanel_toggle_btn = QPushButton("☰")
+        self.sidepanel_toggle_btn.setFixedSize(32, 32)
+        self.sidepanel_toggle_btn.setStyleSheet(f'''
+            QPushButton {{
+                border: none;
+                background-color: transparent;
+                color: {COLOR_TEXT_PRIMARY};
+                font-size: 20px;
+            }}
+            QPushButton:hover {{
+                background-color: #334155;
+            }}
+        ''')
+        self.sidepanel_toggle_btn.setCursor(Qt.PointingHandCursor)
+        title_layout.addWidget(self.sidepanel_toggle_btn)
+        
+        title_label = QLabel("VAJRA - Offensive Security Platform")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet(f"color: {COLOR_TEXT_SECONDARY}; font-size: 16px; font-weight: 600; border: none;")
+        title_layout.addWidget(title_label, 1)
 
         self.notification_btn = QPushButton("🔔")
         self.notification_btn.setFixedSize(32, 32)
-        self.notification_btn.setStyleSheet("""
-            QPushButton { color: #FACC15; background: transparent; border: none; font-size: 18px; }
-            QPushButton:hover { color: #FDE047; }
+        self.notification_btn.setToolTip("Notifications")
+        self.notification_btn.setCursor(Qt.PointingHandCursor)
+        self.notification_btn.setStyleSheet(self.sidepanel_toggle_btn.styleSheet())
+        title_layout.addWidget(self.notification_btn)
+
+        root_layout.addWidget(title_bar)
+
+        main_content_layout = QHBoxLayout()
+        main_content_layout.setSpacing(0)
+
+        self.sidepanel = Sidepanel(self.tools)
+        main_content_layout.addWidget(self.sidepanel)
+
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabsClosable(True)
+        self.tab_widget.setMovable(True)
+        self.tab_widget.tabCloseRequested.connect(self.close_tab)
+        self.tab_widget.setStyleSheet(TAB_WIDGET_STYLE)
+        main_content_layout.addWidget(self.tab_widget)
+        
+        root_layout.addLayout(main_content_layout)
+
+        # --- Status Bar ---
+        self.status_bar = QStatusBar()
+        self.status_bar.setStyleSheet(f"""QStatusBar {{
+                background-color: {COLOR_BACKGROUND_SECONDARY};
+                border-top: 1px solid {COLOR_BORDER};
+                color: {COLOR_TEXT_SECONDARY};
+                padding: 0 10px;
+            }}
         """)
+        self.setStatusBar(self.status_bar)
 
-        self.settings_btn = QPushButton("⚙️")
-        self.settings_btn.setFixedSize(32, 32)
-        self.settings_btn.setStyleSheet("""
-            QPushButton { color: #9CA3AF; background: transparent; border: none; font-size: 18px; }
-            QPushButton:hover { color: #E5E7EB; }
-        """)
-
-        top_layout.addWidget(toggle_btn)
-        top_layout.addStretch()
-        top_layout.addWidget(title_container)
-        top_layout.addStretch()
-        top_layout.addWidget(self.settings_btn)
-        top_layout.addWidget(self.notification_btn)
-
-        root_layout.addWidget(top_bar)
-
-        content = QWidget()
-        content.setStyleSheet("background-color: #0B1220;")
-        content_layout = QHBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(0)
-
-        self.sidebar = Sidebar()
-        content_layout.addWidget(self.sidebar)
-
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: none; }
-            QTabBar::tab {
-                background: #0F172A; color: #9CA3AF; padding: 10px 20px;
-                border-top-left-radius: 6px; border-top-right-radius: 6px;
-                border: 1px solid #1E293B; border-bottom: none; margin-right: 2px;
-            }
-            QTabBar::tab:selected { background: #0B1220; color: #E5E7EB; }
-            QTabBar::tab:hover { background: #1E293B; }
-        """)
-
-        content_layout.addWidget(self.tabs)
-        root_layout.addWidget(content)
-
-        self.notification_panel = NotificationPanel(self)
+        # --- Managers ---
         self.notification_manager = NotificationManager(self)
-        self.notification_btn.clicked.connect(
-            lambda: self.notification_panel.show_below(self.notification_btn)
-        )
 
-        self.settings_panel = SettingsPanel(self)
-        self.settings_btn.clicked.connect(
-            lambda: self.settings_panel.show_below(self.settings_btn)
-        )
+        # --- Connections ---
+        self.sidepanel.tool_clicked.connect(self.open_tool_tab)
+        self.sidepanel_toggle_btn.clicked.connect(self.toggle_sidepanel)
+        self.notification_btn.clicked.connect(self.notification_manager.toggle_panel)
 
-        self.load_automation()
+        # --- Initial State ---
+        self.show_welcome_tab()
+        self.sidepanel.setVisible(True) # Ensure sidepanel is visible by default
 
-        toggle_btn.clicked.connect(self.sidebar.toggle)
-        self.sidebar.automation_clicked.connect(self.load_automation)
-        self.sidebar.whois_clicked.connect(self.load_whois)
-        self.sidebar.amass_clicked.connect(self.load_amass)
-        self.sidebar.subfinder_clicked.connect(self.load_subfinder)
-        self.sidebar.httpx_clicked.connect(self.load_httpx)
-        self.sidebar.nmap_clicked.connect(self.load_nmap)
-        self.sidebar.screenshot_clicked.connect(self.load_screenshot)
+    def show_welcome_tab(self):
+        if self.tab_widget.count() == 0:
+            welcome_widget = WelcomeWidget()
+            index = self.tab_widget.addTab(welcome_widget, "Welcome")
+            self.tab_widget.tabBar().setTabButton(index, QTabBar.RightSide, None)
+            self.tab_widget.setCurrentIndex(index)
+
+    def open_tool_tab(self, tool: ToolBase):
+        if tool.name in self.open_tool_widgets:
+            widget = self.open_tool_widgets[tool.name]
+            self.tab_widget.setCurrentWidget(widget)
+            return
+
+        if self.tab_widget.count() == 1 and self.tab_widget.tabText(0) == "Welcome":
+            self.tab_widget.removeTab(0)
+
+        tool_widget = tool.get_widget(main_window=self)
+        index = self.tab_widget.addTab(tool_widget, tool.name)
+        self.tab_widget.setCurrentIndex(index)
+        self.open_tool_widgets[tool.name] = tool_widget
+
+    def close_tab(self, index):
+        widget = self.tab_widget.widget(index)
+        if widget:
+            tool_name_to_remove = None
+            for name, w in self.open_tool_widgets.items():
+                if w == widget:
+                    tool_name_to_remove = name
+                    break
+            
+            if tool_name_to_remove in self.open_tool_widgets:
+                del self.open_tool_widgets[tool_name_to_remove]
+            
+            self.tab_widget.removeTab(index)
+            widget.deleteLater()
+            
+        if self.tab_widget.count() == 0:
+            self.show_welcome_tab()
 
     def stop_active_process(self):
         if self.active_process and self.active_process.poll() is None:
             self.active_process.kill()
-            self.active_process = None
-            self.active_process_type = None
-            self.notification_manager.notify("Execution stopped")
+            self.notification_manager.notify("Process terminated.")
 
-    def close_tab_for_widget(self, widget):
-        index = self.tabs.indexOf(widget)
-        if index != -1:
-            self._close_tab(index)
+    def toggle_sidepanel(self):
+        is_visible = self.sidepanel.isVisible()
+        self.sidepanel.setVisible(not is_visible)
+        self.sidepanel_toggle_btn.setText("☰" if is_visible else "🗧")
 
-    def _open_tab(self, name, widget_class):
-        if name in self.open_tabs:
-            self.tabs.setCurrentWidget(self.open_tabs[name])
-        else:
-            widget = widget_class(main_window=self)
-            index = self.tabs.addTab(widget, name)
-            self.tabs.setCurrentIndex(index)
-            self.open_tabs[name] = widget
+class OutputView(QWidget):
+    """A widget for displaying tool output with a copy button."""
 
-            close_button = QPushButton("×")
-            close_button.setFixedSize(24, 24)
-            close_button.setStyleSheet("""
-                QPushButton {
-                    color: #eaeaea;
-                    background: transparent;
-                    border: none;
-                    font-size: 20px;
-                    font-weight: bold;
-                }
-                QPushButton:hover { color: #DC2626; }
-                QPushButton:pressed { color: #B91C1C; }
-            """)
-            close_button.setCursor(Qt.PointingHandCursor)
-            self.tabs.tabBar().setTabButton(index, QTabBar.RightSide, close_button)
-            close_button.clicked.connect(lambda: self.close_tab_for_widget(widget))
+    def __init__(self):
+        super().__init__()
+        self._build_ui()
 
-    def _close_tab(self, index):
-        widget = self.tabs.widget(index)
-        if widget:
-            for name, w in self.open_tabs.items():
-                if w == widget:
-                    del self.open_tabs[name]
-                    break
-            widget.deleteLater()
-        self.tabs.removeTab(index)
+    def _build_ui(self):
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-    def load_automation(self):
-        self._open_tab("Automation", AutomationView)
+        self.output_text = QPlainTextEdit()
+        self.output_text.setReadOnly(True)
+        self.output_text.setPlaceholderText("Tool results will appear here...")
+        self.output_text.setStyleSheet(OUTPUT_TEXT_EDIT_STYLE)
 
-    def load_whois(self):
-        self._open_tab("Whois", WhoisView)
+        self.copy_button = QPushButton("📋")
+        self.copy_button.setStyleSheet("""
+            QPushButton {
+                font-size: 24px;
+                background-color: transparent;
+                border: none;
+                padding: 10px;
+            }
+        """)
+        self.copy_button.setCursor(Qt.PointingHandCursor)
+        self.copy_button.setToolTip("Copy output to clipboard")
+        self.copy_button.clicked.connect(self.copy_to_clipboard)
 
-    def load_amass(self):
-        self._open_tab("Amass", AmassView)
+        layout.addWidget(self.output_text, 0, 0)
+        layout.addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
 
-    def load_subfinder(self):
-        self._open_tab("Subfinder", SubfinderView)
+    def appendPlainText(self, text):
+        self.output_text.appendPlainText(text)
 
-    def load_httpx(self):
-        self._open_tab("Httpx", HttpxView)
+    def appendHtml(self, html):
+        self.output_text.appendHtml(html)
 
-    def load_nmap(self):
-        self._open_tab("Nmap", NmapView)
+    def toPlainText(self):
+        return self.output_text.toPlainText()
 
-    def load_screenshot(self):
-        self._open_tab("Screenshot", ScreenshotView)
+    def clear(self):
+        self.output_text.clear()
+
+    def copy_to_clipboard(self):
+        QApplication.clipboard().setText(self.toPlainText())
+        if self.parent() and hasattr(self.parent(), '_notify'):
+            self.parent()._notify("Results copied to clipboard.")
+
+class BaseToolView(QWidget):
+    """A base view for tools, providing a consistent UI structure."""
+
+    def __init__(self, name, category, main_window=None):
+        super().__init__()
+        self.name = name
+        self.category = category
+        self.main_window = main_window
+        self.worker = None
+        self._build_base_ui()
+
+    def _build_base_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        splitter = QSplitter(Qt.Vertical)
+        main_layout.addWidget(splitter)
+
+        # --- Control Panel ---
+        control_panel = QWidget()
+        control_panel.setStyleSheet(TOOL_VIEW_STYLE)
+        control_layout = QVBoxLayout(control_panel)
+        control_layout.setContentsMargins(10, 10, 10, 10)
+        control_layout.setSpacing(10)
+
+        header = QLabel(f"{self.category.name.replace('_', ' ')}  ›  {self.name}")
+        header.setStyleSheet(TOOL_HEADER_STYLE)
+
+        target_label = QLabel("Target")
+        target_label.setStyleSheet(LABEL_STYLE)
+
+        # --- Target Input and Action Buttons ---
+        target_line_layout = QHBoxLayout()
+        self.target_input = TargetInput()
+        self.target_input.setStyleSheet(TARGET_INPUT_STYLE)
+        self.target_input.input_box.textChanged.connect(self.update_command)
+
+        self.run_button = QPushButton("RUN")
+        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
+        self.run_button.clicked.connect(self.run_scan)
+        self.stop_button = QPushButton("■")
+        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
+        self.stop_button.clicked.connect(self.stop_scan)
+        self.stop_button.setEnabled(False)
+
+        target_line_layout.addWidget(self.target_input)
+        target_line_layout.addWidget(self.run_button)
+        target_line_layout.addWidget(self.stop_button)
+
+        # --- Command Display ---
+        command_label = QLabel("Command")
+        command_label.setStyleSheet(LABEL_STYLE)
+        self.command_input = QLineEdit()
+        self.command_input.setStyleSheet(TARGET_INPUT_STYLE)
+
+        control_layout.addWidget(header)
+        control_layout.addWidget(target_label)
+        control_layout.addLayout(target_line_layout)
+        control_layout.addWidget(command_label)
+        control_layout.addWidget(self.command_input)
+        control_layout.addStretch()
+
+        # --- Output Area ---
+        self.output = OutputView()
+
+        splitter.addWidget(control_panel)
+        splitter.addWidget(self.output)
+        splitter.setSizes([250, 500])
+
+        self.update_command()
+
+    def update_command(self):
+        raise NotImplementedError("Subclasses must implement update_command.")
+
+    def run_scan(self):
+        raise NotImplementedError("Subclasses must implement run_scan.")
+
+    def stop_scan(self):
+        if self.worker:
+            self.worker.stop()
+
+    def _on_scan_completed(self):
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.worker = None
+        if self.main_window:
+            self.main_window.active_process = None
+
+    def _notify(self, message):
+        if self.main_window:
+            self.main_window.notification_manager.notify(message)
+
+    def _info(self, message):
+        self.output.appendHtml(f'<span style="color:#60A5FA;">[INFO]</span> {message}')
+
+    def _error(self, message):
+        self.output.appendHtml(f'<span style="color:#F87171;">[ERROR]</span> {message}')
+
+    def _section(self, title):
+        self.output.appendHtml(f'<br><span style="color:#FACC15;font-weight:700;">===== {title} =====</span><br>')

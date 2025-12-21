@@ -1,4 +1,4 @@
-# VAJRA/Engine/finaljson.py
+# VAJRA JSON Parser & Generator
 # Description: Parses raw tool outputs and assembles them into a structured final.json file.
 
 import os
@@ -30,7 +30,6 @@ class FinalJsonGenerator:
         if not os.path.exists(whois_file):
             return None
 
-        info("Parsing Whois data...")
         try:
             with open(whois_file, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
@@ -53,7 +52,6 @@ class FinalJsonGenerator:
             }
             return data
         except Exception as e:
-            error(f"Could not parse whois.txt: {e}")
             return None
 
     def parse_subdomains(self):
@@ -62,7 +60,6 @@ class FinalJsonGenerator:
         if not os.path.exists(subdomain_file):
             return None
         
-        info("Parsing live subdomain data...")
         try:
             with open(subdomain_file, 'r') as f:
                 subdomains = [line.strip() for line in f if line.strip()]
@@ -73,7 +70,6 @@ class FinalJsonGenerator:
             }
             return summary
         except Exception as e:
-            error(f"Could not parse alive.txt: {e}")
             return None
 
     def parse_services(self):
@@ -85,7 +81,6 @@ class FinalJsonGenerator:
         if not os.path.exists(services_file):
             return None
 
-        info("Parsing HTTPX service data...")
         services_data = []
         try:
             with open(services_file, 'r') as f:
@@ -126,7 +121,6 @@ class FinalJsonGenerator:
                         continue
             return services_data if services_data else None
         except Exception as e:
-            error(f"Could not parse alive.json: {e}")
             return None
 
     def parse_nmap(self):
@@ -135,7 +129,6 @@ class FinalJsonGenerator:
         if not nmap_file:
             return None
 
-        info(f"Parsing Nmap data from {os.path.basename(nmap_file)}...")
         try:
             tree = ET.parse(nmap_file)
             root = tree.getroot()
@@ -178,14 +171,12 @@ class FinalJsonGenerator:
             nmap_data["scan_summary"]["total_open_ports"] = total_open_ports
             return nmap_data if nmap_data["hosts"] else None
         except ET.ParseError as e:
-            error(f"Could not parse Nmap XML file: {e}")
             return None
 
     def generate(self):
         """
         Orchestrates the parsing of all log files and writes the final JSON.
         """
-        info("Assembling final JSON report...")
         
         whois_data = self.parse_whois()
         if whois_data:
@@ -213,10 +204,8 @@ class FinalJsonGenerator:
             output_path = os.path.join(self.json_dir, "final.json")
             with open(output_path, 'w') as f:
                 json.dump(self.final_data, f, indent=4)
-            info(f"Final JSON report saved to: {output_path}")
             return True
         except Exception as e:
-            error(f"Failed to write final.json: {e}")
             return False
 
     # --- Helper Methods ---

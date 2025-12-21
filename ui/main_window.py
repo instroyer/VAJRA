@@ -16,8 +16,8 @@ from modules.subfinder import SubfinderView
 from modules.httpx import HttpxView
 from modules.nmap import NmapView
 from modules.screenshot import ScreenshotView
-from ui.notifications.panel import NotificationPanel
-from ui.notifications.manager import NotificationManager
+from ui.notification import NotificationPanel, NotificationManager
+from ui.settingpanel import SettingsPanel
 
 
 class MainWindow(QMainWindow):
@@ -109,10 +109,25 @@ class MainWindow(QMainWindow):
             }
         """)
 
+        self.settings_btn = QPushButton("⚙️")
+        self.settings_btn.setFixedSize(32, 32)
+        self.settings_btn.setStyleSheet("""
+            QPushButton {
+                color: #9CA3AF;
+                background: transparent;
+                border: none;
+                font-size: 18px;
+            }
+            QPushButton:hover {
+                color: #E5E7EB;
+            }
+        """)
+
         top_layout.addWidget(toggle_btn)
         top_layout.addStretch()
         top_layout.addWidget(title_container)
         top_layout.addStretch()
+        top_layout.addWidget(self.settings_btn)
         top_layout.addWidget(self.notification_btn)
 
         root_layout.addWidget(top_bar)
@@ -150,6 +165,13 @@ class MainWindow(QMainWindow):
 
         self.notification_btn.clicked.connect(
             lambda: self.notification_panel.show_below(self.notification_btn)
+        )
+
+        # ===== SETTINGS =====
+        self.settings_panel = SettingsPanel(self)
+
+        self.settings_btn.clicked.connect(
+            lambda: self.settings_panel.show_below(self.settings_btn)
         )
 
         # ===== INITIAL VIEW =====

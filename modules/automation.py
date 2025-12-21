@@ -11,10 +11,10 @@ from PySide6.QtWidgets import (
     QFrame
 )
 
-from ui.widgets.target_input import TargetInput
-from core.target_parser import parse_targets
-from core.file_ops import create_target_dirs, get_group_name_from_file
-from core import report
+from core.tgtinput import TargetInput
+from core.tgtinput import parse_targets
+from core.fileops import create_target_dirs, get_group_name_from_file
+from core import reportgen as report
 
 
 class AutomationView(QWidget):
@@ -147,7 +147,7 @@ class AutomationView(QWidget):
             self._run_module("Nikto", ["nikto", "-h", target], base_dir)
 
             self._info("Generating report")
-            report.generate_report(base_dir)
+            report.generate_report(target, base_dir, "whois subfinder nmap nikto")
 
         self.run_button.setEnabled(True)
         self.skip_button.setEnabled(False)

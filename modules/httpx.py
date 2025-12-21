@@ -11,9 +11,10 @@ from PySide6.QtWidgets import (
     QFrame
 )
 
-from ui.widgets.target_input import TargetInput
-from core.target_parser import parse_targets
-from core.file_ops import create_target_dirs, get_group_name_from_file
+from core.tgtinput import TargetInput
+from ui.worker import ProcessWorker
+from core.tgtinput import parse_targets
+from core.fileops import create_target_dirs, get_group_name_from_file
 
 
 def run_httpx(target: str, output_dir: str) -> str:
@@ -57,6 +58,9 @@ class HttpxView(QWidget):
     def __init__(self, main_window=None):
         super().__init__()
         self.main_window = main_window
+        self.worker = None
+        self.log_file = None
+        self.all_output = []
         self._build_ui()
 
     # ================= UI =================
@@ -173,27 +177,87 @@ class HttpxView(QWidget):
         else:
             self._info(f"Target loaded: {targets[0]}")
 
-        last_base_dir = None
+        self.run_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
 
-        for target in targets:
-            self._info(f"Running HTTPX for: {target}")
-            self._section(f"HTTPX: {target}")
+        self.targets_queue = list(targets)
+        self.group_name = group_name
+        self._process_next_target()
 
-            base_dir = create_target_dirs(target, group_name=group_name)
-            last_base_dir = base_dir
+    def _process_next_target(self):
+        """Process targets one by one"""
+        if not self.targets_queue:
+            self.run_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self._notify("HTTPX scan completed")
+            return
 
-            try:
-                output = run_httpx(target, base_dir)
-                self.output.appendPlainText(output + "\n")
-            except RuntimeError as e:
-                self._error(str(e))
+        target = self.targets_queue.pop(0)
+        self._info(f"Running HTTPX for: {target}")
+        self._section(f"HTTPX: {target}")
 
-        if last_base_dir:
-            self._notify(f"HTTPX results saved under:\n{os.path.dirname(last_base_dir)}")
+        base_dir = create_target_dirs(target, group_name=self.group_name)
+        self.log_file = os.path.join(base_dir, "Logs", "httpx.txt")
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        self.all_output = []
+        self.last_base_dir = base_dir
+
+        try:
+            if target.startswith('@'):
+                input_file = target[1:]
+                command = f"cat {input_file} | httpx-toolkit -json"
+            else:
+                command = f"echo {target} | httpx-toolkit -json"
+
+            # Create and start worker thread
+            self.worker = ProcessWorker(command, shell=True)
+            self.worker.output_ready.connect(self._on_output)
+            self.worker.finished.connect(self._on_process_finished)
+            self.worker.error.connect(self._on_process_error)
+            self.worker.start()
+
+            if self.main_window:
+                self.main_window.active_process = self.worker
+        except Exception as e:
+            self._error(str(e))
+            self.run_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+
+    def _on_output(self, line):
+        """Handle output from worker thread"""
+        self.all_output.append(line + "\n")
+        self.output.appendPlainText(line)
+
+    def _on_process_finished(self):
+        """Handle process completion"""
+        if self.log_file:
+            with open(self.log_file, "w") as f:
+                f.writelines(self.all_output)
+
+        self.output.appendPlainText("\n")
+
+        # Process next target
+        if self.targets_queue:
+            self._process_next_target()
+        else:
+            self.run_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            if hasattr(self, 'last_base_dir'):
+                self._notify(f"HTTPX results saved under:\n{os.path.dirname(self.last_base_dir)}")
+
+    def _on_process_error(self, error):
+        """Handle process error"""
+        self._error(f"Process error: {error}")
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
 
     def stop_scan(self):
-        if self.main_window:
-            self.main_window.stop_active_process()
+        if self.worker:
+            self.worker.stop()
+            self.worker.wait()
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self._notify("HTTPX scan stopped")
 
     # ================= HELPERS =================
     def _info(self, message: str):

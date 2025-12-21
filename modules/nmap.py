@@ -12,9 +12,10 @@ from PySide6.QtWidgets import (
     QComboBox
 )
 
-from ui.widgets.target_input import TargetInput
-from core.target_parser import parse_targets
-from core.file_ops import create_target_dirs, get_group_name_from_file
+from core.tgtinput import TargetInput
+from ui.worker import ProcessWorker
+from core.tgtinput import parse_targets
+from core.fileops import create_target_dirs, get_group_name_from_file
 
 
 SCAN_TYPES = {
@@ -82,6 +83,9 @@ class NmapView(QWidget):
     def __init__(self, main_window=None):
         super().__init__()
         self.main_window = main_window
+        self.worker = None
+        self.log_file = None
+        self.all_output = []
         self.current_process = None
         self._build_ui()
 
@@ -118,7 +122,13 @@ class NmapView(QWidget):
                 font-size: 14px;
             }
         """)
+        layout.addWidget(self.target_input)
 
+        # Scan type selector (below target)
+        scan_type_layout = QHBoxLayout()
+        scan_type_label = QLabel("Scan Type:")
+        scan_type_label.setStyleSheet("color: #E5E7EB; font-weight: 600;")
+        
         self.scan_type_combo = QComboBox()
         self.scan_type_combo.addItems([
             SCAN_TYPES["quick"]["name"],
@@ -131,11 +141,21 @@ class NmapView(QWidget):
                 background-color: #020617;
                 color: #E5E7EB;
                 border: 1px solid #1E293B;
-                padding: 10px;
+                padding: 8px;
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: 13px;
             }
         """)
+        self.scan_type_combo.setMaximumWidth(350)
+        
+        scan_type_layout.addWidget(scan_type_label)
+        scan_type_layout.addWidget(self.scan_type_combo)
+        scan_type_layout.addStretch()
+        layout.addLayout(scan_type_layout)
+
+        # Control buttons
+        controls_buttons = QHBoxLayout()
+        controls_buttons.setSpacing(10)
 
         self.run_button = QPushButton("RUN")
         self.run_button.setFixedSize(90, 36)
@@ -169,11 +189,10 @@ class NmapView(QWidget):
         """)
         self.stop_button.clicked.connect(self.stop_scan)
 
-        controls.addWidget(self.target_input)
-        controls.addWidget(self.scan_type_combo)
-        controls.addWidget(self.run_button)
-        controls.addWidget(self.stop_button)
-        layout.addLayout(controls)
+        controls_buttons.addWidget(self.run_button)
+        controls_buttons.addWidget(self.stop_button)
+        controls_buttons.addStretch()
+        layout.addLayout(controls_buttons)
 
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
@@ -223,27 +242,81 @@ class NmapView(QWidget):
         scan_type_map = ["quick", "full", "fast", "udp"]
         scan_type = scan_type_map[scan_type_idx]
 
-        last_base_dir = None
+        self.run_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
 
-        for target in targets:
-            self._info(f"Running Nmap ({scan_type}) for: {target}")
-            self._section(f"NMAP: {target}")
+        self.targets_queue = list(targets)
+        self.group_name = group_name
+        self.scan_type = scan_type
+        self._process_next_target()
 
-            base_dir = create_target_dirs(target, group_name=group_name)
-            last_base_dir = base_dir
+    def _process_next_target(self):
+        """Process targets one by one"""
+        if not self.targets_queue:
+            self.run_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self._notify("Nmap scan completed")
+            return
 
-            try:
-                output = run_nmap(target, base_dir, scan_type)
-                self.output.appendPlainText(output + "\n")
-            except RuntimeError as e:
-                self._error(str(e))
+        target = self.targets_queue.pop(0)
+        self._info(f"Running Nmap ({self.scan_type}) for: {target}")
+        self._section(f"NMAP: {target}")
 
-        if last_base_dir:
-            self._notify(f"Nmap results saved under:\n{os.path.dirname(last_base_dir)}")
+        base_dir = create_target_dirs(target, group_name=self.group_name)
+        logs_dir = os.path.join(base_dir, "Logs")
+        os.makedirs(logs_dir, exist_ok=True)
+
+        scan_config = SCAN_TYPES[self.scan_type]
+        txt_file, xml_file = scan_config["files"]
+        txt_path = os.path.join(logs_dir, txt_file)
+        xml_path = os.path.join(logs_dir, xml_file)
+
+        self.all_output = []
+        self.last_base_dir = base_dir
+
+        cmd = ["nmap", target] + scan_config["args"] + ["-oN", txt_path, "-oX", xml_path]
+
+        # Create and start worker thread
+        self.worker = ProcessWorker(cmd)
+        self.worker.output_ready.connect(self._on_output)
+        self.worker.finished.connect(self._on_process_finished)
+        self.worker.error.connect(self._on_process_error)
+        self.worker.start()
+
+        if self.main_window:
+            self.main_window.active_process = self.worker
+
+    def _on_output(self, line):
+        """Handle output from worker thread"""
+        self.all_output.append(line + "\n")
+        self.output.appendPlainText(line)
+
+    def _on_process_finished(self):
+        """Handle process completion"""
+        self.output.appendPlainText("\n")
+
+        # Process next target
+        if self.targets_queue:
+            self._process_next_target()
+        else:
+            self.run_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            if hasattr(self, 'last_base_dir'):
+                self._notify(f"Nmap results saved under:\n{os.path.dirname(self.last_base_dir)}")
+
+    def _on_process_error(self, error):
+        """Handle process error"""
+        self._error(f"Process error: {error}")
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
 
     def stop_scan(self):
-        if self.main_window:
-            self.main_window.stop_active_process()
+        if self.worker:
+            self.worker.stop()
+            self.worker.wait()
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self._notify("Nmap scan stopped")
 
     # ================= HELPERS =================
     def _info(self, message: str):

@@ -1,9 +1,9 @@
-# VAJRA/Engine/report.py
+# VAJRA HTML Report Generator
 # Description: Generates the final, fully-styled HTML report from the structured final.json file.
 
 import os
 import json
-from .finaljson import FinalJsonGenerator
+from core.jsonparser import FinalJsonGenerator
 
 class ReportGenerator:
     """
@@ -20,15 +20,12 @@ class ReportGenerator:
     def load_data(self):
         """Loads the data from final.json."""
         if not os.path.exists(self.json_file):
-            error(f"JSON file not found: {self.json_file}")
             return False
         try:
             with open(self.json_file, 'r') as f:
                 self.data = json.load(f)
-            success("Successfully loaded data from final.json.")
             return True
         except (json.JSONDecodeError, IOError) as e:
-            error(f"Could not read or parse {self.json_file}: {e}")
             return False
 
     def generate_html(self):
@@ -67,7 +64,6 @@ class ReportGenerator:
     def save_report(self, html_content):
         """Saves the generated HTML to a file."""
         if not html_content:
-            error("Cannot save report, HTML content is empty.")
             return False
         
         try:
@@ -79,10 +75,8 @@ class ReportGenerator:
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
             
-            success(f"HTML report saved to: {report_path}")
             return True
         except IOError as e:
-            error(f"Failed to write HTML report: {e}")
             return False
 
     # --- METHODS TO GENERATE DYNAMIC HTML SECTIONS ---
@@ -467,7 +461,6 @@ class ReportGenerator:
 </body>
 </html>
         """
-        # --- CHANGE END ---
 
 def generate_report(target, target_dir, module_choices):
     """
@@ -475,7 +468,6 @@ def generate_report(target, target_dir, module_choices):
     """
     json_gen = FinalJsonGenerator(target, target_dir)
     if not json_gen.generate():
-        error("Could not generate final.json. Aborting report generation.")
         return False
         
     report_gen = ReportGenerator(target, target_dir, module_choices)

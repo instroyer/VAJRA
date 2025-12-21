@@ -1,3 +1,8 @@
+"""
+VAJRA File Operations Utility
+Directory and file handling for scan results
+"""
+
 import os
 from datetime import datetime
 

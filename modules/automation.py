@@ -2,235 +2,311 @@
 import os
 import subprocess
 import threading
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QCheckBox
 from PySide6.QtCore import Signal, QObject
-from ui.main_window import BaseToolView
-from core.tgtinput import parse_targets
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QPlainTextEdit,
+    QFrame,
+    QGroupBox,
+)
+from modules.bases import ToolBase, ToolCategory
+from core.tgtinput import TargetInput, parse_targets
 from core.fileops import create_target_dirs, get_group_name_from_file
 from core import reportgen as report
-from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
-    COLOR_SUCCESS, COLOR_WARNING, COLOR_ERROR, COLOR_INFO,
-    COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY
+    OUTPUT_TEXT_EDIT_STYLE,
+    RUN_BUTTON_STYLE,
+    STOP_BUTTON_STYLE,
+    DIVIDER_STYLE,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    COLOR_ERROR,
+    COLOR_INFO,
 )
 
-class PipelineCommunicator(QObject):
-    module_started = Signal(str)
-    module_finished = Signal(str, str)
-    pipeline_finished = Signal(str)
-    log_message = Signal(str)
-    info_message = Signal(str)
-    error_message = Signal(str)
-    section_message = Signal(str)
 
-class AutomationView(BaseToolView):
-    def __init__(self, name, category, main_window=None):
-        super().__init__(name, category, main_window)
-        self.pipeline_thread = None
-        self.is_running = False
-        
-        self.modules = {
-            "Whois": {"status": "Queued"},
-            "Subfinder": {"status": "Queued"},
-            "Amass": {"status": "Queued"},
-            "Nmap": {"status": "Queued"},
-        }
+class Status:
+    PENDING = "Pending"
+    RUNNING = "Running"
+    COMPLETED = "Completed"
+    SKIPPED = "Skipped"
+    ERROR = "Error"
+    TERMINATED = "Terminated"
 
-        self.communicator = PipelineCommunicator()
-        self._extend_ui()
-        self._connect_signals()
 
-    def _extend_ui(self):
-        # Modify the base UI for this specific tool
-        self.command_input.setParent(None) # Remove command input
+class AutomationWorker(QObject):
+    status_update = Signal(str, str)
+    output = Signal(str)
+    finished = Signal()
+    error = Signal(str)
 
-        # Modules Status
-        self.modules_group = QGroupBox("Pipeline Modules")
-        self.modules_layout = QVBoxLayout(self.modules_group)
-        self.modules_group.setStyleSheet("QGroupBox { font-weight: bold; }")
-        self._update_modules_display()
-
-        # Options
-        options_group = QGroupBox("Options")
-        options_layout = QVBoxLayout(options_group)
-        options_group.setStyleSheet("QGroupBox { font-weight: bold; } ")
-        self.report_checkbox = QCheckBox("Generate HTML Report")
-        self.report_checkbox.setChecked(True)
-        self.report_checkbox.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}")
-        options_layout.addWidget(self.report_checkbox)
-
-        # Add new widgets to the control panel
-        control_layout = self.findChild(QVBoxLayout)
-        if control_layout:
-            control_layout.insertWidget(4, self.modules_group)
-            control_layout.insertWidget(5, options_group)
-
-    def _connect_signals(self):
-        self.run_button.clicked.connect(self.run_scan) # Base class connects this already
-        self.stop_button.clicked.connect(self.stop_scan) # Base class connects this
-
-        self.communicator.module_started.connect(lambda name: self.update_module_status(name, "Running"))
-        self.communicator.module_finished.connect(self.update_module_status)
-        self.communicator.pipeline_finished.connect(self.on_pipeline_finished)
-        self.communicator.log_message.connect(self.output.appendPlainText)
-        self.communicator.info_message.connect(self._info)
-        self.communicator.error_message.connect(self._error)
-        self.communicator.section_message.connect(self._section)
-
-    def update_command(self):
-        # Not needed for this tool as it runs a fixed pipeline
-        pass
-        
-    def run_scan(self): # Overrides BaseToolView.run_scan
-        raw_input = self.target_input.get_target()
-        targets, source = parse_targets(raw_input)
-
-        if not targets:
-            self._notify("No valid targets found. Please enter a target.")
-            return
-
+    def __init__(self, target, base_dir, main_window):
+        super().__init__()
+        self.target = target
+        self.base_dir = base_dir
+        self.main_window = main_window
+        self.current_process = None
         self.is_running = True
-        self.run_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-        self.target_input.set_enabled(False)
-        self.output.clear()
-        self.reset_module_statuses()
+        self.is_skipping = False
 
-        group_name = get_group_name_from_file(raw_input) if source == "file" else None
-        
-        self.pipeline_thread = threading.Thread(
-            target=self._pipeline_worker, 
-            args=(targets, group_name)
-        )
-        self.pipeline_thread.start()
+    def run(self):
+        """Executes the entire, sequential pipeline."""
+        pipeline = [
+            {"key": "whois", "name": "Whois", "func": self._run_whois},
+            {"key": "subfinder", "name": "Subfinder", "func": self._run_subfinder},
+            {"key": "amass", "name": "Amass", "func": self._run_amass},
+            {"key": "httpx", "name": "HTTPX", "func": self._run_httpx},
+            {"key": "nmap", "name": "Nmap", "func": self._run_nmap},
+            {"key": "report", "name": "Report Generation", "func": self._run_reportgen},
+        ]
 
-    def stop_scan(self): # Overrides BaseToolView.stop_scan
-        if self.is_running:
-            self.is_running = False
-            if self.main_window:
-                self.main_window.stop_active_process()
-            self.communicator.pipeline_finished.emit("Stopped by user.")
-        super().stop_scan()
+        modules_run_for_report = []
 
-    def on_pipeline_finished(self, message):
+        for step in pipeline:
+            if not self.is_running:
+                break
+
+            self.is_skipping = False
+            self.status_update.emit(step["key"], Status.RUNNING)
+
+            success = step["func"]()
+
+            if self.is_skipping:
+                self.status_update.emit(step["key"], Status.SKIPPED)
+                self.output.emit(f'<span style="color:#F59E0B;">[SKIP]</span> {step["name"]} was skipped.<br>')
+            elif not self.is_running:
+                self.status_update.emit(step["key"], Status.TERMINATED)
+                self.output.emit(f'<span style="color:{COLOR_ERROR}; font-weight:700;">[TERMINATED]</span> {step["name"]} was terminated.<br>')
+                break
+            elif success:
+                self.status_update.emit(step["key"], Status.COMPLETED)
+                modules_run_for_report.append(step["key"])
+            else:
+                self.status_update.emit(step["key"], Status.ERROR)
+
+        if "report" in modules_run_for_report:
+            report.generate_report(self.target, self.base_dir, " ".join(m for m in modules_run_for_report if m != 'report'))
+
+        self.finished.emit()
+
+    def stop(self):
         self.is_running = False
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.target_input.set_enabled(True)
-        self._info(f"Pipeline finished: {message}")
-        self._notify(f"Automation finished: {message}")
+        if self.current_process and self.current_process.poll() is None:
+            self.current_process.kill()
 
-    def _pipeline_worker(self, targets, group_name):
-        num_targets = len(targets)
-        for i, target in enumerate(targets):
-            if not self.is_running: break
+    def skip(self):
+        self.is_skipping = True
+        if self.current_process and self.current_process.poll() is None:
+            self.current_process.kill()
 
-            self.communicator.section_message.emit(f"STARTING TARGET {i+1}/{num_targets}: {target}")
-            base_dir = create_target_dirs(target, group_name)
-
-            self._run_module("Whois", ["whois", target], base_dir)
-            self._run_module("Subfinder", ["subfinder", "-d", target, "-silent"], base_dir)
-            self._run_module("Amass", ["amass", "enum", "-d", target], base_dir)
-            self._run_module("Nmap", ["nmap", "-sV", "-T4", target], base_dir)
-
-            if self.is_running and self.report_checkbox.isChecked():
-                self.communicator.info_message.emit("Generating report...")
-                try:
-                    report.generate_report(target, base_dir, "whois subfinder amass nmap")
-                    self.communicator.info_message.emit(f"Successfully generated report for {target}")
-                except Exception as e:
-                    self.communicator.error_message.emit(f"Report generation failed: {e}")
-
-        if self.is_running:
-            self.communicator.pipeline_finished.emit("Completed successfully.")
-
-    def _run_module(self, name, cmd, base_dir):
-        if not self.is_running: return
-
-        self.communicator.module_started.emit(name)
-        self.communicator.info_message.emit(f"Running {name}...")
-
-        log_dir = os.path.join(base_dir, "Logs")
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, f"{name.lower()}.txt")
+    def _execute_command(self, cmd, log_file, shell=False):
+        log_path = os.path.join(self.base_dir, "Logs", log_file)
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
         try:
-            process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, preexec_fn=os.setsid
+            self.current_process = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, shell=shell, bufsize=1, universal_newlines=True
             )
-            if self.main_window: self.main_window.active_process = process
-            
-            with open(log_file, 'w') as f:
-                for line in iter(process.stdout.readline, ''):
-                    if not self.is_running:
-                        # Using os.killpg and signal.SIGTERM for graceful process group termination
-                        import signal
-                        try:
-                            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                        except ProcessLookupError:
-                            pass # Process already finished
+            with open(log_path, "w") as f:
+                for line in iter(self.current_process.stdout.readline, ""):
+                    if not self.is_running or self.is_skipping:
                         break
-                    self.communicator.log_message.emit(line.strip())
+                    self.output.emit(line)
                     f.write(line)
-            
-            process.wait()
-
-            if self.is_running:
-                self.communicator.module_finished.emit(name, "Completed")
-            else:
-                self.communicator.module_finished.emit(name, "Skipped")
-
+            self.current_process.wait()
+            return self.current_process.returncode == 0
         except FileNotFoundError:
-            self.communicator.error_message.emit(f"{name} not found. Is it installed and in your PATH?")
-            self.communicator.module_finished.emit(name, "Failed")
+            self.error.emit(f"Command not found: {cmd[0]}. Is it in your PATH?")
+            return False
         except Exception as e:
-            self.communicator.error_message.emit(f"An exception occurred with {name}: {e}")
-            self.communicator.module_finished.emit(name, "Failed")
+            self.error.emit(f"Error executing {' '.join(cmd)}: {e}")
+            return False
         finally:
-            if self.main_window: self.main_window.active_process = None
+            self.current_process = None
 
-    def _update_modules_display(self):
-        # Clear previous labels
-        while self.modules_layout.count():
-            child = self.modules_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+    def _run_whois(self):
+        return self._execute_command(["whois", self.target], "whois.txt")
 
-        for name, data in self.modules.items():
-            status = data["status"]
-            status_label = QLabel(f"<b>{name}</b>: {status}")
-            color = {
-                "Queued": COLOR_TEXT_SECONDARY,
-                "Running": COLOR_INFO,
-                "Completed": COLOR_SUCCESS,
-                "Skipped": COLOR_WARNING,
-                "Failed": COLOR_ERROR
-            }.get(status, COLOR_TEXT_PRIMARY)
-            status_label.setStyleSheet(f"color: {color}; margin: 2px 0;")
-            self.modules_layout.addWidget(status_label)
-    
-    def update_module_status(self, name, status):
-        if name in self.modules:
-            self.modules[name]["status"] = status
-            self._update_modules_display()
+    def _run_subfinder(self):
+        sub_log = os.path.join(self.base_dir, "Subdomains", "subfinder.txt")
+        return self._execute_command(["subfinder", "-d", self.target, "-o", sub_log, "-silent"], "subfinder.out")
 
-    def reset_module_statuses(self):
-        for name in self.modules:
-            self.modules[name]["status"] = "Queued"
-        self._update_modules_display()
+    def _run_amass(self):
+        amass_log = os.path.join(self.base_dir, "Subdomains", "amass.txt")
+        return self._execute_command(["amass", "enum", "-d", self.target, "-o", amass_log], "amass.out")
 
-    def closeEvent(self, event):
-        self.stop_scan()
-        super().closeEvent(event)
+    def _run_httpx(self):
+        self.output.emit(f'<span style="color:{COLOR_INFO};">[INFO]</span> Merging subdomains for HTTPX scan...<br>')
+        sub_dir = os.path.join(self.base_dir, "Subdomains")
+        all_subs = set()
+        for f in os.listdir(sub_dir):
+            if f.endswith(".txt"):
+                with open(os.path.join(sub_dir, f), 'r') as reader:
+                    all_subs.update(line.strip() for line in reader)
 
-class AutomationTool(ToolBase):
+        merged_file = os.path.join(sub_dir, "merged_subdomains.txt")
+        with open(merged_file, 'w') as writer:
+            for sub in sorted(list(all_subs)):
+                writer.write(f"{sub}\n")
+
+        self.output.emit(f'<span style="color:{COLOR_INFO};">[INFO]</span> Found {len(all_subs)} unique subdomains.<br>')
+
+        httpx_out = os.path.join(self.base_dir, "Probed", "httpx_probed.txt")
+        return self._execute_command(["httpx-toolkit", "-l", merged_file, "-o", httpx_out, "-silent"], "httpx.out")
+
+    def _run_nmap(self):
+        probed_file = os.path.join(self.base_dir, "Probed", "httpx_probed.txt")
+        if not os.path.exists(probed_file) or os.path.getsize(probed_file) == 0:
+            self.error.emit("Cannot run Nmap, no live hosts from HTTPX.")
+            return False
+
+        nmap_out = os.path.join(self.base_dir, "Scans", "nmap_scan.xml")
+        return self._execute_command(["nmap", "-iL", probed_file, "-T4", "-A", "-oX", nmap_out], "nmap.out")
+
+    def _run_reportgen(self):
+        self.output.emit(f'<span style="color:{COLOR_INFO};">[INFO]</span> Final report will be generated shortly...<br>')
+        return True
+
+class Automation(ToolBase):
     @property
-    def name(self) -> str:
-        return "Automation"
-
+    def name(self) -> str: return "Automation"
     @property
-    def category(self) -> ToolCategory:
-        return ToolCategory.AUTOMATION
-
+    def category(self) -> ToolCategory: return ToolCategory.AUTOMATION
     def get_widget(self, main_window: QWidget) -> QWidget:
-        return AutomationView(self.name, self.category, main_window=main_window)
+        return AutomationView(main_window=main_window)
+
+class AutomationView(QWidget):
+    def __init__(self, main_window=None):
+        super().__init__()
+        self.main_window = main_window
+        self.worker = None
+        self.worker_thread = None
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+
+        controls = QHBoxLayout()
+        self.target_input = TargetInput()
+        controls.addWidget(self.target_input)
+
+        self.run_button = QPushButton("RUN")
+        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
+        self.run_button.setFixedSize(90, 36)
+        self.run_button.clicked.connect(self.run_pipeline)
+        controls.addWidget(self.run_button)
+
+        self.skip_button = QPushButton("SKIP")
+        self.skip_button.setEnabled(False)
+        self.skip_button.setFixedSize(70, 36)
+        self.skip_button.setStyleSheet('''
+            QPushButton {
+                background-color: #F59E0B; color: black; font-weight: 700; border-radius: 6px;
+            }
+            QPushButton:disabled {
+                background-color: #374151; color: #9CA3AF;
+            }
+        ''')
+        self.skip_button.clicked.connect(self.skip_step)
+        controls.addWidget(self.skip_button)
+
+        self.stop_button = QPushButton("■")
+        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
+        self.stop_button.setFixedSize(44, 36)
+        self.stop_button.clicked.connect(self.stop_pipeline)
+        self.stop_button.setEnabled(False)
+        controls.addWidget(self.stop_button)
+
+        layout.addLayout(controls)
+
+        status_group = QGroupBox("Live Execution Status")
+        status_layout = QVBoxLayout(); status_layout.setSpacing(8)
+        self.status_labels = {}
+        modules = [("whois", "Whois"), ("subfinder", "Subfinder"), ("amass", "Amass"), ("httpx", "HTTPX"), ("nmap", "Nmap"), ("report", "Report Generation")]
+        for key, name in modules:
+            row = QHBoxLayout()
+            name_label = QLabel(f"{name}:"); name_label.setFixedWidth(150)
+            status_label = QLabel(Status.PENDING)
+            self.status_labels[key] = status_label
+            row.addWidget(name_label); row.addWidget(status_label); row.addStretch()
+            status_layout.addLayout(row)
+        status_group.setLayout(status_layout)
+        layout.addWidget(status_group)
+
+        divider = QFrame(); divider.setFrameShape(QFrame.HLine); divider.setStyleSheet(DIVIDER_STYLE)
+        layout.addWidget(divider)
+
+        results_group = QGroupBox("Results")
+        results_layout = QVBoxLayout()
+        self.output = QPlainTextEdit()
+        self.output.setReadOnly(True)
+        self.output.setStyleSheet(OUTPUT_TEXT_EDIT_STYLE)
+        self.output.setPlaceholderText("Pipeline output will appear here...")
+        results_layout.addWidget(self.output)
+        results_group.setLayout(results_layout)
+        layout.addWidget(results_group)
+
+    def run_pipeline(self):
+        raw_input = self.target_input.get_target()
+        targets, source = parse_targets(raw_input)
+        if not targets: self._notify("No valid target specified."); return
+
+        self.output.clear()
+        for key in self.status_labels: self.update_status(key, Status.PENDING)
+
+        self.run_button.setEnabled(False); self.skip_button.setEnabled(True); self.stop_button.setEnabled(True)
+
+        target = targets[0]
+        group_name = get_group_name_from_file(raw_input) if source == "file" else None
+        base_dir = create_target_dirs(target, group_name)
+
+        self.worker = AutomationWorker(target, base_dir, self.main_window)
+        self.worker_thread = threading.Thread(target=self.worker.run)
+        self.worker.status_update.connect(self.update_status)
+        self.worker.output.connect(self.append_output)
+        self.worker.error.connect(self.show_error)
+        self.worker.finished.connect(self.on_pipeline_finished)
+        self.worker_thread.start()
+
+    def skip_step(self):
+        if self.worker: self.worker.skip()
+
+    def stop_pipeline(self):
+        self.run_button.setEnabled(True); self.skip_button.setEnabled(False); self.stop_button.setEnabled(False)
+        if self.worker: self.worker.stop()
+        self._notify("Pipeline stop requested.")
+
+    def on_pipeline_finished(self):
+        self.run_button.setEnabled(True); self.skip_button.setEnabled(False); self.stop_button.setEnabled(False)
+        self.worker_thread = None; self.worker = None
+        self._notify("Automation pipeline has finished.")
+
+    def update_status(self, key, status):
+        label = self.status_labels.get(key)
+        if not label: return
+        label.setText(status)
+        color = {
+            Status.PENDING: "#9CA3AF",
+            Status.RUNNING: "#3B82F6",
+            Status.COMPLETED: COLOR_SUCCESS,
+            Status.SKIPPED: COLOR_WARNING,
+            Status.ERROR: COLOR_ERROR,
+            Status.TERMINATED: COLOR_ERROR
+        }.get(status, "#E5E7EB")
+        label.setStyleSheet(f"color: {color}; font-weight: 700;")
+
+    def append_output(self, text):
+        self.output.appendHtml(text.strip().replace("\n", "<br>"))
+        self.output.verticalScrollBar().setValue(self.output.verticalScrollBar().maximum())
+
+    def show_error(self, msg):
+        self.output.appendHtml(f'<span style="color:{COLOR_ERROR}; font-weight:700;">[ERROR]</span> {msg}<br>')
+
+    def _notify(self, msg):
+        if self.main_window: self.main_window.notification_manager.notify(msg)

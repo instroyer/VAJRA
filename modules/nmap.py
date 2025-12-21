@@ -1,142 +1,263 @@
-# VAJRA/Modules/nmap.py
-# Nmap module execution with integrated submenu and auto mode support
-
-import subprocess
 import os
-import sys
+import subprocess
 
-# Add the parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QPlainTextEdit,
+    QFrame,
+    QComboBox
+)
 
-from Engine.logger import info, error, success
-from Engine.input_utils import get_input, clear_input_buffer
-from Engine.report import generate_report
+from ui.widgets.target_input import TargetInput
+from core.target_parser import parse_targets
+from core.file_ops import create_target_dirs, get_group_name_from_file
 
-def nmap_submenu(input_func=None):
-    """
-    Display the Nmap scan technique submenu.
-    Accepts an optional input function (input_func) to collect input; if not provided,
-    falls back to Engine.input_utils.get_input. Returns the chosen technique and report preference.
-    """
 
-    # choose prompt function
-    prompt = input_func if input_func is not None else get_input
-
-    nmap_menu = """
-    | Nmap Scan Techniques:
-    |---|
-    [1] Quick Scan (Top 1000 ports) (Default)
-    [2] Full Port Scan (1-65535)
-    [3] Fast Scan (-A)
-    [4] UDP Scan (Top 100 UDP ports)
-    """
-
-    print(nmap_menu)
-
-   
-    try:
-        clear_input_buffer()
-    except:
-        pass
-
-    while True:
-        try:
-            choice = prompt("Choose scan type (1-4) [1] > ").strip()
-
-            if not choice:
-                scan_type = 'quick'
-            elif choice in ['1', '2', '3', '4']:
-                techniques = {'1': 'quick', '2': 'full', '3': 'fast', '4': 'udp'}
-                scan_type = techniques[choice]
-            else:
-                error("Invalid choice. Please select 1-4.")
-                continue
-
-            report_choice = prompt("Do you want to generate a report? (y/n) > ").strip().lower()
-            if not report_choice:
-                generate_report_flag = False
-            else:
-                generate_report_flag = (report_choice == 'y')
-            return scan_type, generate_report_flag
-
-        except KeyboardInterrupt:
-            return 'quick', False  # Default on interrupt
-
-def _ensure_logs_dir(output_dir):
-    """Ensures the Logs subdirectory exists."""
-    logs_dir = os.path.join(output_dir, "Logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    return logs_dir
-
-def run(target, output_dir, runtime_control=None, is_auto_mode=False):
-    """Run the nmap tool on the target.
-    
-    Args:
-        target: The target to scan
-        output_dir: Directory to save results  
-        runtime_control: Runtime control object (optional)
-        is_auto_mode: If True, use default settings without prompting (for 'Run All')
-    """
-    info("--- Starting module: Nmap ---")
-
-    if is_auto_mode:
-        info("Auto mode: Using default Quick Scan (Option 1)")
-        scan_type = 'quick'
-        nmap_report_enabled = False
-    else:
-        scan_type, nmap_report_enabled = nmap_submenu()
-
-    logs_dir = _ensure_logs_dir(output_dir)
-
-    out_paths = {
-        'quick': (os.path.join(logs_dir, "nmap_top1000.txt"), os.path.join(logs_dir, "nmap_top1000.xml")),
-        'full': (os.path.join(logs_dir, "nmap_full.txt"), os.path.join(logs_dir, "nmap_full.xml")),
-        'fast': (os.path.join(logs_dir, "nmap_fastA.txt"), os.path.join(logs_dir, "nmap_fastA.xml")),
-        'udp': (os.path.join(logs_dir, "nmap_udp.txt"), os.path.join(logs_dir, "nmap_udp.xml"))
+SCAN_TYPES = {
+    "quick": {
+        "name": "Quick Scan (Top 1000 ports)",
+        "args": ["-T4", "--top-ports", "1000", "-sS", "-sV", "-O"],
+        "files": ("nmap_top1000.txt", "nmap_top1000.xml")
+    },
+    "full": {
+        "name": "Full Port Scan (1-65535)",
+        "args": ["-T4", "-p-", "-sS", "-sV", "-O"],
+        "files": ("nmap_full.txt", "nmap_full.xml")
+    },
+    "fast": {
+        "name": "Fast Scan (-A)",
+        "args": ["-T4", "-A"],
+        "files": ("nmap_fastA.txt", "nmap_fastA.xml")
+    },
+    "udp": {
+        "name": "UDP Scan (Top 100 UDP ports)",
+        "args": ["-T4", "-sU", "--top-ports", "100"],
+        "files": ("nmap_udp.txt", "nmap_udp.xml")
     }
+}
 
-    commands = {
-        'quick': ["nmap", target, "-T4", "--top-ports", "1000", "-sS", "-sV", "-O"],
-        'full': ["nmap", target, "-T4", "-p-", "-sS", "-sV", "-O"],
-        'fast': ["nmap", target, "-T4", "-A"],
-        'udp': ["nmap", target, "-T4", "-sU", "--top-ports", "100"]
-    }
 
-    if scan_type not in commands:
-        error(f"Invalid scan type: {scan_type}")
-        return
-    
-    command = commands.get(scan_type)
-    out_n, out_x = out_paths.get(scan_type)
+def run_nmap(target: str, output_dir: str, scan_type: str = "quick") -> str:
+    """
+    Run nmap scan on the target.
+    Returns the output as string.
+    """
+    if not target:
+        raise ValueError("Target is empty")
 
-    command.extend(["-oN", out_n, "-oX", out_x])
+    if scan_type not in SCAN_TYPES:
+        scan_type = "quick"
 
     try:
-        info(f"Running: {' '.join(command)}")
-        
-        result = subprocess.run(command, capture_output=True, text=True)
+        logs_dir = os.path.join(output_dir, "Logs")
+        os.makedirs(logs_dir, exist_ok=True)
 
-        if result.returncode == 0:
-            info(f"Nmap {scan_type} scan completed.")
-            info(f"Output: {out_n}")
+        scan_config = SCAN_TYPES[scan_type]
+        txt_file, xml_file = scan_config["files"]
+        txt_path = os.path.join(logs_dir, txt_file)
+        xml_path = os.path.join(logs_dir, xml_file)
 
-            if nmap_report_enabled:
-                info("Generating HTML report...")
-                # We pass "5" because that's the module choice for Nmap from the main menu
-                if generate_report(target, output_dir, "5"):
-                    success("HTML report generation successful.")
-                else:
-                    error("Failed to generate HTML report.")
-            else:
-                info("Nmap scan completed without report generation.")
+        cmd = ["nmap", target] + scan_config["args"] + ["-oN", txt_path, "-oX", xml_path]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode == 0 and os.path.exists(txt_path):
+            with open(txt_path, 'r') as f:
+                return f.read()
         else:
-            error(f"Nmap failed with return code {result.returncode}: {result.stderr.strip()}")
-
-    except FileNotFoundError:
-        error("Nmap command not found. Please ensure Nmap is installed and in your system's PATH.")
-    except subprocess.CalledProcessError as e:
-        error(f"Nmap failed: {e.stderr.strip()}")
+            raise RuntimeError(f"Nmap failed: {result.stderr}")
     except Exception as e:
-        error(f"An error occurred while executing nmap: {e}")
+        raise RuntimeError(str(e))
 
-    success("Module Nmap completed successfully.")
+
+class NmapView(QWidget):
+    """
+    Port scanning via Nmap.
+    """
+
+    def __init__(self, main_window=None):
+        super().__init__()
+        self.main_window = main_window
+        self.current_process = None
+        self._build_ui()
+
+    # ================= UI =================
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+
+        header = QLabel("RECON  ›  Nmap")
+        header.setStyleSheet("""
+            QLabel {
+                background-color: #0F172A;
+                color: #93C5FD;
+                font-size: 18px;
+                font-weight: 700;
+                padding: 12px;
+                border-radius: 8px;
+            }
+        """)
+        layout.addWidget(header)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(10)
+
+        self.target_input = TargetInput()
+        self.target_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #020617;
+                color: #E5E7EB;
+                border: 1px solid #1E293B;
+                padding: 10px;
+                border-radius: 6px;
+                font-size: 14px;
+            }
+        """)
+
+        self.scan_type_combo = QComboBox()
+        self.scan_type_combo.addItems([
+            SCAN_TYPES["quick"]["name"],
+            SCAN_TYPES["full"]["name"],
+            SCAN_TYPES["fast"]["name"],
+            SCAN_TYPES["udp"]["name"]
+        ])
+        self.scan_type_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #020617;
+                color: #E5E7EB;
+                border: 1px solid #1E293B;
+                padding: 10px;
+                border-radius: 6px;
+                font-size: 14px;
+            }
+        """)
+
+        self.run_button = QPushButton("RUN")
+        self.run_button.setFixedSize(90, 36)
+        self.run_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2563EB;
+                color: white;
+                font-weight: 600;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #1D4ED8;
+            }
+        """)
+        self.run_button.clicked.connect(self.run_scan)
+
+        self.stop_button = QPushButton("■")
+        self.stop_button.setFixedSize(44, 36)
+        self.stop_button.setToolTip("Stop Nmap execution")
+        self.stop_button.setStyleSheet("""
+            QPushButton {
+                background-color: #DC2626;
+                color: white;
+                font-size: 16px;
+                font-weight: 900;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #B91C1C;
+            }
+        """)
+        self.stop_button.clicked.connect(self.stop_scan)
+
+        controls.addWidget(self.target_input)
+        controls.addWidget(self.scan_type_combo)
+        controls.addWidget(self.run_button)
+        controls.addWidget(self.stop_button)
+        layout.addLayout(controls)
+
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setStyleSheet("color: #1E293B;")
+        layout.addWidget(divider)
+
+        self.output = QPlainTextEdit()
+        self.output.setReadOnly(True)
+        self.output.setMinimumHeight(420)
+        self.output.setStyleSheet("""
+            QPlainTextEdit {
+                background-color: #020617;
+                color: #E5E7EB;
+                border: 1px solid #1E293B;
+                border-radius: 8px;
+                padding: 12px;
+                font-family: Consolas, monospace;
+                font-size: 13px;
+            }
+        """)
+        self.output.setPlaceholderText("Nmap results will appear here...")
+        layout.addWidget(self.output)
+
+    # ================= LOGIC =================
+    def run_scan(self):
+        raw_input = self.target_input.get_target()
+
+        if not raw_input:
+            self._notify("Please enter a target or select a file")
+            return
+
+        targets, source = parse_targets(raw_input)
+
+        if not targets:
+            self._notify("No valid targets found")
+            return
+
+        group_name = None
+        if source == "file":
+            group_name = get_group_name_from_file(raw_input)
+            self._info(f"Loaded {len(targets)} targets from file: {group_name}.txt")
+        else:
+            self._info(f"Target loaded: {targets[0]}")
+
+        # Get selected scan type
+        scan_type_idx = self.scan_type_combo.currentIndex()
+        scan_type_map = ["quick", "full", "fast", "udp"]
+        scan_type = scan_type_map[scan_type_idx]
+
+        last_base_dir = None
+
+        for target in targets:
+            self._info(f"Running Nmap ({scan_type}) for: {target}")
+            self._section(f"NMAP: {target}")
+
+            base_dir = create_target_dirs(target, group_name=group_name)
+            last_base_dir = base_dir
+
+            try:
+                output = run_nmap(target, base_dir, scan_type)
+                self.output.appendPlainText(output + "\n")
+            except RuntimeError as e:
+                self._error(str(e))
+
+        if last_base_dir:
+            self._notify(f"Nmap results saved under:\n{os.path.dirname(last_base_dir)}")
+
+    def stop_scan(self):
+        if self.main_window:
+            self.main_window.stop_active_process()
+
+    # ================= HELPERS =================
+    def _info(self, message: str):
+        self.output.appendHtml(f'<span style="color:#60A5FA;">[INFO]</span> {message}')
+
+    def _error(self, message: str):
+        self.output.appendHtml(f'<span style="color:#F87171;">[ERROR]</span> {message}')
+
+    def _section(self, title: str):
+        self.output.appendHtml(
+            f'<br><span style="color:#FACC15;font-weight:700;">'
+            f'===== {title} =====</span><br>'
+        )
+
+    def _notify(self, message: str):
+        if self.main_window:
+            self.main_window.notification_manager.notify(message)

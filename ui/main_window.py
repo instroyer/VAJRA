@@ -9,8 +9,13 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from ui.sidebar import Sidebar
-from ui.automation_view import AutomationView
-from ui.toolui.whois_view import WhoisView
+from modules.automation import AutomationView
+from modules.whois import WhoisView
+from modules.amass import AmassView
+from modules.subfinder import SubfinderView
+from modules.httpx import HttpxView
+from modules.nmap import NmapView
+from modules.screenshot import ScreenshotView
 from ui.notifications.panel import NotificationPanel
 from ui.notifications.manager import NotificationManager
 
@@ -154,6 +159,11 @@ class MainWindow(QMainWindow):
         toggle_btn.clicked.connect(self.sidebar.toggle)
         self.sidebar.automation_clicked.connect(self.load_automation)
         self.sidebar.whois_clicked.connect(self.load_whois)
+        self.sidebar.amass_clicked.connect(self.load_amass)
+        self.sidebar.subfinder_clicked.connect(self.load_subfinder)
+        self.sidebar.httpx_clicked.connect(self.load_httpx)
+        self.sidebar.nmap_clicked.connect(self.load_nmap)
+        self.sidebar.screenshot_clicked.connect(self.load_screenshot)
 
     # ==================================================
     # GLOBAL STOP (LOGIC UNCHANGED)
@@ -185,4 +195,34 @@ class MainWindow(QMainWindow):
         self._clear_workspace()
         self.workspace_layout.addWidget(
             WhoisView(main_window=self)
+        )
+
+    def load_amass(self):
+        self._clear_workspace()
+        self.workspace_layout.addWidget(
+            AmassView(main_window=self)
+        )
+
+    def load_subfinder(self):
+        self._clear_workspace()
+        self.workspace_layout.addWidget(
+            SubfinderView(main_window=self)
+        )
+
+    def load_httpx(self):
+        self._clear_workspace()
+        self.workspace_layout.addWidget(
+            HttpxView(main_window=self)
+        )
+
+    def load_nmap(self):
+        self._clear_workspace()
+        self.workspace_layout.addWidget(
+            NmapView(main_window=self)
+        )
+
+    def load_screenshot(self):
+        self._clear_workspace()
+        self.workspace_layout.addWidget(
+            ScreenshotView(main_window=self)
         )

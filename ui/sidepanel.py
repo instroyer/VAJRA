@@ -6,7 +6,7 @@ from collections import defaultdict
 from modules.bases import ToolCategory
 from ui.styles import (
     COLOR_BACKGROUND_SECONDARY, COLOR_BORDER, COLOR_TEXT_SECONDARY, 
-    COLOR_TEXT_PRIMARY, FONT_FAMILY_UI
+    COLOR_TEXT_PRIMARY, FONT_FAMILY_UI, SIDE_PANEL_STYLE, SIDE_PANEL_BUTTON_STYLE
 )
 
 
@@ -24,13 +24,8 @@ class Sidepanel(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {COLOR_BACKGROUND_SECONDARY};
-                border-right: 1px solid {COLOR_BORDER};
-                font-family: {FONT_FAMILY_UI};
-            }}
-        """)
+        # Apply the new SIDE_PANEL_STYLE
+        self.setStyleSheet(SIDE_PANEL_STYLE)
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -71,7 +66,8 @@ class Sidepanel(QWidget):
         footer_layout.setContentsMargins(10, 10, 10, 10)
         self.settings_btn = QPushButton("⚙️ Settings")
         self.settings_btn.setCursor(Qt.PointingHandCursor)
-        self.settings_btn.setStyleSheet(self._get_tool_button_style())
+        # Apply the new SIDE_PANEL_BUTTON_STYLE
+        self.settings_btn.setStyleSheet(SIDE_PANEL_BUTTON_STYLE)
         self.settings_btn.clicked.connect(self.settings_clicked.emit)
         footer_layout.addWidget(self.settings_btn)
         self.main_layout.addWidget(footer_widget)
@@ -99,6 +95,7 @@ class Sidepanel(QWidget):
 
             sorted_tools = sorted(categorized_tools[category], key=lambda x: x.name)
             for tool in sorted_tools:
+                # Apply the new SIDE_PANEL_BUTTON_STYLE
                 button = self._add_tool_button(tool, container_layout)
                 button.clicked.connect(lambda checked, t=tool, b=button: self._activate_button(b, t))
 
@@ -117,14 +114,12 @@ class Sidepanel(QWidget):
 
     def _activate_button(self, button, tool):
         if self.active_button:
-            self.active_button.setProperty("active", False)
-            self.active_button.style().unpolish(self.active_button)
-            self.active_button.style().polish(self.active_button)
+            # Use setChecked(False) to unapply the checked style
+            self.active_button.setChecked(False)
 
+        # Use setChecked(True) to apply the checked style
+        button.setChecked(True)
         self.active_button = button
-        button.setProperty("active", True)
-        button.style().unpolish(button)
-        button.style().polish(button)
 
         self.tool_clicked.emit(tool)
 
@@ -143,28 +138,12 @@ class Sidepanel(QWidget):
             }}
         '''
 
-    def _get_tool_button_style(self):
-        return f'''
-            QPushButton {{
-                background: transparent;
-                color: {COLOR_TEXT_PRIMARY};
-                font-size: 14px;
-                padding: 10px;
-                border-radius: 5px;
-                text-align: left;
-            }}
-            QPushButton:hover {{
-                background-color: #2A2A2B;
-            }}
-            QPushButton[active="true"] {{
-                background-color: #37373D;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-        '''
+    # Removed _get_tool_button_style as it's now replaced by SIDE_PANEL_BUTTON_STYLE
 
     def _add_tool_button(self, tool, layout):
         btn = QPushButton(tool.name)
+        btn.setCheckable(True) # Make buttons checkable for the :checked style
         btn.setCursor(Qt.PointingHandCursor)
-        btn.setStyleSheet(self._get_tool_button_style())
+        btn.setStyleSheet(SIDE_PANEL_BUTTON_STYLE) # Use the imported style
         layout.addWidget(btn)
         return btn

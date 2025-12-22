@@ -13,7 +13,8 @@ from PySide6.QtGui import QIcon
 
 from ui.styles import (
     COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY,
-    COLOR_BACKGROUND_BUTTON_HOVER, COLOR_BORDER, FONT_FAMILY_UI
+    COLOR_BACKGROUND_BUTTON_HOVER, COLOR_BORDER, FONT_FAMILY_UI,
+    COLOR_BACKGROUND_PRIMARY, COLOR_BACKGROUND_SECONDARY
 )
 
 
@@ -93,7 +94,7 @@ class NotificationPanel(QWidget):
         self.main_frame.setObjectName("main_frame")
         self.main_frame.setStyleSheet(f"""
             #main_frame {{
-                background-color: #1E293B;
+                background-color: {COLOR_BACKGROUND_PRIMARY};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 8px;
                 font-family: {FONT_FAMILY_UI};
@@ -110,7 +111,7 @@ class NotificationPanel(QWidget):
 
         # Header
         header = QWidget()
-        header.setStyleSheet("background-color: #293548; border-bottom: 1px solid #3A4A60; border-top-left-radius: 8px; border-top-right-radius: 8px;")
+        header.setStyleSheet(f"background-color: {COLOR_BACKGROUND_INPUT}; border-bottom: 1px solid {COLOR_BORDER}; border-top-left-radius: 8px; border-top-right-radius: 8px;")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(15,10,15,10)
         
@@ -177,7 +178,7 @@ class NotificationPanel(QWidget):
         notification_widget.setStyleSheet(f"""
             QLabel {{
                 color: {COLOR_TEXT_PRIMARY};
-                background-color: #293548;
+                background-color: {COLOR_BACKGROUND_INPUT};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 5px;
                 padding: 10px;

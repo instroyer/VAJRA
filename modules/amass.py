@@ -45,16 +45,16 @@ class AmassView(BaseToolView):
             return
 
         target = self.targets_queue.pop(0)
-        self._info(f"Running Amass for: {target}")
+        self._info(f"Running command: {self.command_input.text()}")
         self._section(f"AMASS: {target}")
 
         base_dir = create_target_dirs(target, self.group_name)
         self.log_file = os.path.join(base_dir, "Subdomains", "amass.txt")
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
 
-        cmd = self.command_input.text().split() + ["-o", self.log_file]
+        command = self.command_input.text().split() + ["-o", self.log_file]
 
-        self.worker = ProcessWorker(cmd)
+        self.worker = ProcessWorker(command)
         self.worker.output_ready.connect(self._on_output)
         self.worker.finished.connect(self._on_process_finished)
         self.worker.error.connect(self._on_process_error)

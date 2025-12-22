@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
         title_layout.setContentsMargins(5, 0, 5, 0)
         title_layout.setSpacing(10)
 
-        self.sidepanel_toggle_btn = QPushButton("☰")
+        self.sidepanel_toggle_btn = QPushButton("✕")
         self.sidepanel_toggle_btn.setFixedSize(32, 32)
         self.sidepanel_toggle_btn.setStyleSheet(f'''
             QPushButton {{
@@ -132,13 +132,13 @@ class MainWindow(QMainWindow):
 
         # --- Status Bar ---
         self.status_bar = QStatusBar()
-        self.status_bar.setStyleSheet(f"""QStatusBar {{
+        self.status_bar.setStyleSheet(f'''QStatusBar {{
                 background-color: {COLOR_BACKGROUND_SECONDARY};
                 border-top: 1px solid {COLOR_BORDER};
                 color: {COLOR_TEXT_SECONDARY};
                 padding: 0 10px;
             }}
-        """)
+        ''')
         self.setStatusBar(self.status_bar)
 
         # --- Managers ---
@@ -171,6 +171,28 @@ class MainWindow(QMainWindow):
 
         tool_widget = tool.get_widget(main_window=self)
         index = self.tab_widget.addTab(tool_widget, tool.name)
+        
+        # --- Add custom close button ---
+        close_btn = QPushButton("✕")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(f'''
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {COLOR_TEXT_SECONDARY};
+                font-size: 14px;
+                font-weight: bold;
+                padding: 0px 5px;
+            }}
+            QPushButton:hover {{
+                color: {COLOR_TEXT_PRIMARY};
+                background-color: #555;
+                border-radius: 3px;
+            }}
+        ''')
+        close_btn.clicked.connect(lambda: self.close_tab(self.tab_widget.indexOf(tool_widget)))
+        self.tab_widget.tabBar().setTabButton(index, QTabBar.RightSide, close_btn)
+
         self.tab_widget.setCurrentIndex(index)
         self.open_tool_widgets[tool.name] = tool_widget
 
@@ -200,7 +222,7 @@ class MainWindow(QMainWindow):
     def toggle_sidepanel(self):
         is_visible = self.sidepanel.isVisible()
         self.sidepanel.setVisible(not is_visible)
-        self.sidepanel_toggle_btn.setText("☰" if is_visible else "🗧")
+        self.sidepanel_toggle_btn.setText("☰" if is_visible else "✕")
 
 class OutputView(QWidget):
     """A widget for displaying tool output with a copy button."""
@@ -220,14 +242,14 @@ class OutputView(QWidget):
         self.output_text.setStyleSheet(OUTPUT_TEXT_EDIT_STYLE)
 
         self.copy_button = QPushButton("📋")
-        self.copy_button.setStyleSheet("""
-            QPushButton {
+        self.copy_button.setStyleSheet('''
+            QPushButton {{
                 font-size: 24px;
                 background-color: transparent;
                 border: none;
                 padding: 10px;
-            }
-        """)
+            }}
+        ''')
         self.copy_button.setCursor(Qt.PointingHandCursor)
         self.copy_button.setToolTip("Copy output to clipboard")
         self.copy_button.clicked.connect(self.copy_to_clipboard)

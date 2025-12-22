@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QPlainTextEdit,
     QFrame,
     QGroupBox,
 )
@@ -18,7 +17,6 @@ from core.tgtinput import TargetInput, parse_targets
 from core.fileops import create_target_dirs, get_group_name_from_file
 from core import reportgen as report
 from ui.styles import (
-    OUTPUT_TEXT_EDIT_STYLE,
     RUN_BUTTON_STYLE,
     STOP_BUTTON_STYLE,
     DIVIDER_STYLE,
@@ -27,6 +25,7 @@ from ui.styles import (
     COLOR_ERROR,
     COLOR_INFO,
 )
+from ui.main_window import OutputView # Import OutputView
 
 
 class Status:
@@ -70,14 +69,24 @@ class AutomationWorker(QObject):
             if not self.is_running:
                 break
 
-            self.is_skipping = False
-            self.status_update.emit(step["key"], Status.RUNNING)
-
-            success = step["func"]()
-
+            # Check for skip/stop before starting the step's function
             if self.is_skipping:
                 self.status_update.emit(step["key"], Status.SKIPPED)
                 self.output.emit(f'<span style="color:#F59E0B;">[SKIP]</span> {step["name"]} was skipped.<br>')
+                self.is_skipping = False  # Reset for next step if pipeline continues
+                continue
+            if not self.is_running:
+                break
+
+            self.status_update.emit(step["key"], Status.RUNNING)
+
+            # success can now be True (completed), False (error), or None (skipped by _execute_command)
+            success = step["func"]()
+
+            if success is None:  # Indicates it was skipped mid-execution
+                self.status_update.emit(step["key"], Status.SKIPPED)
+                self.output.emit(f'<span style="color:#F59E0B;">[SKIP]</span> {step["name"]} was skipped.<br>')
+                self.is_skipping = False # Reset for next step
             elif not self.is_running:
                 self.status_update.emit(step["key"], Status.TERMINATED)
                 self.output.emit(f'<span style="color:{COLOR_ERROR}; font-weight:700;">[TERMINATED]</span> {step["name"]} was terminated.<br>')
@@ -88,8 +97,9 @@ class AutomationWorker(QObject):
             else:
                 self.status_update.emit(step["key"], Status.ERROR)
 
-        if "report" in modules_run_for_report:
-            report.generate_report(self.target, self.base_dir, " ".join(m for m in modules_run_for_report if m != 'report'))
+        # Ensure report generation is attempted only if the pipeline wasn't terminated mid-way
+        if self.is_running and "report" in [s["key"] for s in pipeline]: # Check if report was part of pipeline and not terminated
+             report.generate_report(self.target, self.base_dir, " ".join(m for m in modules_run_for_report if m != 'report'))
 
         self.finished.emit()
 
@@ -104,6 +114,12 @@ class AutomationWorker(QObject):
             self.current_process.kill()
 
     def _execute_command(self, cmd, log_file, shell=False):
+        # Check for skip/stop requests immediately before launching the subprocess
+        if not self.is_running:
+            return False  # Pipeline was stopped
+        if self.is_skipping:
+            return None  # Indicate that this specific command should be skipped
+
         log_path = os.path.join(self.base_dir, "Logs", log_file)
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
@@ -113,11 +129,23 @@ class AutomationWorker(QObject):
             )
             with open(log_path, "w") as f:
                 for line in iter(self.current_process.stdout.readline, ""):
-                    if not self.is_running or self.is_skipping:
+                    # Check for skip/stop during execution
+                    if not self.is_running:
+                        self.current_process.kill()
+                        break
+                    if self.is_skipping:
+                        self.current_process.kill()
                         break
                     self.output.emit(line)
                     f.write(line)
             self.current_process.wait()
+
+            # After the process finishes, check if it was due to a skip/stop
+            if not self.is_running:
+                return False  # Process was terminated due to overall pipeline stop
+            if self.is_skipping:
+                return None  # Process was terminated due to a skip request
+            
             return self.current_process.returncode == 0
         except FileNotFoundError:
             self.error.emit(f"Command not found: {cmd[0]}. Is it in your PATH?")
@@ -242,15 +270,9 @@ class AutomationView(QWidget):
         divider = QFrame(); divider.setFrameShape(QFrame.HLine); divider.setStyleSheet(DIVIDER_STYLE)
         layout.addWidget(divider)
 
-        results_group = QGroupBox("Results")
-        results_layout = QVBoxLayout()
-        self.output = QPlainTextEdit()
-        self.output.setReadOnly(True)
-        self.output.setStyleSheet(OUTPUT_TEXT_EDIT_STYLE)
-        self.output.setPlaceholderText("Pipeline output will appear here...")
-        results_layout.addWidget(self.output)
-        results_group.setLayout(results_layout)
-        layout.addWidget(results_group)
+        # Replace QPlainTextEdit with OutputView
+        self.output = OutputView()
+        layout.addWidget(self.output)
 
     def run_pipeline(self):
         raw_input = self.target_input.get_target()
@@ -303,7 +325,6 @@ class AutomationView(QWidget):
 
     def append_output(self, text):
         self.output.appendHtml(text.strip().replace("\n", "<br>"))
-        self.output.verticalScrollBar().setValue(self.output.verticalScrollBar().maximum())
 
     def show_error(self, msg):
         self.output.appendHtml(f'<span style="color:{COLOR_ERROR}; font-weight:700;">[ERROR]</span> {msg}<br>')

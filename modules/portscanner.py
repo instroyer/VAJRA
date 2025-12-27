@@ -422,6 +422,11 @@ class PortScannerView(BaseToolView):
         self.worker = None
         self._is_stopping = False
         self._scan_complete_added = False
+        # Multi-target scanning state
+        self._current_target_index = 0
+        self._all_targets = []
+        self._all_ports = []
+        self._all_results = []
         self._build_custom_ui()
         self.update_command()
     
@@ -543,8 +548,12 @@ class PortScannerView(BaseToolView):
             scan_type = self.scan_type.currentText()
             threads = self.threads_spin.value()
             timeout = self.timeout_spin.value()
-            
-            cmd = f"Custom Port Scanner: {target} | Ports: {ports} | Type: {scan_type} | Threads: {threads} | Timeout: {timeout}s"
+
+            # Count targets for display
+            targets_info = parse_targets(target)[0]
+            target_count = len(targets_info) if targets_info else 1
+
+            cmd = f"Custom Port Scanner: {target_count} target(s) | Ports: {ports} | Type: {scan_type} | Threads: {threads} | Timeout: {timeout}s"
             self.command_input.setText(cmd)
         except AttributeError:
             pass
@@ -553,46 +562,69 @@ class PortScannerView(BaseToolView):
         self.output.clear()
         self._is_stopping = False
         self._scan_complete_added = False
-        
+
         target_str = self.target_input.get_target()
         targets = parse_targets(target_str)[0]
         if not targets:
             return QMessageBox.warning(self, "Warning", "No valid targets specified.")
-        
+
         port_input = self.port_input.text().strip()
         if not port_input:
             port_input = "1-1000"
-        
+
         ports = self._parse_port_input(port_input)
         if not ports:
             return QMessageBox.warning(self, "Warning", "No valid ports specified.")
-        
+
         if len(ports) > 10000:
             reply = QMessageBox.question(
-                self, "Large Scan", 
+                self, "Large Scan",
                 f"Scanning {len(ports)} ports may take a long time. Continue?",
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.No:
                 return
-        
+
         try:
+            # Create directories for the first target (for logs)
             base_dir = create_target_dirs(targets[0])
             logs_dir = os.path.join(base_dir, "Logs")
             os.makedirs(logs_dir, exist_ok=True)
-            
-            self._info(f"Starting custom port scan on {targets[0]}")
+
+            self._info(f"Starting custom port scan on {len(targets)} target(s)")
             self._info(f"Scanning {len(ports)} ports using {self.scan_type.currentText()} scan")
             self._info(f"Threads: {self.threads_spin.value()}, Timeout: {self.timeout_spin.value()}s")
             self.output.appendPlainText("")
-            
+
             self.progress_bar.setVisible(True)
-            self.progress_bar.setMaximum(len(ports))
+            self.progress_bar.setMaximum(len(ports) * len(targets))
             self.progress_bar.setValue(0)
-            
+
+            # Scan targets sequentially
+            self._current_target_index = 0
+            self._all_targets = targets
+            self._all_ports = ports
+            self._all_results = []
+
+            self._scan_next_target()
+
+        except Exception as e:
+            self._error(f"Failed to start scan: {str(e)}")
+
+    def _scan_next_target(self):
+        """Scan the next target in the list."""
+        if self._current_target_index >= len(self._all_targets) or self._is_stopping:
+            # All targets scanned, show final results
+            self._show_final_results()
+            return
+
+        current_target = self._all_targets[self._current_target_index]
+        self._info(f"Scanning target: {current_target}")
+
+        try:
             self.worker = ScannerWorker(
-                targets[0],
-                ports,
+                current_target,
+                self._all_ports,
                 self.scan_type.currentText(),
                 self.timeout_spin.value(),
                 self.threads_spin.value(),
@@ -600,26 +632,135 @@ class PortScannerView(BaseToolView):
                 self.randomize_check.isChecked(),
                 self.delay_spin.value() / 1000.0  # Convert ms to seconds
             )
-            
+
             self.worker.progress.connect(self._on_progress)
             self.worker.result.connect(self._on_port_result)
-            self.worker.finished_signal.connect(self._on_scan_finished)
+            self.worker.finished_signal.connect(self._on_target_finished)
             self.worker.error.connect(self._error)
-            
-            self.run_button.setEnabled(False)
-            self.stop_button.setEnabled(True)
+
             self.worker.start()
-            
+
         except Exception as e:
-            self._error(f"Failed to start scan: {str(e)}")
+            self._error(f"Failed to scan {current_target}: {str(e)}")
+            self._current_target_index += 1
+            self._scan_next_target()
     
     def _on_progress(self, scanned, total):
         """Update progress bar."""
-        self.progress_bar.setValue(scanned)
+        # Account for multiple targets
+        base_progress = self._current_target_index * len(self._all_ports)
+        self.progress_bar.setValue(base_progress + scanned)
     
     def _on_port_result(self, result):
         """Handle individual port result."""
         pass  # Results are handled in finished signal
+
+    def _on_target_finished(self, results):
+        """Handle completion of scanning one target."""
+        if 'error' in results:
+            self._error(f"Error scanning {results.get('target', 'unknown')}: {results['error']}")
+        else:
+            # Store results for this target
+            self._all_results.append(results)
+
+        # Move to next target
+        self._current_target_index += 1
+        self._scan_next_target()
+
+    def _show_final_results(self):
+        """Show final results for all scanned targets."""
+        self.progress_bar.setVisible(False)
+        self._on_scan_completed()
+
+        if self._is_stopping:
+            return
+
+        # Display results for all targets
+        self._section("Scan Results")
+
+        total_targets = len(self._all_results)
+        total_ports_scanned = 0
+        total_open_ports = 0
+
+        for i, results in enumerate(self._all_results):
+            if 'error' in results:
+                continue
+
+            # Add separator between targets (but not before first)
+            if i > 0:
+                self.output.appendPlainText("")
+
+            target = results['target']
+            ip = results['ip']
+            ports_scanned = results['total_scanned']
+            open_count = results['open_count']
+
+            total_ports_scanned += ports_scanned
+            total_open_ports += open_count
+
+            self.output.appendPlainText(f"Target: {target} ({ip})")
+            self.output.appendPlainText(f"Total Ports Scanned: {ports_scanned}")
+            self.output.appendPlainText(f"Open Ports Found: {open_count}")
+
+            if results['open_ports'] and results['results']:
+                self.output.appendPlainText("")
+                self.output.appendPlainText("OPEN PORTS:")
+                self.output.appendPlainText("-" * 80)
+                self.output.appendPlainText(f"{'Port':<10} {'State':<10} {'Service':<20} {'Banner':<40}")
+                self.output.appendPlainText("-" * 80)
+
+                for result in results['results']:
+                    port = result['port']
+                    state = result['state']
+                    service = result.get('service', 'Unknown')
+                    banner = result.get('banner', None)
+
+                    # Format banner display
+                    if banner:
+                        banner_str = banner.strip() if isinstance(banner, str) else str(banner)
+                        if len(banner_str) > 40:
+                            banner_str = banner_str[:37] + "..."
+                    else:
+                        banner_str = 'N/A'
+
+                    self.output.appendPlainText(f"{port:<10} {state:<10} {service:<20} {banner_str:<40}")
+
+                self.output.appendPlainText("-" * 80)
+
+        # Summary
+        self.output.appendPlainText("")
+        self.output.appendPlainText(f"Summary: Scanned {total_targets} targets, {total_ports_scanned} total ports, {total_open_ports} open ports found")
+
+        # Save results for each target
+        try:
+            for results in self._all_results:
+                if 'error' not in results:
+                    base_dir = create_target_dirs(results['target'])
+                    logs_dir = os.path.join(base_dir, "Logs")
+                    os.makedirs(logs_dir, exist_ok=True)
+
+                    log_file = os.path.join(logs_dir, "portscan.txt")
+                    with open(log_file, 'w') as f:
+                        f.write(f"Custom Port Scan Results\n")
+                        f.write(f"Target: {results['target']} ({results['ip']})\n")
+                        f.write(f"Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"Total Ports Scanned: {results['total_scanned']}\n")
+                        f.write(f"Open Ports: {results['open_count']}\n\n")
+                        f.write("OPEN PORTS:\n")
+                        f.write("-" * 80 + "\n")
+                        for result in results['results']:
+                            f.write(f"Port {result['port']}: {result['state']} - {result['service']}")
+                            if result.get('banner'):
+                                f.write(f" - {result['banner']}")
+                            f.write("\n")
+
+                    self._info(f"Results for {results['target']} saved to: {log_file}")
+        except Exception as e:
+            self._error(f"Failed to save results: {str(e)}")
+
+        if not self._scan_complete_added:
+            self._section("Scan Complete")
+            self._scan_complete_added = True
     
     def _on_scan_finished(self, results):
         """Handle scan completion."""
@@ -705,6 +846,11 @@ class PortScannerView(BaseToolView):
             self._info("Scan stopped.")
         self._on_scan_completed()
         self.progress_bar.setVisible(False)
+
+        # Reset multi-target scanning state
+        self._current_target_index = 0
+        self._all_targets = []
+        self._all_results = []
     
     def copy_results_to_clipboard(self):
         """Copy scan results to clipboard."""

@@ -25,8 +25,10 @@ from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
     TARGET_INPUT_STYLE, COMBO_BOX_STYLE, COLOR_BACKGROUND_INPUT,
     COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
-    COLOR_SUCCESS, COLOR_ERROR, COLOR_BACKGROUND_BUTTON, COLOR_TEXT_BUTTON
+    COLOR_SUCCESS, COLOR_ERROR, COLOR_BACKGROUND_BUTTON, COLOR_TEXT_BUTTON,
+    StyledComboBox  # Import from centralized styles
 )
+
 
 
 class DencoderTool(ToolBase):
@@ -72,7 +74,7 @@ class DencoderToolView(QWidget):
         main_panel = QWidget()
         main_panel.setStyleSheet(f"""
             QWidget {{
-                background-color: #2A2A2A;
+                background-color: #1C1C1C;
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
@@ -96,72 +98,91 @@ class DencoderToolView(QWidget):
         operation_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500; font-size: 14px;")
         operation_layout.addWidget(operation_label)
 
-        # Single operation dropdown with search functionality like nmap
-        self.operation_combo = QComboBox()
+        # Single operation dropdown with custom arrow
+        self.operation_combo = StyledComboBox()
         self.operation_combo.setEditable(True)
         self.operation_combo.setInsertPolicy(QComboBox.NoInsert)
         self.operation_combo.setPlaceholderText("Search or select operation...")
 
         operations = [
-            "Base64 Encode",
-            "Base64 Decode",
-            "Base32 Encode",
-            "Base32 Decode",
-            "Base16 Encode",
-            "Base16 Decode",
-            "Base85 Encode",
-            "Base85 Decode",
-            "ASCII85 Encode",
             "ASCII85 Decode",
-            "URL Encode",
-            "URL Decode",
-            "Double URL Encode",
-            "Double URL Decode",
-            "Hex Encode",
-            "Hex Decode",
-            "HTML Encode",
-            "HTML Decode",
-            "Double HTML Encode",
-            "Double HTML Decode",
-            "Quoted Printable Encode",
-            "Quoted Printable Decode",
-            "UU Encode",
-            "UU Decode",
-            "ROT13 Encode/Decode",
-            "Caesar Cipher (+3)",
-            "Caesar Cipher (-3)",
-            "Morse Code Encode",
-            "Morse Code Decode",
-            "Text to Binary",
+            "ASCII85 Encode",
+            "Base16 Decode",
+            "Base16 Encode",
+            "Base32 Decode",
+            "Base32 Encode",
+            "Base64 Decode",
+            "Base64 Encode",
+            "Base85 Decode",
+            "Base85 Encode",
             "Binary to Text",
-            "Text to Decimal",
+            "Caesar Cipher (-3)",
+            "Caesar Cipher (+3)",
+            "Command Injection Encode",
             "Decimal to Text",
-            "Text to Octal",
-            "Octal to Text",
-            "Unicode Escape Encode",
-            "Unicode Escape Decode",
+            "Double HTML Decode",
+            "Double HTML Encode",
+            "Double URL Decode",
+            "Double URL Encode",
+            "File Inclusion Encode",
+            "Hex Decode",
+            "Hex Encode",
+            "HTML Decode",
+            "HTML Encode",
             "JWT Header Decode",
             "JWT Payload Decode",
-            "SQL Hex Encode",
-            "SQL Char Encode",
-            "XSS Basic Encode",
-            "XSS Double Encode",
-            "Command Injection Encode",
-            "Path Traversal Encode",
-            "File Inclusion Encode",
-            "Template Injection Encode",
             "MD5 Hash",
+            "Morse Code Decode",
+            "Morse Code Encode",
+            "Octal to Text",
+            "Path Traversal Encode",
+            "Quoted Printable Decode",
+            "Quoted Printable Encode",
+            "ROT13 Encode/Decode",
             "SHA1 Hash",
-            "SHA256 Hash"
+            "SHA256 Hash",
+            "SQL Char Encode",
+            "SQL Hex Encode",
+            "Template Injection Encode",
+            "Text to Binary",
+            "Text to Decimal",
+            "Text to Octal",
+            "Unicode Escape Decode",
+            "Unicode Escape Encode",
+            "URL Decode",
+            "URL Encode",
+            "UU Decode",
+            "UU Encode",
+            "XSS Basic Encode",
+            "XSS Double Encode"
         ]
 
         self.operation_combo.addItems(operations)
-
-        # Add completer for search functionality
+        
+        # Add completer for filtering search results
         completer = QCompleter(operations, self)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchContains)
+        completer.setFilterMode(Qt.MatchContains)  # Match anywhere in the string
+        completer.setCompletionMode(QCompleter.PopupCompletion)  # Don't auto-complete, just filter
+        
+        # COMPLETELY HIDE the completer's popup (prevent small dropdown)
+        completer_popup = completer.popup()
+        completer_popup.setMaximumHeight(0)  # Hide it completely
+        completer_popup.setStyleSheet("QListView { max-height: 0px; min-height: 0px; border: none; }")
+        
         self.operation_combo.setCompleter(completer)
+        
+        # Keep focus in the input while showing dropdown
+        self.operation_combo.setInsertPolicy(QComboBox.NoInsert)
+        
+        # Auto-show dropdown when typing
+        def on_text_changed():
+            if not self.operation_combo.view().isVisible():
+                self.operation_combo.showPopup()
+            # Keep focus in the line edit
+            self.operation_combo.lineEdit().setFocus()
+        
+        self.operation_combo.lineEdit().textChanged.connect(on_text_changed)
 
         self.operation_combo.setStyleSheet(f"""
             QComboBox {{
@@ -170,7 +191,7 @@ class DencoderToolView(QWidget):
                 border: 2px solid {COLOR_BORDER};
                 border-radius: 6px;
                 padding: 8px 35px 8px 12px;
-                font-size: 13px;
+                font-size: 14px;
                 font-weight: 500;
                 min-height: 18px;
             }}
@@ -179,22 +200,32 @@ class DencoderToolView(QWidget):
             }}
             QComboBox::drop-down {{
                 border: none;
-                width: 25px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid {COLOR_TEXT_PRIMARY};
-                margin-right: 6px;
+                width: 30px;
+                background: transparent;
             }}
             QComboBox QAbstractItemView {{
                 background-color: {COLOR_BACKGROUND_INPUT};
-                border: 1px solid {COLOR_BORDER};
+                border: 2px solid {COLOR_BORDER};
+                border-radius: 6px;
                 color: {COLOR_TEXT_PRIMARY};
                 selection-background-color: {COLOR_BORDER_INPUT_FOCUSED};
                 selection-color: {COLOR_TEXT_PRIMARY};
-                padding: 3px;
+                padding: 8px;
+                font-size: 14px;
+                min-width: 350px;
+                outline: none;
+            }}
+            QComboBox QAbstractItemView::item {{
+                padding: 4px 14px;
+                border-radius: 4px;
+                min-height: 26px;
+                font-size: 14px;
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: #2D333B;
+            }}
+            QComboBox QAbstractItemView::item:selected {{
+                background-color: {COLOR_BORDER_INPUT_FOCUSED};
             }}
             QComboBox:editable {{
                 background-color: {COLOR_BACKGROUND_INPUT};
@@ -204,11 +235,34 @@ class DencoderToolView(QWidget):
                 color: {COLOR_TEXT_PRIMARY};
                 border: none;
                 padding: 0px;
-                font-size: 13px;
+                font-size: 14px;
+            }}
+            /* Scrollbar styling */
+            QComboBox QAbstractItemView::verticalScrollBar {{
+                width: 14px;
+                background-color: {COLOR_BACKGROUND_INPUT};
+                border-radius: 7px;
+            }}
+            QComboBox QAbstractItemView::verticalScrollBar::handle {{
+                background-color: #4A5568;
+                border-radius: 7px;
+                min-height: 30px;
+            }}
+            QComboBox QAbstractItemView::verticalScrollBar::handle:hover {{
+                background-color: #58A6FF;
+            }}
+            QComboBox QAbstractItemView::verticalScrollBar::add-line,
+            QComboBox QAbstractItemView::verticalScrollBar::sub-line {{
+                height: 0px;
+            }}
+            QComboBox QAbstractItemView::verticalScrollBar::add-page,
+            QComboBox QAbstractItemView::verticalScrollBar::sub-page {{
+                background: none;
             }}
         """)
         self.operation_combo.setMinimumHeight(38)
         self.operation_combo.setMinimumWidth(220)
+        self.operation_combo.setMaxVisibleItems(15)  # Show more items in dropdown
         operation_layout.addWidget(self.operation_combo)
 
         # Spacer

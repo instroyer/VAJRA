@@ -4,8 +4,9 @@
 # Centralized stylesheet and custom styled widgets for the application.
 # =============================================================================
 
-from PySide6.QtWidgets import QPlainTextEdit
-from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QPlainTextEdit, QComboBox, QSpinBox
+from PySide6.QtGui import QFont, QPainter, QPen, QBrush, QPolygon
+from PySide6.QtCore import Qt, QRect, QPoint
 
 # --- Color Palette (VS Code Dark+ Theme inspired) ---
 COLOR_BACKGROUND_PRIMARY = "#1E1E1E"      # Editor background
@@ -259,3 +260,217 @@ class PlainTextOutput(QPlainTextEdit):
     def clear_output(self):
         """Clears the entire text area."""
         self.clear()
+
+
+# =============================================================================
+# REUSABLE STYLED WIDGET CLASSES
+# =============================================================================
+
+class StyledComboBox(QComboBox):
+    """
+    Custom ComboBox with visible arrow, 15px font, and consistent styling.
+    
+    Usage:
+        from ui.styles import StyledComboBox
+        combo = StyledComboBox()
+        combo.addItems(["Option 1", "Option 2"])
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(self._get_style())
+
+    def _get_style(self):
+        return f"""
+            QComboBox {{
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+                padding: 8px;
+                padding-right: 20px;
+                font-size: 15px;
+            }}
+            QComboBox:focus {{
+                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+            }}
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: 1px solid {COLOR_BORDER};
+                border-top-right-radius: 3px;
+                border-bottom-right-radius: 3px;
+                background-color: {COLOR_BACKGROUND_INPUT};
+            }}
+            QComboBox::drop-down:hover {{
+                background-color: #4A4A4A;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLOR_BACKGROUND_INPUT};
+                border: 1px solid {COLOR_BORDER};
+                color: {COLOR_TEXT_PRIMARY};
+                selection-background-color: {COLOR_BORDER_INPUT_FOCUSED};
+                selection-color: {COLOR_TEXT_PRIMARY};
+                outline: none;
+                font-size: 15px;
+                padding: 4px;
+            }}
+            QComboBox QAbstractItemView::item {{
+                padding: 8px 12px;
+                min-height: 28px;
+            }}
+        """
+
+    def paintEvent(self, event):
+        """Custom paint event to draw arrow."""
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Calculate drop-down button area (right side, 20px wide)
+        width = self.width()
+        height = self.height()
+        drop_down_width = 20
+        drop_down_x = width - drop_down_width
+        drop_down_rect = QRect(drop_down_x, 0, drop_down_width, height)
+
+        # Draw arrow triangle in center of drop-down area
+        arrow_size = 6
+        center_x = drop_down_rect.center().x()
+        center_y = drop_down_rect.center().y()
+
+        painter.setPen(QPen(Qt.NoPen))
+        painter.setBrush(QBrush(COLOR_TEXT_PRIMARY))
+
+        # Draw downward triangle
+        arrow = QPolygon([
+            QPoint(center_x - arrow_size//2, center_y - arrow_size//3),
+            QPoint(center_x + arrow_size//2, center_y - arrow_size//3),
+            QPoint(center_x, center_y + arrow_size//2)
+        ])
+        painter.drawPolygon(arrow)
+
+
+class StyledSpinBox(QSpinBox):
+    """
+    Custom SpinBox with visible white arrow triangles and 15px font.
+    
+    Usage:
+        from ui.styles import StyledSpinBox
+        spin = StyledSpinBox()
+        spin.setRange(0, 100)
+        spin.setValue(10)
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(self._get_style())
+
+    def _get_style(self):
+        return f"""
+            QSpinBox {{
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+                padding: 6px;
+                padding-right: 20px;
+                font-size: 15px;
+            }}
+            QSpinBox:focus {{
+                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+            }}
+            QSpinBox::up-button {{
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 18px;
+                border: none;
+                background: transparent;
+            }}
+            QSpinBox::up-button:hover {{
+                background-color: rgba(100, 100, 100, 0.5);
+            }}
+            QSpinBox::up-arrow {{
+                width: 0;
+                height: 0;
+                border-left: 6px solid transparent;
+                border-right: 6px solid transparent;
+                border-bottom: 7px solid #FFFFFF;
+            }}
+            QSpinBox::down-button {{
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 18px;
+                border: none;
+                background: transparent;
+            }}
+            QSpinBox::down-button:hover {{
+                background-color: rgba(100, 100, 100, 0.5);
+            }}
+            QSpinBox::down-arrow {{
+                width: 0;
+                height: 0;
+                border-left: 6px solid transparent;
+                border-right: 6px solid transparent;
+                border-top: 7px solid #FFFFFF;
+            }}
+        """
+
+
+# =============================================================================
+# STYLE CONSTANTS FOR DIRECT APPLICATION
+# =============================================================================
+
+# SpinBox style as a constant (for setStyleSheet)
+SPINBOX_STYLE = f"""
+    QSpinBox {{
+        background-color: {COLOR_BACKGROUND_INPUT};
+        color: {COLOR_TEXT_PRIMARY};
+        border: 1px solid {COLOR_BORDER};
+        border-radius: 4px;
+        padding: 6px;
+        padding-right: 20px;
+        font-size: 15px;
+    }}
+    QSpinBox:focus {{
+        border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+    }}
+    QSpinBox::up-button {{
+        subcontrol-origin: border;
+        subcontrol-position: top right;
+        width: 18px;
+        border: none;
+        background: transparent;
+    }}
+    QSpinBox::up-button:hover {{
+        background-color: rgba(100, 100, 100, 0.5);
+    }}
+    QSpinBox::up-arrow {{
+        width: 0;
+        height: 0;
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-bottom: 7px solid #FFFFFF;
+    }}
+    QSpinBox::down-button {{
+        subcontrol-origin: border;
+        subcontrol-position: bottom right;
+        width: 18px;
+        border: none;
+        background: transparent;
+    }}
+    QSpinBox::down-button:hover {{
+        background-color: rgba(100, 100, 100, 0.5);
+    }}
+    QSpinBox::down-arrow {{
+        width: 0;
+        height: 0;
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-top: 7px solid #FFFFFF;
+    }}
+"""
+
+# Label styles with 15px font
+LABEL_STYLE_15PX = f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;"
+LABEL_TITLE_STYLE_15PX = f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 600;"
+CHECKBOX_STYLE_15PX = f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};"

@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt
 from ui.sidepanel import Sidepanel
 from modules.bases import ToolBase
 from ui.notification import NotificationManager
+from ui.settingpanel import SettingsPanel
 from ui.styles import (
     MAIN_WINDOW_STYLE, TAB_WIDGET_STYLE, COLOR_TEXT_PRIMARY, 
     COLOR_TEXT_SECONDARY, COLOR_BACKGROUND_SECONDARY, COLOR_BORDER,
@@ -146,6 +147,7 @@ class MainWindow(QMainWindow):
 
         # --- Connections ---
         self.sidepanel.tool_clicked.connect(self.open_tool_tab)
+        self.sidepanel.settings_clicked.connect(self.open_settings_tab)  # Changed to open as tab
         self.sidepanel_toggle_btn.clicked.connect(self.toggle_sidepanel)
         self.notification_btn.clicked.connect(self.notification_manager.toggle_panel)
 
@@ -159,6 +161,45 @@ class MainWindow(QMainWindow):
             index = self.tab_widget.addTab(welcome_widget, "Welcome")
             self.tab_widget.tabBar().setTabButton(index, QTabBar.RightSide, None)
             self.tab_widget.setCurrentIndex(index)
+    
+    def open_settings_tab(self):
+        """Open settings as a tab"""
+        # Check if settings tab already open
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == "⚙️ Settings":
+                self.tab_widget.setCurrentIndex(i)
+                return
+        
+        # Remove welcome tab if present
+        if self.tab_widget.count() == 1 and self.tab_widget.tabText(0) == "Welcome":
+            self.tab_widget.removeTab(0)
+        
+        # Create settings panel
+        settings_widget = SettingsPanel(self)
+        index = self.tab_widget.addTab(settings_widget, "⚙️ Settings")
+        
+        # Add close button
+        close_btn = QPushButton("✕")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(f'''
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {COLOR_TEXT_SECONDARY};
+                font-size: 14px;
+                font-weight: bold;
+                padding: 0px 5px;
+            }}
+            QPushButton:hover {{
+                color: {COLOR_TEXT_PRIMARY};
+                background-color: #555;
+                border-radius: 3px;
+            }}
+        ''')
+        close_btn.clicked.connect(lambda: self.close_tab(self.tab_widget.indexOf(settings_widget)))
+        self.tab_widget.tabBar().setTabButton(index, QTabBar.RightSide, close_btn)
+        
+        self.tab_widget.setCurrentIndex(index)
 
     def open_tool_tab(self, tool: ToolBase):
         if tool.name in self.open_tool_widgets:

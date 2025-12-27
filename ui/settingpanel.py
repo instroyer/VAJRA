@@ -12,238 +12,305 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QSpinBox,
     QComboBox,
-    QFrame
+    QFrame,
+    QLineEdit,
+    QScrollArea
 )
 from PySide6.QtCore import Qt, QDateTime
+import os
+import platform
+
+
+# =============================================================================
+# Privilege Manager - Handles privilege escalation for tools requiring root
+# =============================================================================
+
+class PrivilegeManager:
+    """
+    Manages privilege escalation for security tools requiring root access.
+    
+    Supports three modes:
+    - none: No privilege escalation
+    - sudo: Use sudo with stored password (Linux/Unix)
+    - pkexec: Use PolicyKit GUI prompt (Linux)
+    """
+    
+    def __init__(self):
+        self.mode = "none"  # "none", "sudo", "pkexec"
+        self.sudo_password = None
+        self._is_windows = platform.system() == "Windows"
+    
+    def set_mode(self, mode: str):
+        """Set privilege escalation mode"""
+        if mode not in ["none", "sudo", "pkexec"]:
+            raise ValueError(f"Invalid mode: {mode}")
+        self.mode = mode
+    
+    def set_sudo_password(self, password: str):
+        """Store sudo password (kept in memory only)"""
+        self.sudo_password = password
+    
+    def clear_password(self):
+        """Clear stored password from memory"""
+        self.sudo_password = None
+    
+    def needs_privilege_escalation(self) -> bool:
+        """Check if privilege escalation is enabled"""
+        return self.mode != "none"
+    
+    def wrap_command(self, command: list) -> list:
+        """
+        Wrap command with privilege escalation wrapper if needed.
+        
+        Args:
+            command: Original command as list (e.g., ['nmap', '-sS', 'target'])
+        
+        Returns:
+            Wrapped command list
+        """
+        if self._is_windows:
+            # Windows doesn't support sudo/pkexec
+            return command
+        
+        if self.mode == "sudo":
+            # Use sudo -S to read password from stdin
+            return ['sudo', '-S'] + command
+        elif self.mode == "pkexec":
+            # Use PolicyKit for GUI password prompt
+            return ['pkexec'] + command
+        else:
+            # No escalation
+            return command
+    
+    def get_stdin_data(self) -> str:
+        """
+        Get password data for stdin injection.
+        
+        Returns:
+            Password string with newline for sudo -S
+        """
+        if self.mode == "sudo" and self.sudo_password:
+            return f"{self.sudo_password}\n"
+        return ""
+    
+    def check_if_root(self) -> bool:
+        """
+        Check if currently running as root/admin.
+        
+        Returns:
+            True if running with elevated privileges
+        """
+        if self._is_windows:
+            # Windows admin check would require ctypes
+            return False
+        else:
+            # Unix-like systems
+            return os.geteuid() == 0
+    
+    def get_status_message(self) -> str:
+        """Get human-readable status message"""
+        if self.mode == "none":
+            return "Privilege escalation disabled"
+        elif self.mode == "sudo":
+            has_password = "configured" if self.sudo_password else "not configured"
+            return f"Using sudo (password {has_password})"
+        elif self.mode == "pkexec":
+            return "Using PolicyKit (GUI prompts)"
+        return "Unknown mode"
+
+
+# Global privilege manager instance
+privilege_manager = PrivilegeManager()
 
 
 class SettingsPanel(QWidget):
     """
-    Settings panel for VAJRA application.
+    Settings panel for VAJRA application (opens as a tab).
+    - Privilege escalation settings
     - Output directory settings
-    - Tool timeouts
-    - Display preferences
-    - Auto-hides on focus loss
+    - Tool configurations
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
-        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
-        self.setFixedWidth(380)
-
         self._build_ui()
 
     def _build_ui(self):
-        self.setStyleSheet(
-            """
+        self.setStyleSheet("""
             QWidget {
-                background-color: #161B22;
+                background-color: #0D1117;
                 color: white;
             }
             QLabel {
                 font-size: 13px;
             }
-            QPushButton {
-                border: none;
-                background: transparent;
-                color: #9CA3AF;
-            }
-            QPushButton:hover {
-                color: white;
-            }
             QCheckBox {
                 color: white;
                 spacing: 8px;
+                font-size: 13px;
             }
             QSpinBox {
-                background-color: #0F172A;
+                background-color: #161B22;
                 color: white;
-                border: 1px solid #1E293B;
-                padding: 4px;
+                border: 1px solid #30363D;
+                padding: 6px;
                 border-radius: 4px;
+                font-size: 13px;
             }
             QComboBox {
-                background-color: #0F172A;
+                background-color: #161B22;
                 color: white;
-                border: 1px solid #1E293B;
-                padding: 4px;
+                border: 1px solid #30363D;
+                padding: 6px;
                 border-radius: 4px;
+                font-size: 13px;
             }
-            """
-        )
+            QLineEdit {
+                background-color: #161B22;
+                color: white;
+                border: 1px solid #30363D;
+                padding: 8px;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+        """)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        # Main scroll area for all settings
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+        
+        scroll_widget = QWidget()
+        layout = QVBoxLayout(scroll_widget)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(20)
 
         # Header
         header = QLabel("⚙️ Settings")
-        header.setStyleSheet(
-            """
-            QLabel {
-                font-size: 16px;
-                font-weight: 600;
-            }
-            """
-        )
+        header.setStyleSheet("font-size: 24px; font-weight: 600; color: #58A6FF;")
         layout.addWidget(header)
+        
         layout.addWidget(self._divider())
 
-        # ===== SCAN SETTINGS =====
-        scan_label = QLabel("Scan Settings")
-        scan_label.setStyleSheet("font-weight: 600; color: #60A5FA;")
-        layout.addWidget(scan_label)
+        # ===== PRIVILEGE ESCALATION (SIMPLIFIED) =====
+        privilege_section = QLabel("🔐 Privilege Escalation")
+        privilege_section.setStyleSheet("font-size: 18px; font-weight: 600; color: #58A6FF;")
+        layout.addWidget(privilege_section)
 
-        # Timeout setting
-        timeout_layout = QHBoxLayout()
-        timeout_layout.setSpacing(10)
-        timeout_layout.addWidget(QLabel("Default Timeout (seconds):"))
-        self.timeout_spin = QSpinBox()
-        self.timeout_spin.setValue(300)
-        self.timeout_spin.setMinimum(30)
-        self.timeout_spin.setMaximum(3600)
-        self.timeout_spin.setFixedWidth(80)
-        timeout_layout.addWidget(self.timeout_spin)
-        timeout_layout.addStretch()
-        layout.addLayout(timeout_layout)
+        info_label = QLabel("Enable sudo for tools requiring root privileges (Nmap SYN scan, OS detection)")
+        info_label.setStyleSheet("color: #8B949E; font-size: 12px;")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
 
-        # Parallel scanning
-        self.parallel_check = QCheckBox("Enable Parallel Scanning")
-        self.parallel_check.setChecked(False)
-        layout.addWidget(self.parallel_check)
+        # Simple checkbox to enable/disable sudo
+        self.enable_sudo_check = QCheckBox("Enable sudo for root-required tools")
+        self.enable_sudo_check.setStyleSheet("font-size: 14px; font-weight: 500;")
+        layout.addWidget(self.enable_sudo_check)
 
-        # Thread count
-        threads_layout = QHBoxLayout()
-        threads_layout.setSpacing(10)
-        threads_layout.addWidget(QLabel("Max Threads:"))
-        self.threads_spin = QSpinBox()
-        self.threads_spin.setValue(4)
-        self.threads_spin.setMinimum(1)
-        self.threads_spin.setMaximum(16)
-        self.threads_spin.setFixedWidth(80)
-        threads_layout.addWidget(self.threads_spin)
-        threads_layout.addStretch()
-        layout.addLayout(threads_layout)
+        # Password field (disabled by default)
+        password_label = QLabel("Sudo Password:")
+        password_label.setStyleSheet("font-size: 13px; margin-top: 10px;")
+        layout.addWidget(password_label)
+        
+        self.sudo_password_input = QLineEdit()
+        self.sudo_password_input.setEchoMode(QLineEdit.Password)
+        self.sudo_password_input.setPlaceholderText("Enter your sudo password")
+        self.sudo_password_input.setEnabled(False)
+        layout.addWidget(self.sudo_password_input)
 
+        # Warning
+        warning_label = QLabel("⚠️ Password is stored in memory only and cleared when app closes")
+        warning_label.setStyleSheet("color: #F0C330; font-size: 11px; margin-top: 5px;")
+        layout.addWidget(warning_label)
+
+        # Connect checkbox to enable/disable password field
+        self.enable_sudo_check.toggled.connect(self._on_sudo_toggled)
+        
+        # Info about output directory
         layout.addWidget(self._divider())
-
-        # ===== OUTPUT SETTINGS =====
-        output_label = QLabel("Output Settings")
-        output_label.setStyleSheet("font-weight: 600; color: #60A5FA;")
-        layout.addWidget(output_label)
-
-        # Save reports
-        self.reports_check = QCheckBox("Auto-generate HTML Reports")
-        self.reports_check.setChecked(True)
-        layout.addWidget(self.reports_check)
-
-        # Create JSON files
-        self.json_check = QCheckBox("Export JSON Data")
-        self.json_check.setChecked(True)
-        layout.addWidget(self.json_check)
-
-        # Output directory (display only)
-        output_dir_layout = QHBoxLayout()
-        output_dir_layout.setSpacing(10)
-        output_dir_layout.addWidget(QLabel("Output Directory:"))
-        output_dir_label = QLabel("/tmp/Vajra-results")
-        output_dir_label.setStyleSheet("color: #9CA3AF; font-size: 12px;")
-        output_dir_layout.addWidget(output_dir_label)
-        output_dir_layout.addStretch()
-        layout.addLayout(output_dir_layout)
-
-        layout.addWidget(self._divider())
-
-        # ===== UI SETTINGS =====
-        ui_label = QLabel("UI Preferences")
-        ui_label.setStyleSheet("font-weight: 600; color: #60A5FA;")
-        layout.addWidget(ui_label)
-
-        # Auto-scroll
-        self.autoscroll_check = QCheckBox("Auto-scroll Output")
-        self.autoscroll_check.setChecked(True)
-        layout.addWidget(self.autoscroll_check)
-
-        # Notifications
-        self.notify_check = QCheckBox("Show Notifications")
-        self.notify_check.setChecked(True)
-        layout.addWidget(self.notify_check)
-
-        # Theme
-        theme_layout = QHBoxLayout()
-        theme_layout.setSpacing(10)
-        theme_layout.addWidget(QLabel("Theme:"))
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["Dark (Default)", "Light"])
-        self.theme_combo.setFixedWidth(150)
-        theme_layout.addWidget(self.theme_combo)
-        theme_layout.addStretch()
-        layout.addLayout(theme_layout)
-
-        layout.addWidget(self._divider())
-
-        # ===== TOOL SETTINGS =====
-        tools_label = QLabel("Tool Settings")
-        tools_label.setStyleSheet("font-weight: 600; color: #60A5FA;")
-        layout.addWidget(tools_label)
-
-        # Nmap aggressive
-        self.nmap_aggressive_check = QCheckBox("Nmap: Enable Aggressive Scan")
-        self.nmap_aggressive_check.setChecked(False)
-        layout.addWidget(self.nmap_aggressive_check)
-
-        # HTTP redirects
-        self.follow_redirects_check = QCheckBox("HTTPX: Follow Redirects")
-        self.follow_redirects_check.setChecked(True)
-        layout.addWidget(self.follow_redirects_check)
-
-        # Screenshot threads
-        screenshot_threads_layout = QHBoxLayout()
-        screenshot_threads_layout.setSpacing(10)
-        screenshot_threads_layout.addWidget(QLabel("Screenshot Threads:"))
-        self.screenshot_threads_spin = QSpinBox()
-        self.screenshot_threads_spin.setValue(5)
-        self.screenshot_threads_spin.setMinimum(1)
-        self.screenshot_threads_spin.setMaximum(20)
-        self.screenshot_threads_spin.setFixedWidth(80)
-        screenshot_threads_layout.addWidget(self.screenshot_threads_spin)
-        screenshot_threads_layout.addStretch()
-        layout.addLayout(screenshot_threads_layout)
+        
+        info_section = QLabel("ℹ️ Information")
+        info_section.setStyleSheet("font-size: 18px; font-weight: 600; color: #58A6FF;")
+        layout.addWidget(info_section)
+        
+        output_info = QLabel("Output Directory: /tmp/Vajra-results")
+        output_info.setStyleSheet("color: #8B949E; font-size: 13px;")
+        layout.addWidget(output_info)
+        
+        tools_info = QLabel("Tools requiring root: Nmap (SYN scan, UDP scan, OS detection)")
+        tools_info.setStyleSheet("color: #8B949E; font-size: 13px;")
+        tools_info.setWordWrap(True)
+        layout.addWidget(tools_info)
 
         layout.addStretch()
 
         # Save button
         save_btn = QPushButton("💾 Save Settings")
+        save_btn.setFixedHeight(45)
         save_btn.setStyleSheet("""
             QPushButton {
-                background-color: #2563EB;
+                background-color: #238636;
                 color: white;
                 border-radius: 6px;
-                padding: 8px;
+                padding: 10px;
                 font-weight: 600;
+                font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #1D4ED8;
+                background-color: #2EA043;
+            }
+            QPushButton:pressed {
+                background-color: #1A7F37;
             }
         """)
+        save_btn.clicked.connect(self._save_settings)
         layout.addWidget(save_btn)
+
+        scroll.setWidget(scroll_widget)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(scroll)
 
     def _divider(self):
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #2A2F36;")
+        line.setStyleSheet("background-color: #21262D; min-height: 1px; max-height: 1px;")
         return line
-
-    def show_below(self, anchor_widget):
-        """
-        Shows panel below the given widget (⚙️ icon).
-        """
-        global_pos = anchor_widget.mapToGlobal(anchor_widget.rect().bottomLeft())
-        self.move(global_pos.x() - self.width() + anchor_widget.width(), global_pos.y())
-        self.show()
-
-    def focusOutEvent(self, event):
-        self.hide()
-        super().focusOutEvent(event)
-
+    
+    def _on_sudo_toggled(self, checked):
+        """Enable/disable password field based on checkbox"""
+        self.sudo_password_input.setEnabled(checked)
+        if not checked:
+            self.sudo_password_input.clear()
+    
+    def _save_settings(self):
+        """Save all settings and apply privilege escalation configuration"""
+        global privilege_manager
+        
+        # Apply privilege escalation settings (simplified)
+        if self.enable_sudo_check.isChecked():
+            privilege_manager.set_mode("sudo")
+            password = self.sudo_password_input.text()
+            if password:
+                privilege_manager.set_sudo_password(password)
+            else:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self,
+                    "Password Required",
+                    "Please enter your sudo password or disable sudo mode."
+                )
+                return
+        else:
+            privilege_manager.set_mode("none")
+            privilege_manager.clear_password()
+        
+        # Show confirmation
+        from PySide6.QtWidgets import QMessageBox
+        status = privilege_manager.get_status_message()
+        QMessageBox.information(
+            self,
+            "Settings Saved",
+            f"Settings saved successfully!\n\nPrivilege Status: {status}"
+        )

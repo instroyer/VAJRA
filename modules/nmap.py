@@ -15,87 +15,15 @@ from ui.main_window import BaseToolView
 from ui.worker import ProcessWorker
 from core.tgtinput import parse_targets
 from core.fileops import create_target_dirs
-from ui.styles import TARGET_INPUT_STYLE, COMBO_BOX_STYLE, COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED
-from PySide6.QtGui import QPainter, QPen, QBrush, QPolygon
-from PySide6.QtCore import QPoint
+from ui.styles import (
+    TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
+    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
+    StyledComboBox, StyledSpinBox, SPINBOX_STYLE
+)
 
 
 # ==============================
-# Custom Styled ComboBox
-# ==============================
-
-class StyledComboBox(QComboBox):
-    """Custom ComboBox with visible arrow and consistent background."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setStyleSheet(self._get_style())
-    
-    def _get_style(self):
-        return f"""
-            QComboBox {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
-                padding-right: 20px;
-            }}
-            QComboBox:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-            QComboBox::drop-down {{
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 20px;
-                border-left: 1px solid {COLOR_BORDER};
-                border-top-right-radius: 3px;
-                border-bottom-right-radius: 3px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-            }}
-            QComboBox::drop-down:hover {{
-                background-color: #4A4A4A;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                border: 1px solid {COLOR_BORDER};
-                color: {COLOR_TEXT_PRIMARY};
-                selection-background-color: {COLOR_BORDER_INPUT_FOCUSED};
-                selection-color: {COLOR_TEXT_PRIMARY};
-                outline: none;
-            }}
-        """
-    
-    def paintEvent(self, event):
-        """Custom paint event to draw arrow."""
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        # Calculate drop-down button area (right side, 20px wide)
-        width = self.width()
-        height = self.height()
-        drop_down_width = 20
-        drop_down_x = width - drop_down_width
-        drop_down_rect = QRect(drop_down_x, 0, drop_down_width, height)
-        
-        # Draw arrow triangle in center of drop-down area
-        arrow_size = 6
-        center_x = drop_down_rect.center().x()
-        center_y = drop_down_rect.center().y()
-        
-        painter.setPen(QPen(Qt.NoPen))
-        painter.setBrush(QBrush(COLOR_TEXT_PRIMARY))
-        
-        # Draw downward triangle
-        arrow = QPolygon([
-            QPoint(center_x - arrow_size//2, center_y - arrow_size//3),
-            QPoint(center_x + arrow_size//2, center_y - arrow_size//3),
-            QPoint(center_x, center_y + arrow_size//2)
-        ])
-        painter.drawPolygon(arrow)
-
-# ==============================
-# Utility & Validation Helpers
+# Nmap Tool
 # ==============================
 
 def is_root():
@@ -174,12 +102,14 @@ class NmapScannerView(BaseToolView):
 
         options_layout = QHBoxLayout()
         port_label = QLabel("Ports:")
+        port_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
         self.port_input = QLineEdit()
         self.port_input.setPlaceholderText("e.g. 80, 443, 1-1000")
         # Apply target input style to port input
         self.port_input.setStyleSheet(TARGET_INPUT_STYLE)
         
         scan_type_label = QLabel("Scan Type:")
+        scan_type_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
         self.scan_type = StyledComboBox()
         self.scan_type.addItems(['syn', 'tcp', 'udp', 'ack', 'fin', 'null', 'xmas', 'window', 'maimon'])
         
@@ -191,6 +121,7 @@ class NmapScannerView(BaseToolView):
 
         script_host_layout = QHBoxLayout()
         script_label = QLabel("Scripts:")
+        script_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
         self.script_input = StyledComboBox()
         self.script_input.setEditable(True)
         self.script_input.setPlaceholderText("Search or select a script...")
@@ -207,6 +138,7 @@ class NmapScannerView(BaseToolView):
         self.script_input.setCompleter(completer)
 
         host_scan_label = QLabel("Host Scan:")
+        host_scan_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
         self.host_scan_type = StyledComboBox()
         self.host_scan_type.addItems(['Default', 'List Scan (-sL)', 'Ping Scan (-sn)', 'No Ping (-Pn)'])
 
@@ -218,10 +150,15 @@ class NmapScannerView(BaseToolView):
 
         # Checkbox layout (first line)
         checkbox_layout = QHBoxLayout()
+        checkbox_style = f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px;"
         self.aggressive_scan_check = QCheckBox("Aggressive Scan (-A)")
+        self.aggressive_scan_check.setStyleSheet(checkbox_style)
         self.traceroute_check = QCheckBox("Traceroute")
+        self.traceroute_check.setStyleSheet(checkbox_style)
         self.service_version_check = QCheckBox("Service Version (-sV)")
+        self.service_version_check.setStyleSheet(checkbox_style)
         self.os_detection_check = QCheckBox("OS Detection (-O)")
+        self.os_detection_check.setStyleSheet(checkbox_style)
         
         checkbox_layout.addWidget(self.aggressive_scan_check)
         checkbox_layout.addWidget(self.traceroute_check)
@@ -232,11 +169,13 @@ class NmapScannerView(BaseToolView):
         # Speed and Output Format layout (second line, below checkboxes)
         speed_output_layout = QHBoxLayout()
         speed_label = QLabel("Speed:")
+        speed_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
         self.speed_template = StyledComboBox()
         self.speed_template.addItems(['T0 (Paranoid)', 'T1 (Sneaky)', 'T2 (Polite)', 'T3 (Normal)', 'T4 (Aggressive)', 'T5 (Insane)'])
         self.speed_template.setCurrentIndex(3)  # Default to T3 (Normal)
         
         output_format_label = QLabel("Output Format:")
+        output_format_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
         self.output_format = StyledComboBox()
         self.output_format.addItems(['Normal (txt)', 'XML (.xml)', 'Grepable (.gnmap)', 'All Formats'])
 
@@ -247,16 +186,52 @@ class NmapScannerView(BaseToolView):
         speed_output_layout.addWidget(self.output_format, 1)
 
         timing_title = QLabel("Timing & Rate Control")
+        timing_title.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 600; margin-top: 10px;")
 
         timing_controls_widget = QWidget()
+        timing_controls_widget.setStyleSheet("background: transparent; border: none;")  # Remove dark box
         timing_layout = QHBoxLayout(timing_controls_widget)
         timing_layout.setContentsMargins(0, 0, 0, 0)
         timing_layout.setSpacing(10)
 
-        self.delay = QSpinBox(); self.delay.setSuffix(" ms delay"); self.delay.setRange(0, 5000); self.delay.setValue(0)
-        self.max_rps = QSpinBox(); self.max_rps.setPrefix("Max RPS: "); self.max_rps.setRange(0, 10000); self.max_rps.setValue(0)
-        self.timeout = QSpinBox(); self.timeout.setPrefix("Timeout: "); self.timeout.setSuffix(" s"); self.timeout.setRange(0, 300); self.timeout.setValue(0)
-        self.retries = QSpinBox(); self.retries.setPrefix("Retries: "); self.retries.setRange(0, 10); self.retries.setValue(0)
+        # Host timeout
+        timeout_label = QLabel("Host Timeout (ms):")
+        timeout_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
+        self.host_timeout_spin = QSpinBox()
+        self.host_timeout_spin.setRange(0, 300000)
+        self.host_timeout_spin.setValue(0)
+        self.host_timeout_spin.setSuffix(" ms")
+        self.host_timeout_spin.setSpecialValueText("Default")
+        self.host_timeout_spin.setStyleSheet(SPINBOX_STYLE)
+        timing_layout.addWidget(timeout_label)
+        timing_layout.addWidget(self.host_timeout_spin)
+
+        # Create styled spinboxes using centralized style
+        self.delay = QSpinBox()
+        self.delay.setSuffix(" ms delay")
+        self.delay.setRange(0, 5000)
+        self.delay.setValue(0)
+        self.delay.setStyleSheet(SPINBOX_STYLE)
+
+        self.max_rps = QSpinBox()
+        self.max_rps.setPrefix("Max RPS: ")
+        self.max_rps.setRange(0, 10000)
+        self.max_rps.setValue(0)
+        self.max_rps.setStyleSheet(SPINBOX_STYLE)
+
+        self.timeout = QSpinBox()
+        self.timeout.setPrefix("Timeout: ")
+        self.timeout.setSuffix(" s")
+        self.timeout.setRange(0, 300)
+        self.timeout.setValue(0)
+        self.timeout.setStyleSheet(SPINBOX_STYLE)
+
+        self.retries = QSpinBox()
+        self.retries.setPrefix("Retries: ")
+        self.retries.setRange(0, 10)
+        self.retries.setValue(0)
+        self.retries.setStyleSheet(SPINBOX_STYLE)
+
         for w in (self.delay, self.max_rps, self.timeout, self.retries):
             timing_layout.addWidget(w)
 
@@ -410,6 +385,27 @@ class NmapScannerView(BaseToolView):
             if self.delay.value() > 0: command.extend(["--scan-delay", f"{self.delay.value()}ms"])
             command.extend(targets)
 
+            # === PRIVILEGE ESCALATION CHECK ===
+            from ui.settingpanel import privilege_manager
+            
+            # Determine if this scan requires root privileges
+            scan_flag = self._get_nmap_scan_flag()
+            needs_root = (
+                scan_flag in ['-sS', '-sU', '-sO'] or  # SYN, UDP, IP protocol scans
+                self.os_detection_check.isChecked() or   # OS detection
+                self.aggressive_scan_check.isChecked()   # Aggressive includes OS detection
+            )
+            
+            if needs_root and privilege_manager.needs_privilege_escalation():
+                # Wrap command with sudo/pkexec
+                command = privilege_manager.wrap_command(command)
+                stdin_data = privilege_manager.get_stdin_data()
+                self._info(f"Using privilege escalation: {privilege_manager.mode}")
+            else:
+                stdin_data = None
+                if needs_root:
+                    self._info("⚠️ Warning: This scan requires root privileges. Enable in Settings or run as root.")
+
             if output_flag == '-oA':
                 self._info(f"Scan started. Output will be saved to {log_path_base}.(nmap|xml|gnmap)")
             else:
@@ -417,7 +413,7 @@ class NmapScannerView(BaseToolView):
             # Add blank line after info message
             self.output.appendPlainText("")
             
-            self.worker = ProcessWorker(command)
+            self.worker = ProcessWorker(command, stdin_data=stdin_data)
             self.worker.output_ready.connect(self.output.appendPlainText)
             self.worker.finished.connect(self.on_finished)
             self.worker.error.connect(self._error)

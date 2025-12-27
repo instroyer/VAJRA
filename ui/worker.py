@@ -11,10 +11,11 @@ class ProcessWorker(QThread):
     finished = Signal()  # Emitted when process completes
     error = Signal(str)  # Emitted if an error occurs
 
-    def __init__(self, command, shell=False):
+    def __init__(self, command, shell=False, stdin_data=None):
         super().__init__()
         self.command = command
         self.shell = shell
+        self.stdin_data = stdin_data  # For sudo password injection
         self.process = None
         self.is_running = True
 
@@ -32,11 +33,18 @@ class ProcessWorker(QThread):
             self.process = subprocess.Popen(
                 self.command,
                 shell=self.shell,
+                stdin=subprocess.PIPE if self.stdin_data else None,  # Enable stdin if password provided
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1
             )
+
+            # Write password to stdin if provided (for sudo -S)
+            if self.stdin_data:
+                self.process.stdin.write(self.stdin_data)
+                self.process.stdin.flush()
+                self.process.stdin.close()
 
             # Read output line by line
             while self.is_running and self.process.poll() is None:

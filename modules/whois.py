@@ -49,7 +49,7 @@ class WhoisView(BaseToolView):
         self._section(f"WHOIS: {target}")
 
         base_dir = create_target_dirs(target, self.group_name)
-        self.log_file = os.path.join(base_dir, "Whois", "whois.txt")
+        self.log_file = os.path.join(base_dir, "Logs", "whois.txt")
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
         
         command = self.command_input.text().split()

@@ -15,84 +15,12 @@ from ui.main_window import BaseToolView
 from ui.worker import ProcessWorker
 from core.tgtinput import parse_targets
 from core.fileops import create_target_dirs
-from ui.styles import TARGET_INPUT_STYLE, COMBO_BOX_STYLE, COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED
-from PySide6.QtGui import QPainter, QPen, QBrush, QPolygon
-from PySide6.QtCore import QPoint
+from ui.styles import (
+    TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
+    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
+    StyledComboBox  # Import from centralized styles
+)
 
-
-# ==============================
-# Custom Styled ComboBox
-# ==============================
-
-class StyledComboBox(QComboBox):
-    """Custom ComboBox with visible arrow and consistent background."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setStyleSheet(self._get_style())
-
-    def _get_style(self):
-        return f"""
-            QComboBox {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
-                padding-right: 20px;
-            }}
-            QComboBox:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-            QComboBox::drop-down {{
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 20px;
-                border-left: 1px solid {COLOR_BORDER};
-                border-top-right-radius: 3px;
-                border-bottom-right-radius: 3px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-            }}
-            QComboBox::drop-down:hover {{
-                background-color: #4A4A4A;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                border: 1px solid {COLOR_BORDER};
-                color: {COLOR_TEXT_PRIMARY};
-                selection-background-color: {COLOR_BORDER_INPUT_FOCUSED};
-                selection-color: {COLOR_TEXT_PRIMARY};
-                outline: none;
-            }}
-        """
-
-    def paintEvent(self, event):
-        """Custom paint event to draw arrow."""
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Calculate drop-down button area (right side, 20px wide)
-        width = self.width()
-        height = self.height()
-        drop_down_width = 20
-        drop_down_x = width - drop_down_width
-        drop_down_rect = QRect(drop_down_x, 0, drop_down_width, height)
-
-        # Draw arrow triangle in center of drop-down area
-        arrow_size = 6
-        center_x = drop_down_rect.center().x()
-        center_y = drop_down_rect.center().y()
-
-        painter.setPen(QPen(Qt.NoPen))
-        painter.setBrush(QBrush(COLOR_TEXT_PRIMARY))
-
-        # Draw downward triangle
-        arrow = QPolygon([
-            QPoint(center_x - arrow_size//2, center_y - arrow_size//3),
-            QPoint(center_x + arrow_size//2, center_y - arrow_size//3),
-            QPoint(center_x, center_y + arrow_size//2)
-        ])
-        painter.drawPolygon(arrow)
 
 # ==============================
 # Hydra Tool
@@ -173,7 +101,7 @@ class HydraToolView(QWidget):
         control_panel = QWidget()
         control_panel.setStyleSheet(f"""
             QWidget {{
-                background-color: #2A2A2A;
+                background-color: #1C1C1C;
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
@@ -186,6 +114,19 @@ class HydraToolView(QWidget):
         header = QLabel("Cracker › Hydra")
         header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
         control_layout.addWidget(header)
+
+        # Command display (like nmap)
+        command_label = QLabel("Command:")
+        command_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
+        self.command_display = QLineEdit()
+        self.command_display.setReadOnly(True)
+        self.command_display.setStyleSheet(TARGET_INPUT_STYLE)
+        self.command_display.setPlaceholderText("Configure options to generate command...")
+        
+        command_layout = QVBoxLayout()
+        command_layout.addWidget(command_label)
+        command_layout.addWidget(self.command_display)
+        control_layout.addLayout(command_layout)
 
         # Target configuration with Start/Stop buttons
         target_group = QGroupBox("Target Configuration")
@@ -391,9 +332,12 @@ class HydraToolView(QWidget):
         user_group = QGroupBox("Username Options")
         user_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; border-radius: 3px; margin-top: 0.5ex; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
         user_layout = QVBoxLayout(user_group)
+        user_layout.setSpacing(15)  # Increased spacing between elements
+        user_layout.setContentsMargins(10, 20, 10, 10)  # Increased top margin for more spacing from title
 
         # Username input type
         user_type_layout = QHBoxLayout()
+        user_type_layout.setSpacing(20)  # Add spacing between radio buttons
         self.single_user_radio = QRadioButton("Single Username:")
         self.userlist_radio = QRadioButton("Username List:")
         self.userlist_radio.setChecked(True)
@@ -467,14 +411,18 @@ class HydraToolView(QWidget):
         user_layout.addLayout(userlist_layout)
 
         cred_options_layout.addWidget(user_group, 1)
+        cred_options_layout.addSpacing(20)  # Add gap between Username and Password boxes
 
         # Password options
         pass_group = QGroupBox("Password Options")
         pass_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; border-radius: 3px; margin-top: 0.5ex; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
         pass_layout = QVBoxLayout(pass_group)
+        pass_layout.setSpacing(15)  # Increased spacing between elements
+        pass_layout.setContentsMargins(10, 20, 10, 10)  # Increased top margin for more spacing from title
 
         # Password input type
         pass_type_layout = QHBoxLayout()
+        pass_type_layout.setSpacing(20)  # Add spacing between radio buttons
         self.single_pass_radio = QRadioButton("Single Password:")
         self.passlist_radio = QRadioButton("Password List:")
         self.passlist_radio.setChecked(True)
@@ -852,8 +800,8 @@ class HydraToolView(QWidget):
                     cmd_parts.extend([method + "-form", url_path])
 
             cmd = " ".join(cmd_parts)
-            if hasattr(self, 'command_input'):
-                self.command_input.setText(cmd)
+            if hasattr(self, 'command_display'):
+                self.command_display.setText(cmd)
         except AttributeError:
             pass
 

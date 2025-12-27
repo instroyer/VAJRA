@@ -147,7 +147,6 @@ class HashcatToolView(QWidget):
         }
 
         self._build_custom_ui()
-        self.update_command()
 
     def _build_custom_ui(self):
         # Create main layout
@@ -163,7 +162,7 @@ class HashcatToolView(QWidget):
         control_panel = QWidget()
         control_panel.setStyleSheet(f"""
             QWidget {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: #2A2A2A;
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
@@ -177,12 +176,12 @@ class HashcatToolView(QWidget):
         header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
         control_layout.addWidget(header)
 
-        # Hash file selection
+        # Hash file selection with Start/Stop buttons on same line
         hash_label = QLabel("Hash File / Input")
         hash_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
         control_layout.addWidget(hash_label)
 
-        # Hash input layout
+        # Hash input layout with buttons
         hash_layout = QHBoxLayout()
         self.hash_input = QLineEdit()
         self.hash_input.setPlaceholderText("Select hash file or enter hash directly...")
@@ -222,24 +221,79 @@ class HashcatToolView(QWidget):
             }}
         """)
 
+        # Start button (icon only)
+        self.run_button = QPushButton("▶")
+        self.run_button.setFixedSize(36, 36)
+        self.run_button.setCursor(Qt.PointingHandCursor)
+        self.run_button.setToolTip("Start Cracking")
+        self.run_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FF6B35;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 18px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #E55A2B;
+            }}
+            QPushButton:pressed {{
+                background-color: #CC4F26;
+            }}
+            QPushButton:disabled {{
+                background-color: #555555;
+                color: #999999;
+            }}
+        """)
+        self.run_button.clicked.connect(self.run_scan)
+
+        # Stop button (icon only)
+        self.stop_button = QPushButton("⏹")
+        self.stop_button.setFixedSize(36, 36)
+        self.stop_button.setCursor(Qt.PointingHandCursor)
+        self.stop_button.setToolTip("Stop Cracking")
+        self.stop_button.setEnabled(False)
+        self.stop_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #DC3545;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 18px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #C82333;
+            }}
+            QPushButton:pressed {{
+                background-color: #BD2130;
+            }}
+            QPushButton:disabled {{
+                background-color: #555555;
+                color: #999999;
+            }}
+        """)
+        self.stop_button.clicked.connect(self.stop_scan)
+
         hash_layout.addWidget(self.hash_input)
         hash_layout.addWidget(self.hash_browse_button)
+        hash_layout.addWidget(self.run_button)
+        hash_layout.addWidget(self.stop_button)
         control_layout.addLayout(hash_layout)
 
-        # Hash type selection
-        hash_type_label = QLabel("Hash Type")
+        # Hash type and Attack mode on one line
+        hash_attack_layout = QVBoxLayout()
+        
+        hash_type_label = QLabel("Hash Type & Attack Mode")
         hash_type_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        control_layout.addWidget(hash_type_label)
+        hash_attack_layout.addWidget(hash_type_label)
 
+        hash_attack_combo_layout = QHBoxLayout()
+        
         self.hash_type_combo = StyledComboBox()
         self.hash_type_combo.addItems(sorted(self.hash_modes.keys()))
-        control_layout.addWidget(self.hash_type_combo)
-
-        # Attack mode selection
-        attack_mode_label = QLabel("Attack Mode")
-        attack_mode_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        control_layout.addWidget(attack_mode_label)
-
+        
         self.attack_mode_combo = StyledComboBox()
         self.attack_mode_combo.addItems([
             "0: Straight (wordlist)",
@@ -249,7 +303,15 @@ class HashcatToolView(QWidget):
             "7: Hybrid Mask + Wordlist"
         ])
         self.attack_mode_combo.setCurrentText("0: Straight (wordlist)")
-        control_layout.addWidget(self.attack_mode_combo)
+        
+        hash_attack_combo_layout.addWidget(QLabel("Type:"), 0)
+        hash_attack_combo_layout.addWidget(self.hash_type_combo, 1)
+        hash_attack_combo_layout.addSpacing(15)
+        hash_attack_combo_layout.addWidget(QLabel("Mode:"), 0)
+        hash_attack_combo_layout.addWidget(self.attack_mode_combo, 1)
+        
+        hash_attack_layout.addLayout(hash_attack_combo_layout)
+        control_layout.addLayout(hash_attack_layout)
 
         # Wordlist selection
         wordlist_label = QLabel("Wordlist")
@@ -348,7 +410,7 @@ class HashcatToolView(QWidget):
         command_label = QLabel("Command")
         command_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
         self.command_input = QLineEdit()
-        self.command_input.setReadOnly(True)
+        self.command_input.setReadOnly(False)
         self.command_input.setStyleSheet(f"""
             QLineEdit {{
                 padding: 6px;
@@ -358,61 +420,15 @@ class HashcatToolView(QWidget):
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
+            QLineEdit:focus {{
+                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+            }}
         """)
 
         control_layout.addWidget(command_label)
         control_layout.addWidget(self.command_input)
 
-        # Control buttons
-        buttons_layout = QHBoxLayout()
 
-        self.run_button = QPushButton("START CRACKING")
-        self.run_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #FF6B35;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 12px 24px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{
-                background-color: #E55A2B;
-            }}
-            QPushButton:pressed {{
-                background-color: #CC4F26;
-            }}
-        """)
-        self.run_button.clicked.connect(self.run_scan)
-
-        self.stop_button = QPushButton("STOP")
-        self.stop_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #DC3545;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 12px 24px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{
-                background-color: #C82333;
-            }}
-            QPushButton:pressed {{
-                background-color: #BD2130;
-            }}
-        """)
-        self.stop_button.clicked.connect(self.stop_scan)
-        self.stop_button.setEnabled(False)
-
-        buttons_layout.addStretch()
-        buttons_layout.addWidget(self.run_button)
-        buttons_layout.addWidget(self.stop_button)
-        buttons_layout.addStretch()
-
-        control_layout.addLayout(buttons_layout)
 
         # Progress bar
         self.progress_bar = QProgressBar()

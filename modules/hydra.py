@@ -158,7 +158,6 @@ class HydraToolView(QWidget):
         }
 
         self._build_custom_ui()
-        self.update_command()
 
     def _build_custom_ui(self):
         # Create main layout
@@ -174,7 +173,7 @@ class HydraToolView(QWidget):
         control_panel = QWidget()
         control_panel.setStyleSheet(f"""
             QWidget {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: #2A2A2A;
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
@@ -188,7 +187,7 @@ class HydraToolView(QWidget):
         header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
         control_layout.addWidget(header)
 
-        # Target configuration
+        # Target configuration with Start/Stop buttons
         target_group = QGroupBox("Target Configuration")
         target_group.setStyleSheet(f"""
             QGroupBox {{
@@ -207,7 +206,7 @@ class HydraToolView(QWidget):
 
         target_layout = QVBoxLayout(target_group)
 
-        # Target host
+        # Target host with buttons
         host_layout = QHBoxLayout()
         host_label = QLabel("Target Host/IP:")
         self.host_input = QLineEdit()
@@ -227,22 +226,78 @@ class HydraToolView(QWidget):
             }}
         """)
 
-        host_layout.addWidget(host_label)
-        host_layout.addWidget(self.host_input)
-        target_layout.addLayout(host_layout)
-
-        # Port
-        port_layout = QHBoxLayout()
+        # Port with dropdown and input
         port_label = QLabel("Port:")
-        self.port_input = QSpinBox()
-        self.port_input.setRange(1, 65535)
-        self.port_input.setValue(22)  # Default SSH port
-        self.port_input.setMinimumHeight(36)
+        self.port_combo = StyledComboBox()
+        self.port_combo.addItems(["22", "80", "443", "3306", "5432", "3389", "445", "21"])
+        self.port_combo.setEditable(True)
+        self.port_combo.setCurrentText("22")
+        self.port_combo.setMinimumHeight(36)
+        self.port_combo.setMaximumWidth(100)
 
-        port_layout.addWidget(port_label)
-        port_layout.addWidget(self.port_input)
-        port_layout.addStretch()
-        target_layout.addLayout(port_layout)
+        # Start button (icon only)
+        self.run_button = QPushButton("▶")
+        self.run_button.setFixedSize(36, 36)
+        self.run_button.setCursor(Qt.PointingHandCursor)
+        self.run_button.setToolTip("Start Brute Force")
+        self.run_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FF6B35;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 18px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #E55A2B;
+            }}
+            QPushButton:pressed {{
+                background-color: #CC4F26;
+            }}
+            QPushButton:disabled {{
+                background-color: #555555;
+                color: #999999;
+            }}
+        """)
+        self.run_button.clicked.connect(self.run_scan)
+
+        # Stop button (icon only)
+        self.stop_button = QPushButton("⏹")
+        self.stop_button.setFixedSize(36, 36)
+        self.stop_button.setCursor(Qt.PointingHandCursor)
+        self.stop_button.setToolTip("Stop Brute Force")
+        self.stop_button.setEnabled(False)
+        self.stop_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #DC3545;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 18px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #C82333;
+            }}
+            QPushButton:pressed {{
+                background-color: #BD2130;
+            }}
+            QPushButton:disabled {{
+                background-color: #555555;
+                color: #999999;
+            }}
+        """)
+        self.stop_button.clicked.connect(self.stop_scan)
+
+        host_layout.addWidget(host_label)
+        host_layout.addWidget(self.host_input, 2)
+        host_layout.addSpacing(10)
+        host_layout.addWidget(port_label)
+        host_layout.addWidget(self.port_combo)
+        host_layout.addWidget(self.run_button)
+        host_layout.addWidget(self.stop_button)
+        target_layout.addLayout(host_layout)
 
         control_layout.addWidget(target_group)
 
@@ -308,7 +363,7 @@ class HydraToolView(QWidget):
         self.service_options_layout.addWidget(self.http_options_widget)
         service_layout.addLayout(self.service_options_layout)
 
-        control_layout.addWidget(service_group)
+
 
         # Credentials configuration
         creds_group = QGroupBox("Credentials Configuration")
@@ -328,6 +383,9 @@ class HydraToolView(QWidget):
         """)
 
         creds_layout = QVBoxLayout(creds_group)
+
+        # Username and Password options on one line
+        cred_options_layout = QHBoxLayout()
 
         # Username options
         user_group = QGroupBox("Username Options")
@@ -408,7 +466,7 @@ class HydraToolView(QWidget):
         userlist_layout.addWidget(self.userlist_browse_button)
         user_layout.addLayout(userlist_layout)
 
-        creds_layout.addWidget(user_group)
+        cred_options_layout.addWidget(user_group, 1)
 
         # Password options
         pass_group = QGroupBox("Password Options")
@@ -490,7 +548,8 @@ class HydraToolView(QWidget):
         passlist_layout.addWidget(self.passlist_browse_button)
         pass_layout.addLayout(passlist_layout)
 
-        creds_layout.addWidget(pass_group)
+        cred_options_layout.addWidget(pass_group, 1)
+        creds_layout.addLayout(cred_options_layout)
 
         control_layout.addWidget(creds_group)
 
@@ -550,7 +609,7 @@ class HydraToolView(QWidget):
         command_label = QLabel("Command")
         command_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
         self.command_input = QLineEdit()
-        self.command_input.setReadOnly(True)
+        self.command_input.setReadOnly(False)
         self.command_input.setStyleSheet(f"""
             QLineEdit {{
                 padding: 6px;
@@ -560,61 +619,15 @@ class HydraToolView(QWidget):
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
+            QLineEdit:focus {{
+                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+            }}
         """)
 
         control_layout.addWidget(command_label)
         control_layout.addWidget(self.command_input)
 
-        # Control buttons
-        buttons_layout = QHBoxLayout()
 
-        self.run_button = QPushButton("START BRUTE FORCE")
-        self.run_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #DC3545;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 12px 24px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{
-                background-color: #C82333;
-            }}
-            QPushButton:pressed {{
-                background-color: #BD2130;
-            }}
-        """)
-        self.run_button.clicked.connect(self.run_scan)
-
-        self.stop_button = QPushButton("STOP")
-        self.stop_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #6C757D;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 12px 24px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{
-                background-color: #5A6268;
-            }}
-            QPushButton:pressed {{
-                background-color: #545B62;
-            }}
-        """)
-        self.stop_button.clicked.connect(self.stop_scan)
-        self.stop_button.setEnabled(False)
-
-        buttons_layout.addStretch()
-        buttons_layout.addWidget(self.run_button)
-        buttons_layout.addWidget(self.stop_button)
-        buttons_layout.addStretch()
-
-        control_layout.addLayout(buttons_layout)
 
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -693,7 +706,7 @@ class HydraToolView(QWidget):
         self.pass_radio_group.buttonClicked.connect(self._on_pass_radio_changed)
 
         # Connect signals
-        for widget in [self.host_input, self.port_input, self.service_combo, self.username_input,
+        for widget in [self.host_input, self.port_combo, self.service_combo, self.username_input,
                       self.userlist_input, self.password_input, self.passlist_input,
                       self.tasks_spin, self.timeout_spin, self.wait_spin,
                       self.http_url_input, self.http_method_combo]:
@@ -733,16 +746,16 @@ class HydraToolView(QWidget):
         if is_http:
             # Set default port based on HTTP/HTTPS
             if "HTTPS" in service:
-                self.port_input.setValue(443)
+                self.port_combo.setCurrentText("443")
             else:
-                self.port_input.setValue(80)
+                self.port_combo.setCurrentText("80")
         else:
             # Set default ports for other services
             default_ports = {
-                "SSH": 22, "FTP": 21, "Telnet": 23, "SMTP": 25, "POP3": 110,
-                "IMAP": 143, "SMB": 445, "LDAP": 389, "MySQL": 3306, "RDP": 3389
+                "SSH": "22", "FTP": "21", "Telnet": "23", "SMTP": "25", "POP3": "110",
+                "IMAP": "143", "SMB": "445", "LDAP": "389", "MySQL": "3306", "RDP": "3389"
             }
-            self.port_input.setValue(default_ports.get(service, 22))
+            self.port_combo.setCurrentText(str(default_ports.get(service, "22")))
 
         self.update_command()
 
@@ -785,7 +798,7 @@ class HydraToolView(QWidget):
     def update_command(self):
         try:
             host = self.host_input.text().strip() or "<host>"
-            port = str(self.port_input.value())
+            port = self.port_combo.currentText().strip() or "22"
             service = self.service_mappings.get(self.service_combo.currentText(), "ssh")
 
             cmd_parts = ["hydra"]
@@ -889,7 +902,7 @@ class HydraToolView(QWidget):
             os.makedirs(logs_dir, exist_ok=True)
 
             self._info(f"Starting Hydra brute force attack")
-            self._info(f"Target: {host}:{self.port_input.value()}")
+            self._info(f"Target: {host}:{self.port_combo.currentText()}")
             self._info(f"Service: {self.service_combo.currentText()}")
             self.output.appendPlainText("")
 
@@ -913,7 +926,7 @@ class HydraToolView(QWidget):
 
             # Service and target
             service = self.service_mappings.get(self.service_combo.currentText(), "ssh")
-            target = f"{service}://{host}:{self.port_input.value()}"
+            target = f"{service}://{host}:{self.port_combo.currentText()}"
             cmd.append(target)
 
             # Tasks
@@ -999,7 +1012,7 @@ class HydraToolView(QWidget):
             with open(results_file, 'w') as f:
                 f.write("Hydra Brute Force Results\n")
                 f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Target: {host}:{self.port_input.value()}\n")
+                f.write(f"Target: {host}:{self.port_combo.currentText()}\n")
                 f.write(f"Service: {self.service_combo.currentText()}\n\n")
 
                 f.write("Cracked Credentials:\n")

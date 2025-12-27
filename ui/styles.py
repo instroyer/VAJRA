@@ -31,6 +31,12 @@ COLOR_WARNING = "#FFC107"
 COLOR_ERROR = "#DC3545"
 COLOR_INFO = "#FACC15" # (Yellow 400)
 
+# --- Cracker Category Colors ---
+COLOR_CRACKER_HASHCAT = "#FF6B35"       # Orange for Hashcat
+COLOR_CRACKER_HYDRA = "#DC3545"         # Red for Hydra
+COLOR_CRACKER_JOHN = "#28A745"          # Green for John The Ripper
+COLOR_CRACKER_GROUPBOX = "#2A2A2A"      # Dark gray for groupbox backgrounds
+
 # --- Font ---
 FONT_FAMILY_UI = "Segoe UI, Arial, sans-serif"
 FONT_FAMILY_MONO = "Consolas, 'Courier New', monospace"

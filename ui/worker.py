@@ -18,6 +18,14 @@ class ProcessWorker(QThread):
         self.process = None
         self.is_running = True
 
+        # Auto-detect if command is too long for execvp
+        if not shell and isinstance(command, list):
+            command_str = ' '.join(command)
+            if len(command) > 50 or len(command_str) > 5000:
+                # Convert to shell command to avoid argument list limits
+                self.command = ['sh', '-c', command_str]
+                self.shell = True
+
     def run(self):
         """Run the subprocess in a separate thread"""
         try:

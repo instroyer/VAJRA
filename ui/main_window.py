@@ -3,9 +3,9 @@ import inspect
 import importlib
 import pkgutil
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, 
-    QTabWidget, QTabBar, QPushButton, QStatusBar, QSplitter, 
-    QLineEdit, QApplication, QGridLayout, QPlainTextEdit
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
+    QTabWidget, QTabBar, QPushButton, QStatusBar, QSplitter,
+    QLineEdit, QApplication, QGridLayout, QPlainTextEdit, QMessageBox
 )
 from PySide6.QtCore import Qt
 
@@ -169,8 +169,17 @@ class MainWindow(QMainWindow):
         if self.tab_widget.count() == 1 and self.tab_widget.tabText(0) == "Welcome":
             self.tab_widget.removeTab(0)
 
-        tool_widget = tool.get_widget(main_window=self)
-        index = self.tab_widget.addTab(tool_widget, tool.name)
+        try:
+            tool_widget = tool.get_widget(main_window=self)
+            if tool_widget is None:
+                QMessageBox.critical(self, "Tool Error", f"Tool {tool.name} returned None widget")
+                return
+            index = self.tab_widget.addTab(tool_widget, tool.name)
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            QMessageBox.critical(self, "Tool Error", f"Failed to open {tool.name}:\n{str(e)}\n\nDetails:\n{error_details}")
+            return
         
         # --- Add custom close button ---
         close_btn = QPushButton("✕")

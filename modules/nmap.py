@@ -145,6 +145,7 @@ class NmapScannerView(BaseToolView):
         self.nmap_scripts = self._get_nmap_scripts()
         self._is_stopping = False
         self._scan_complete_added = False  # Flag to prevent duplicate "Scan Complete"
+        self._temp_ports_file = None  # For cleanup of temporary port files
         self._build_custom_ui()
         self.update_command()
 
@@ -362,8 +363,29 @@ class NmapScannerView(BaseToolView):
                 if scan_type != "tcp" and not is_root():
                     QMessageBox.warning(self, "Privilege Warning", f"'{scan_type.upper()}' scan requires root privileges.")
                 
-                ports_str = ','.join(map(str, parse_port_range(self.port_input.text()) or parse_port_range("1-1000")))
-                command.extend([self._get_nmap_scan_flag(), "-p", ports_str])
+                # Handle port specification to avoid argument list too long errors
+                port_input = self.port_input.text().strip()
+                if not port_input:
+                    port_input = "1-1000"
+
+                # Check if the input contains ranges or is very long
+                if ',' not in port_input and '-' in port_input and len(port_input) <= 20:
+                    # Simple range like "1-1000" - use directly
+                    command.extend([self._get_nmap_scan_flag(), "-p", port_input])
+                elif len(port_input) <= 1000:
+                    # Short input - use as-is
+                    command.extend([self._get_nmap_scan_flag(), "-p", port_input])
+                else:
+                    # Very long input - use file-based approach
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                        # Parse and write individual ports to file
+                        ports_list = parse_port_range(port_input)
+                        f.write('\n'.join(map(str, ports_list)))
+                        ports_file = f.name
+
+                    command.extend([self._get_nmap_scan_flag(), "-iL", ports_file])
+                    self._temp_ports_file = ports_file
 
             if self.aggressive_scan_check.isChecked():
                 command.append("-A")
@@ -408,6 +430,14 @@ class NmapScannerView(BaseToolView):
             self._error(f"Failed to start scan: {str(e)}")
 
     def on_finished(self):
+        # Clean up temporary ports file if it exists
+        if hasattr(self, '_temp_ports_file') and self._temp_ports_file:
+            try:
+                os.unlink(self._temp_ports_file)
+                self._temp_ports_file = None
+            except (OSError, AttributeError):
+                pass
+
         self._on_scan_completed()
         if self._is_stopping:
             return
@@ -417,6 +447,14 @@ class NmapScannerView(BaseToolView):
             self._scan_complete_added = True
 
     def stop_scan(self):
+        # Clean up temporary ports file if it exists
+        if hasattr(self, '_temp_ports_file') and self._temp_ports_file:
+            try:
+                os.unlink(self._temp_ports_file)
+                self._temp_ports_file = None
+            except (OSError, AttributeError):
+                pass
+
         if self.worker and self.worker.is_running:
             self._is_stopping = True
             self.worker.stop()

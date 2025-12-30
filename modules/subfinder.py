@@ -2,7 +2,7 @@ import os
 from core.fileops import create_target_dirs, get_group_name_from_file
 from core.tgtinput import parse_targets
 from modules.bases import ToolBase, ToolCategory
-from ui.main_window import BaseToolView
+from ui.widgets import BaseToolView
 from ui.worker import ProcessWorker
 
 

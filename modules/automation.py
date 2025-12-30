@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QGroupBox,
 )
 from modules.bases import ToolBase, ToolCategory
+from ui.widgets import OutputView  # Import OutputView
+from ui.worker import ProcessWorker
 from core.tgtinput import TargetInput, parse_targets
 from core.fileops import create_target_dirs, get_group_name_from_file
 from core import reportgen as report
@@ -25,7 +27,6 @@ from ui.styles import (
     COLOR_ERROR,
     COLOR_INFO,
 )
-from ui.main_window import OutputView # Import OutputView
 
 
 class Status:

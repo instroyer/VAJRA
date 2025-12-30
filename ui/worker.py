@@ -8,7 +8,7 @@ class ProcessWorker(QThread):
     Emits signals for output updates and completion.
     """
     output_ready = Signal(str)  # Emitted for each line of output
-    finished = Signal()  # Emitted when process completes
+
     error = Signal(str)  # Emitted if an error occurs
 
     def __init__(self, command, shell=False, stdin_data=None):
@@ -60,11 +60,10 @@ class ProcessWorker(QThread):
                         self.output_ready.emit(line.rstrip())
 
             self.process.wait()
-            self.finished.emit()
+
 
         except Exception as e:
             self.error.emit(str(e))
-            self.finished.emit()
 
     def stop(self):
         """Stop the process"""

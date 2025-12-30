@@ -3,7 +3,7 @@ from PySide6.QtWidgets import QLabel, QSpinBox, QHBoxLayout, QCheckBox, QSplitte
 from core.tgtinput import parse_targets
 from core.fileops import RESULT_BASE
 from modules.bases import ToolBase, ToolCategory
-from ui.main_window import BaseToolView
+from ui.widgets import BaseToolView
 from ui.worker import ProcessWorker
 
 

@@ -138,7 +138,7 @@ class SettingsPanel(QWidget):
     def _build_ui(self):
         self.setStyleSheet("""
             QWidget {
-                background-color: #0D1117;
+                background-color: #1C1C1C;
                 color: white;
             }
             QLabel {
@@ -150,25 +150,25 @@ class SettingsPanel(QWidget):
                 font-size: 13px;
             }
             QSpinBox {
-                background-color: #161B22;
+                background-color: #3C3C3C;
                 color: white;
-                border: 1px solid #30363D;
+                border: 1px solid #333333;
                 padding: 6px;
                 border-radius: 4px;
                 font-size: 13px;
             }
             QComboBox {
-                background-color: #161B22;
+                background-color: #3C3C3C;
                 color: white;
-                border: 1px solid #30363D;
+                border: 1px solid #333333;
                 padding: 6px;
                 border-radius: 4px;
                 font-size: 13px;
             }
             QLineEdit {
-                background-color: #161B22;
+                background-color: #3C3C3C;
                 color: white;
-                border: 1px solid #30363D;
+                border: 1px solid #333333;
                 padding: 8px;
                 border-radius: 4px;
                 font-size: 13px;
@@ -202,21 +202,23 @@ class SettingsPanel(QWidget):
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
-        # Simple checkbox to enable/disable sudo
-        self.enable_sudo_check = QCheckBox("Enable sudo for root-required tools")
+        # Checkbox and password field on one line
+        sudo_layout = QHBoxLayout()
+        sudo_layout.setSpacing(15)
+        
+        self.enable_sudo_check = QCheckBox("Enable sudo:")
         self.enable_sudo_check.setStyleSheet("font-size: 14px; font-weight: 500;")
-        layout.addWidget(self.enable_sudo_check)
-
-        # Password field (disabled by default)
-        password_label = QLabel("Sudo Password:")
-        password_label.setStyleSheet("font-size: 13px; margin-top: 10px;")
-        layout.addWidget(password_label)
+        sudo_layout.addWidget(self.enable_sudo_check)
         
         self.sudo_password_input = QLineEdit()
         self.sudo_password_input.setEchoMode(QLineEdit.Password)
-        self.sudo_password_input.setPlaceholderText("Enter your sudo password")
+        self.sudo_password_input.setPlaceholderText("Enter your sudo password here")
         self.sudo_password_input.setEnabled(False)
-        layout.addWidget(self.sudo_password_input)
+        self.sudo_password_input.setFixedWidth(300)
+        sudo_layout.addWidget(self.sudo_password_input)
+        
+        sudo_layout.addStretch()
+        layout.addLayout(sudo_layout)
 
         # Warning
         warning_label = QLabel("⚠️ Password is stored in memory only and cleared when app closes")

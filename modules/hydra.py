@@ -11,14 +11,14 @@ from PySide6.QtWidgets import (
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.main_window import BaseToolView
 from ui.worker import ProcessWorker
 from core.tgtinput import parse_targets
 from core.fileops import create_target_dirs
 from ui.styles import (
     TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
     COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
-    StyledComboBox  # Import from centralized styles
+    StyledComboBox,  # Import from centralized styles
+    RUN_BUTTON_STYLE, STOP_BUTTON_STYLE  # Centralized button styles
 )
 
 
@@ -27,6 +27,8 @@ from ui.styles import (
 # ==============================
 
 class HydraTool(ToolBase):
+    """Hydra brute force attack tool."""
+
     @property
     def name(self) -> str:
         return "Hydra"
@@ -36,7 +38,9 @@ class HydraTool(ToolBase):
         return ToolCategory.CRACKER
 
     def get_widget(self, main_window: QWidget) -> QWidget:
+        """Create the tool view widget."""
         return HydraToolView(main_window=main_window)
+
 
 class HydraToolView(QWidget):
     def __init__(self, main_window):
@@ -115,19 +119,6 @@ class HydraToolView(QWidget):
         header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
         control_layout.addWidget(header)
 
-        # Command display (like nmap)
-        command_label = QLabel("Command:")
-        command_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
-        self.command_display = QLineEdit()
-        self.command_display.setReadOnly(True)
-        self.command_display.setStyleSheet(TARGET_INPUT_STYLE)
-        self.command_display.setPlaceholderText("Configure options to generate command...")
-        
-        command_layout = QVBoxLayout()
-        command_layout.addWidget(command_label)
-        command_layout.addWidget(self.command_display)
-        control_layout.addLayout(command_layout)
-
         # Target configuration with Start/Stop buttons
         target_group = QGroupBox("Target Configuration")
         target_group.setStyleSheet(f"""
@@ -176,59 +167,19 @@ class HydraToolView(QWidget):
         self.port_combo.setMinimumHeight(36)
         self.port_combo.setMaximumWidth(100)
 
-        # Start button (icon only)
-        self.run_button = QPushButton("▶")
-        self.run_button.setFixedSize(36, 36)
+        # Start button (text style like nmap)
+        self.run_button = QPushButton("RUN")
         self.run_button.setCursor(Qt.PointingHandCursor)
         self.run_button.setToolTip("Start Brute Force")
-        self.run_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #FF6B35;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 18px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #E55A2B;
-            }}
-            QPushButton:pressed {{
-                background-color: #CC4F26;
-            }}
-            QPushButton:disabled {{
-                background-color: #555555;
-                color: #999999;
-            }}
-        """)
+        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
         self.run_button.clicked.connect(self.run_scan)
 
-        # Stop button (icon only)
-        self.stop_button = QPushButton("⏹")
-        self.stop_button.setFixedSize(36, 36)
+        # Stop button (square icon like nmap)
+        self.stop_button = QPushButton("■")
         self.stop_button.setCursor(Qt.PointingHandCursor)
         self.stop_button.setToolTip("Stop Brute Force")
         self.stop_button.setEnabled(False)
-        self.stop_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #DC3545;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 18px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #C82333;
-            }}
-            QPushButton:pressed {{
-                background-color: #BD2130;
-            }}
-            QPushButton:disabled {{
-                background-color: #555555;
-                color: #999999;
-            }}
-        """)
+        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
         self.stop_button.clicked.connect(self.stop_scan)
 
         host_layout.addWidget(host_label)
@@ -553,12 +504,13 @@ class HydraToolView(QWidget):
 
         control_layout.addWidget(advanced_group)
 
-        # Command display
+        # Command display (moved below config sections) - EDITABLE
         command_label = QLabel("Command")
         command_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        self.command_input = QLineEdit()
-        self.command_input.setReadOnly(False)
-        self.command_input.setStyleSheet(f"""
+        self.command_display = QLineEdit()
+        self.command_display.setReadOnly(False)  # Editable - users can modify
+        self.command_display.setPlaceholderText("Configure options to generate command...")
+        self.command_display.setStyleSheet(f"""
             QLineEdit {{
                 padding: 6px;
                 font-size: 14px;
@@ -573,7 +525,7 @@ class HydraToolView(QWidget):
         """)
 
         control_layout.addWidget(command_label)
-        control_layout.addWidget(self.command_input)
+        control_layout.addWidget(self.command_display)
 
 
 
@@ -664,6 +616,9 @@ class HydraToolView(QWidget):
                 widget.currentTextChanged.connect(self.update_command)
             elif isinstance(widget, QSpinBox):
                 widget.valueChanged.connect(self.update_command)
+        
+        # Initial command update
+        self.update_command()
 
     def _info(self, message):
         """Add info message to output."""
@@ -745,6 +700,17 @@ class HydraToolView(QWidget):
 
     def update_command(self):
         try:
+            # Safety check: ensure all widgets exist and are valid
+            if not (hasattr(self, 'host_input') and hasattr(self, 'service_combo') and 
+                    hasattr(self, 'port_combo') and hasattr(self, 'command_display')):
+                return
+            
+            # Additional check to ensure widgets haven't been deleted
+            try:
+                _ = self.service_combo.currentText()
+            except RuntimeError:
+                return  # Widget was deleted, silently return
+            
             host = self.host_input.text().strip() or "<host>"
             port = self.port_combo.currentText().strip() or "22"
             service = self.service_mappings.get(self.service_combo.currentText(), "ssh")
@@ -802,7 +768,8 @@ class HydraToolView(QWidget):
             cmd = " ".join(cmd_parts)
             if hasattr(self, 'command_display'):
                 self.command_display.setText(cmd)
-        except AttributeError:
+        except (AttributeError, RuntimeError):
+            # Widget doesn't exist or was deleted, silently ignore
             pass
 
     def run_scan(self):

@@ -1,24 +1,32 @@
+"""
+John the Ripper Tool Module
+============================
+Complete redesign with robust password extraction, clean architecture,
+and comprehensive results tracking.
+
+Author: VAJRA Offensive Security Platform
+"""
+
 import os
 import subprocess
+import tempfile
 from datetime import datetime
+from typing import Optional, Dict, List, Tuple
 
-from PySide6.QtCore import QObject, Signal, Qt, QRect, QThread
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QSpinBox, QLineEdit, QGroupBox, QMessageBox, QSplitter, QCompleter, QApplication, QCheckBox,
-    QFileDialog, QProgressBar, QTextEdit, QTabWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QRadioButton, QButtonGroup
+    QLineEdit, QMessageBox, QSplitter, QApplication,
+    QFileDialog, QProgressBar, QTextEdit, QTabWidget, QTableWidget, 
+    QTableWidgetItem, QSpinBox, QCheckBox
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.main_window import BaseToolView
 from ui.worker import ProcessWorker
-from core.tgtinput import parse_targets
-from core.fileops import create_target_dirs
 from ui.styles import (
-    TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
-    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
-    StyledComboBox  # Import from centralized styles
+    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
+    COLOR_BORDER_INPUT_FOCUSED, StyledComboBox,
+    RUN_BUTTON_STYLE, STOP_BUTTON_STYLE
 )
 
 
@@ -27,97 +35,435 @@ from ui.styles import (
 # ==============================
 
 class JohnTool(ToolBase):
+    """John the Ripper password cracker integration."""
+    
     @property
     def name(self) -> str:
         return "John The Ripper"
-
+    
     @property
     def category(self) -> ToolCategory:
         return ToolCategory.CRACKER
-
+    
     def get_widget(self, main_window: QWidget) -> QWidget:
         return JohnToolView(main_window=main_window)
 
+
 class JohnToolView(QWidget):
-    def __init__(self, main_window):
+    """
+    John the Ripper UI and functionality.
+    
+    This class provides a complete interface for password cracking with:
+    - Multiple attack modes (wordlist, incremental, mask, single)
+    - Comprehensive hash format support
+    - Robust password extraction using 'john --show'
+    - Results tracking with hash, username, and password
+    - Automatic file storage in organized directory structure
+    """
+    
+    FORMAT_MAPPINGS: Dict[str, str] = {
+        "Automatic Detection": "auto",
+        "7z": "7z",
+        "AFS": "AFS",
+        "AndroidBackup": "AndroidBackup",
+        "Ansible Vault": "ansible",
+        "AxCrypt": "AxCrypt",
+        "AzureAD": "AzureAD",
+        "adxcrypt": "adxcrypt",
+        "agilekeychain": "agilekeychain",
+        "aix-ssha1": "aix-ssha1",
+        "aix-ssha256": "aix-ssha256",
+        "aix-ssha512": "aix-ssha512",
+        "andOTP": "andOTP",
+        "argon2": "argon2",
+        "as400-des": "as400-des",
+        "as400-ssha1": "as400-ssha1",
+        "asa-md5": "asa-md5",
+        "BKS": "BKS",
+        "BestCrypt": "BestCrypt",
+        "BestCryptVE4": "BestCryptVE4",
+        "Bitcoin": "Bitcoin",
+        "BitLocker": "BitLocker",
+        "Bitwarden": "Bitwarden",
+        "Blackberry-ES10": "Blackberry-ES10",
+        "Blockchain": "Blockchain",
+        "bcrypt": "bcrypt",
+        "bfegg": "bfegg",
+        "bitshares": "bitshares",
+        "bsdicrypt": "bsdicrypt",
+        "CRC32": "CRC32",
+        "Cisco ASA MD5": "pix-md5",
+        "Cisco IOS MD5": "md5",
+        "Cisco IOS SHA256": "sha256crypt",
+        "Cisco VPN (PCF)": "pcf",
+        "Citrix_NS10": "Citrix_NS10",
+        "Clipperz": "Clipperz",
+        "chap": "chap",
+        "cloudkeychain": "cloudkeychain",
+        "cq": "cq",
+        "crypt": "crypt",
+        "cryptoSafe": "cryptoSafe",
+        "DPAPImk": "DPAPImk",
+        "Django": "Django",
+        "Drupal7": "Drupal7",
+        "dahua": "dahua",
+        "dashlane": "dashlane",
+        "descrypt": "descrypt",
+        "diskcryptor": "diskcryptor",
+        "django-scrypt": "django-scrypt",
+        "dmd5": "dmd5",
+        "dmg": "dmg",
+        "dominosec": "dominosec",
+        "dominosec8": "dominosec8",
+        "dragonfly3-32": "dragonfly3-32",
+        "dragonfly3-64": "dragonfly3-64",
+        "dragonfly4-32": "dragonfly4-32",
+        "dragonfly4-64": "dragonfly4-64",
+        "dummy": "dummy",
+        "dynamic_n": "dynamic_n",
+        "EPI": "EPI",
+        "EPiServer": "EPiServer",
+        "EncFS": "EncFS",
+        "eCryptfs": "eCryptfs",
+        "eigrp": "eigrp",
+        "electrum": "electrum",
+        "enpass": "enpass",
+        "ethereum": "ethereum",
+        "FVDE": "FVDE",
+        "FormSpring": "FormSpring",
+        "Fortigate": "Fortigate",
+        "Fortigate256": "Fortigate256",
+        "fde": "fde",
+        "HAVAL-128-4": "HAVAL-128-4",
+        "HAVAL-256-3": "HAVAL-256-3",
+        "HMAC-MD5": "HMAC-MD5",
+        "HMAC-SHA1": "HMAC-SHA1",
+        "HMAC-SHA224": "HMAC-SHA224",
+        "HMAC-SHA256": "HMAC-SHA256",
+        "HMAC-SHA384": "HMAC-SHA384",
+        "HMAC-SHA512": "HMAC-SHA512",
+        "geli": "geli",
+        "gost": "gost",
+        "gpg": "gpg",
+        "IKE": "IKE",
+        "hMailServer": "hMailServer",
+        "has-160": "has-160",
+        "hdaa": "hdaa",
+        "hsrp": "hsrp",
+        "ipb2": "ipb2",
+        "itunes-backup": "itunes-backup",
+        "iwork": "iwork",
+        "jwt": "jwt",
+        "KeePass": "KeePass",
+        "keychain": "keychain",
+        "keyring": "keyring",
+        "keystore": "keystore",
+        "known_hosts": "known_hosts",
+        "krb4": "krb4",
+        "krb5": "krb5",
+        "krb5-17": "krb5-17",
+        "krb5-18": "krb5-18",
+        "krb5-3": "krb5-3",
+        "krb5asrep": "krb5asrep",
+        "krb5pa-md5": "krb5pa-md5",
+        "krb5pa-sha1": "krb5pa-sha1",
+        "krb5tgs": "krb5tgs",
+        "kwallet": "kwallet",
+        "LM": "LM",
+        "LUKS": "LUKS",
+        "LastPass": "LastPass",
+        "Lotus Notes/Domino 5": "lotus5",
+        "Lotus Notes/Domino 6": "lotus6",
+        "Lotus Notes/Domino 8": "lotus8",
+        "leet": "leet",
+        "lotus85": "lotus85",
+        "lp": "lp",
+        "lpcli": "lpcli",
+        "MD2": "MD2",
+        "MD5 (Apache)": "md5crypt-long",
+        "MD5 (Unix)": "md5crypt",
+        "MongoDB": "mongodb",
+        "MS Cache (DCC)": "mscash",
+        "MS Cache2 (DCC2)": "mscash2",
+        "MS Office 2007": "office2007",
+        "MS Office 2010": "office2010",
+        "MS Office 2013": "office2013",
+        "MS Office 2016/2019": "office",
+        "MSCHAPv2": "MSCHAPv2",
+        "MSSQL": "mssql",
+        "MSSQL05": "mssql05",
+        "MSSQL12": "mssql12",
+        "MediaWiki": "MediaWiki",
+        "Mozilla": "Mozilla",
+        "MySQL": "mysql-sha1",
+        "MySQL (Pre-4.1)": "mysql",
+        "md5crypt": "md5crypt",
+        "md5crypt-long": "md5crypt-long",
+        "md5ns": "md5ns",
+        "mdc2": "mdc2",
+        "monero": "monero",
+        "money": "money",
+        "mscash": "mscash",
+        "mscash2": "mscash2",
+        "mschapv2-naive": "mschapv2-naive",
+        "multibit": "multibit",
+        "mysqlna": "mysqlna",
+        "NTLM": "nt",
+        "NetNTLMv2": "netntlmv2",
+        "net-ah": "net-ah",
+        "net-md5": "net-md5",
+        "net-sha1": "net-sha1",
+        "nethalflm": "nethalflm",
+        "netlm": "netlm",
+        "netlmv2": "netlmv2",
+        "netntlm": "netntlm",
+        "netntlm-naive": "netntlm-naive",
+        "netntlmv2": "netntlmv2",
+        "nk": "nk",
+        "notes": "notes",
+        "nsec3": "nsec3",
+        "ODF": "ODF",
+        "Office": "Office",
+        "OpenBSD-SoftRAID": "OpenBSD-SoftRAID",
+        "OpenVPN": "openvpn",
+        "OpenVMS": "OpenVMS",
+        "Oracle 10/11": "oracle",
+        "Oracle 11g/12c": "oracle11",
+        "Oracle 12c/18c": "oracle12c",
+        "Oracle12C": "Oracle12C",
+        "o10glogon": "o10glogon",
+        "o3logon": "o3logon",
+        "o5logon": "o5logon",
+        "oldoffice": "oldoffice",
+        "openssl-enc": "openssl-enc",
+        "osc": "osc",
+        "ospf": "ospf",
+        "PBKDF2-HMAC-MD4": "PBKDF2-HMAC-MD4",
+        "PBKDF2-HMAC-MD5": "pbkdf2-hmac-md5",
+        "PBKDF2-HMAC-SHA1": "pbkdf2-hmac-sha1",
+        "PBKDF2-HMAC-SHA256": "pbkdf2-hmac-sha256",
+        "PBKDF2-HMAC-SHA512": "pbkdf2-hmac-sha512",
+        "PDF": "PDF",
+        "PEM": "PEM",
+        "PHPS": "PHPS",
+        "PHPS2": "PHPS2",
+        "PKZIP": "PKZIP",
+        "PST": "PST",
+        "Padlock": "Padlock",
+        "Palshop": "Palshop",
+        "Panama": "Panama",
+        "Password Safe": "pwsafe",
+        "PeopleSoft": "peoplesoft",
+        "Postgres": "postgres",
+        "PuTTY": "PuTTY",
+        "pfx": "pfx",
+        "pgpdisk": "pgpdisk",
+        "pgpsda": "pgpsda",
+        "pgpwde": "pgpwde",
+        "phpass": "phpass",
+        "plaintext": "plaintext",
+        "po": "po",
+        "RACF": "RACF",
+        "RACF-KDFAES": "RACF-KDFAES",
+        "RAdmin": "RAdmin",
+        "RAKP": "RAKP",
+        "RAR": "rar",
+        "RAR5": "RAR5",
+        "RVARY": "RVARY",
+        "Raw-Blake2": "Raw-Blake2",
+        "Raw-Keccak": "Raw-Keccak",
+        "Raw-Keccak-256": "Raw-Keccak-256",
+        "Raw-MD4": "Raw-MD4",
+        "Raw-MD5": "Raw-MD5",
+        "Raw-MD5u": "Raw-MD5u",
+        "Raw-SHA1": "Raw-SHA1",
+        "Raw-SHA1-AxCrypt": "Raw-SHA1-AxCrypt",
+        "Raw-SHA1-Linkedin": "Raw-SHA1-Linkedin",
+        "Raw-SHA224": "Raw-SHA224",
+        "Raw-SHA256": "Raw-SHA256",
+        "Raw-SHA3": "Raw-SHA3",
+        "Raw-SHA384": "Raw-SHA384",
+        "Raw-SHA512": "Raw-SHA512",
+        "qnx": "qnx",
+        "radius": "radius",
+        "restic": "restic",
+        "ripemd-128": "ripemd-128",
+        "ripemd-160": "ripemd-160",
+        "rsvp": "rsvp",
+        "SAP CODVN B (BCODE)": "sapb",
+        "SAP CODVN G (PASSCODE)": "sapg",
+        "SAP CODVN H (PWDSALTEDHASH)": "saph",
+        "SIP": "SIP",
+        "SL3": "SL3",
+        "SNMP": "SNMP",
+        "SSH": "SSH",
+        "SSH Private Key": "SSH",
+        "SSHA512": "SSHA512",
+        "Salted-SHA1": "Salted-SHA1",
+        "Siemens-S7": "Siemens-S7",
+        "Signal": "Signal",
+        "Snefru-128": "Snefru-128",
+        "Snefru-256": "Snefru-256",
+        "Stribog-256": "Stribog-256",
+        "Stribog-512": "Stribog-512",
+        "STRIP": "STRIP",
+        "SunMD5": "SunMD5",
+        "Sybase ASE": "sybasease",
+        "Sybase-PROP": "Sybase-PROP",
+        "SybaseASE": "SybaseASE",
+        "sapb": "sapb",
+        "sapg": "sapg",
+        "saph": "saph",
+        "sappse": "sappse",
+        "scram": "scram",
+        "scrypt": "scrypt",
+        "securezip": "securezip",
+        "sha1crypt": "sha1crypt",
+        "sha256crypt": "sha256crypt",
+        "sha512crypt": "sha512crypt",
+        "skein-256": "skein-256",
+        "skein-512": "skein-512",
+        "skey": "skey",
+        "solarwinds": "solarwinds",
+        "sspr": "sspr",
+        "Tiger": "Tiger",
+        "tacacs-plus": "tacacs-plus",
+        "tc_aes_xts": "tc_aes_xts",
+        "tc_ripemd160": "tc_ripemd160",
+        "tc_ripemd160boot": "tc_ripemd160boot",
+        "tc_sha512": "tc_sha512",
+        "tc_whirlpool": "tc_whirlpool",
+        "tcp-md5": "tcp-md5",
+        "telegram": "telegram",
+        "tezos": "tezos",
+        "tripcode": "tripcode",
+        "VNC": "VNC",
+        "vdi": "vdi",
+        "vmx": "vmx",
+        "vtp": "vtp",
+        "WoWSRP": "WoWSRP",
+        "WPA-PSK PMK": "wpapsk-pmk",
+        "WPA/WPA2": "wpapsk",
+        "WordPress": "phpass",
+        "wbb3": "wbb3",
+        "whirlpool": "whirlpool",
+        "whirlpool0": "whirlpool0",
+        "whirlpool1": "whirlpool1",
+        "xmpp-scram": "xmpp-scram",
+        "xsha": "xsha",
+        "xsha512": "xsha512",
+        "ZIP": "pkzip",
+        "ZipMonster": "ZipMonster",
+        "zed": "zed"
+    }
+    
+    def __init__(self, main_window: QWidget):
+        """Initialize the John the Ripper tool view."""
         super().__init__()
         self.main_window = main_window
+        
+        # State variables
         self._is_stopping = False
-        self._scan_complete_added = False
-
-        # John format mappings
-        self.format_mappings = {
-            "Automatic Detection": "auto",
-            "DES": "des",
-            "MD5": "md5",
-            "Blowfish": "bf",
-            "SHA256": "sha256crypt",
-            "SHA512": "sha512crypt",
-            "NTLM": "nt",
-            "LM": "lm",
-            "NetNTLM": "netntlm",
-            "Kerberos": "krb5",
-            "WPA2": "wpapsk",
-            "MySQL": "mysql",
-            "MSSQL": "mssql",
-            "Oracle": "oracle",
-            "PostgreSQL": "postgres",
-            "Raw MD5": "raw-md5",
-            "Raw SHA1": "raw-sha1",
-            "Raw SHA256": "raw-sha256",
-            "Raw SHA512": "raw-sha512"
-        }
-
-        self._build_custom_ui()
-
-    def _build_custom_ui(self):
-        # Create main layout
+        self._temp_hash_file: Optional[str] = None
+        self._hash_file_path: Optional[str] = None
+        self._logs_dir: Optional[str] = None
+        self._original_hashes: Dict[str, str] = {}  # Map username to original hash
+        
+        # Build UI
+        self._build_ui()
+        
+    def _build_ui(self):
+        """Construct the main user interface."""
+        # Main layout
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-
-        # Create splitter
+        
+        # Create splitter for resizable panels
         splitter = QSplitter(Qt.Vertical)
         main_layout.addWidget(splitter)
-
-        # Create control panel
-        control_panel = QWidget()
-        control_panel.setStyleSheet(f"""
+        
+        # Control panel
+        control_panel = self._create_control_panel()
+        splitter.addWidget(control_panel)
+        
+        # Output panel with tabs
+        output_panel = self._create_output_panel()
+        splitter.addWidget(output_panel)
+        
+        # Set initial sizes
+        splitter.setSizes([500, 400])
+        
+    def _create_control_panel(self) -> QWidget:
+        """Create the control panel with all input widgets."""
+        panel = QWidget()
+        panel.setStyleSheet(f"""
             QWidget {{
                 background-color: #1C1C1C;
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
         """)
-        control_layout = QVBoxLayout(control_panel)
-        control_layout.setContentsMargins(10, 10, 10, 10)
-        control_layout.setSpacing(10)
-
+        
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+        
         # Header
         header = QLabel("Cracker › John The Ripper")
         header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
-        control_layout.addWidget(header)
-
-        # Command display (like nmap and hydra)
-        command_label = QLabel("Command:")
-        command_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
-        self.command_display = QLineEdit()
-        self.command_display.setReadOnly(True)
-        self.command_display.setStyleSheet(TARGET_INPUT_STYLE)
-        self.command_display.setPlaceholderText("Configure options to generate command...")
+        layout.addWidget(header)
         
-        command_layout = QVBoxLayout()
-        command_layout.addWidget(command_label)
-        command_layout.addWidget(self.command_display)
-        control_layout.addLayout(command_layout)
-
-        # Hash file selection with Start/Stop buttons
-        hash_label = QLabel("Hash File / Input")
-        hash_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        control_layout.addWidget(hash_label)
-
-        # Hash input layout with buttons
-        hash_layout = QHBoxLayout()
+        # Hash input section
+        layout.addWidget(self._create_hash_input_section())
+        
+        # Configuration section
+        layout.addWidget(self._create_config_section())
+        
+        # Mask input (for mask attack)
+        layout.addWidget(self._create_mask_section())
+        
+        # Advanced options
+        layout.addWidget(self._create_advanced_section())
+        
+        # Command display
+        layout.addWidget(self._create_command_section())
+        
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+                text-align: center;
+                height: 25px;
+            }}
+            QProgressBar::chunk {{
+                background-color: #28A745;
+            }}
+        """)
+        layout.addWidget(self.progress_bar)
+        
+        layout.addStretch()
+        return panel
+        
+    def _create_hash_input_section(self) -> QWidget:
+        """Create hash file input section with browse and action buttons."""
+        section = QWidget()
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(5)
+        
+        # Label
+        label = QLabel("Hash File / Input")
+        label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
+        section_layout.addWidget(label)
+        
+        # Input row with buttons
+        input_row = QHBoxLayout()
+        
+        # Hash input field
         self.hash_input = QLineEdit()
         self.hash_input.setPlaceholderText("Select hash file or enter hash directly...")
         self.hash_input.setMinimumHeight(36)
@@ -134,13 +480,15 @@ class JohnToolView(QWidget):
                 border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
             }}
         """)
-
-        # Hash file picker button
-        self.hash_browse_button = QPushButton("📁")
-        self.hash_browse_button.setFixedSize(36, 36)
-        self.hash_browse_button.setCursor(Qt.PointingHandCursor)
-        self.hash_browse_button.clicked.connect(self._browse_hash_file)
-        self.hash_browse_button.setStyleSheet(f"""
+        self.hash_input.textChanged.connect(self._update_command)
+        
+        # Browse button
+        browse_btn = QPushButton("📁")
+        browse_btn.setFixedSize(36, 36)
+        browse_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn.setToolTip("Browse for hash file")
+        browse_btn.clicked.connect(self._browse_hash_file)
+        browse_btn.setStyleSheet(f"""
             QPushButton {{
                 font-size: 16px;
                 background-color: {COLOR_BACKGROUND_INPUT};
@@ -148,105 +496,75 @@ class JohnToolView(QWidget):
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
-            QPushButton:hover {{
-                background-color: #4A4A4A;
-            }}
-            QPushButton:pressed {{
-                background-color: #2A2A2A;
-            }}
+            QPushButton:hover {{ background-color: #4A4A4A; }}
+            QPushButton:pressed {{ background-color: #2A2A2A; }}
         """)
-
-        # Start button (icon only)
-        self.run_button = QPushButton("▶")
-        self.run_button.setFixedSize(36, 36)
+        
+        # Run button
+        self.run_button = QPushButton("RUN")
         self.run_button.setCursor(Qt.PointingHandCursor)
-        self.run_button.setToolTip("Start Cracking")
-        self.run_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #FF6B35;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 18px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #E55A2B;
-            }}
-            QPushButton:pressed {{
-                background-color: #CC4F26;
-            }}
-            QPushButton:disabled {{
-                background-color: #555555;
-                color: #999999;
-            }}
-        """)
-        self.run_button.clicked.connect(self.run_scan)
-
-        # Stop button (icon only)
-        self.stop_button = QPushButton("⏹")
-        self.stop_button.setFixedSize(36, 36)
+        self.run_button.setToolTip("Start cracking")
+        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
+        self.run_button.clicked.connect(self._run_crack)
+        
+        # Stop button
+        self.stop_button = QPushButton("■")
         self.stop_button.setCursor(Qt.PointingHandCursor)
-        self.stop_button.setToolTip("Stop Cracking")
+        self.stop_button.setToolTip("Stop cracking")
         self.stop_button.setEnabled(False)
-        self.stop_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #DC3545;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 18px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #C82333;
-            }}
-            QPushButton:pressed {{
-                background-color: #BD2130;
-            }}
-            QPushButton:disabled {{
-                background-color: #555555;
-                color: #999999;
-            }}
-        """)
-        self.stop_button.clicked.connect(self.stop_scan)
-
-        hash_layout.addWidget(self.hash_input)
-        hash_layout.addWidget(self.hash_browse_button)
-        hash_layout.addWidget(self.run_button)
-        hash_layout.addWidget(self.stop_button)
-        control_layout.addLayout(hash_layout)
-
-        # Hash Format, Attack Mode & Dictionary on one line
-        config_layout = QVBoxLayout()
-
-        config_label = QLabel("Cracking Configuration")
-        config_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        config_layout.addWidget(config_label)
-
-        # Consolidated line layout
-        config_line_layout = QHBoxLayout()
-
+        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
+        self.stop_button.clicked.connect(self._stop_crack)
+        
+        input_row.addWidget(self.hash_input)
+        input_row.addWidget(browse_btn)
+        input_row.addWidget(self.run_button)
+        input_row.addWidget(self.stop_button)
+        
+        section_layout.addLayout(input_row)
+        return section
+        
+    def _create_config_section(self) -> QWidget:
+        """Create configuration section with format, mode, and wordlist."""
+        section = QWidget()
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(5)
+        
+        # Label
+        label = QLabel("Cracking Configuration")
+        label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
+        section_layout.addWidget(label)
+        
+        # Config row
+        config_row = QHBoxLayout()
+        
         # Format
-        format_label = QLabel("Format:")
+        config_row.addWidget(QLabel("Format:"))
         self.format_combo = StyledComboBox()
-        self.format_combo.addItems(sorted(self.format_mappings.keys()))
+        self.format_combo.addItems(sorted(self.FORMAT_MAPPINGS.keys()))
         self.format_combo.setCurrentText("Automatic Detection")
-
+        self.format_combo.currentTextChanged.connect(self._update_command)
+        config_row.addWidget(self.format_combo, 1)
+        
+        config_row.addSpacing(15)
+        
         # Attack mode
-        attack_label = QLabel("Mode:")
+        config_row.addWidget(QLabel("Mode:"))
         self.attack_mode_combo = StyledComboBox()
         self.attack_mode_combo.addItems([
             "Wordlist (Dictionary)",
             "Incremental (Brute-force)",
-            "External (Custom modes)",
             "Single Crack",
-            "Mask Attack"
+            "Mask Attack",
+            "External (Custom modes)"
         ])
-        self.attack_mode_combo.setCurrentText("Wordlist (Dictionary)")
-
-        # Wordlist (for dictionary mode)
-        wordlist_label = QLabel("Dictionary:")
+        self.attack_mode_combo.currentTextChanged.connect(self._update_command)
+        config_row.addWidget(self.attack_mode_combo, 1)
+        
+        config_row.addSpacing(15)
+        
+        # Wordlist
+        config_row.addWidget(QLabel("Dictionary:"))
         self.wordlist_input = QLineEdit()
         self.wordlist_input.setPlaceholderText("Select password wordlist...")
         self.wordlist_input.setMinimumHeight(36)
@@ -263,12 +581,16 @@ class JohnToolView(QWidget):
                 border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
             }}
         """)
-
-        self.wordlist_browse_button = QPushButton("📁")
-        self.wordlist_browse_button.setFixedSize(36, 36)
-        self.wordlist_browse_button.setCursor(Qt.PointingHandCursor)
-        self.wordlist_browse_button.clicked.connect(self._browse_wordlist)
-        self.wordlist_browse_button.setStyleSheet(f"""
+        self.wordlist_input.textChanged.connect(self._update_command)
+        config_row.addWidget(self.wordlist_input, 2)
+        
+        # Wordlist browse button
+        wordlist_browse = QPushButton("📁")
+        wordlist_browse.setFixedSize(36, 36)
+        wordlist_browse.setCursor(Qt.PointingHandCursor)
+        wordlist_browse.setToolTip("Browse for wordlist")
+        wordlist_browse.clicked.connect(self._browse_wordlist)
+        wordlist_browse.setStyleSheet(f"""
             QPushButton {{
                 font-size: 16px;
                 background-color: {COLOR_BACKGROUND_INPUT};
@@ -276,32 +598,25 @@ class JohnToolView(QWidget):
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
-            QPushButton:hover {{
-                background-color: #4A4A4A;
-            }}
-            QPushButton:pressed {{
-                background-color: #2A2A2A;
-            }}
+            QPushButton:hover {{ background-color: #4A4A4A; }}
+            QPushButton:pressed {{ background-color: #2A2A2A; }}
         """)
-
-        config_line_layout.addWidget(format_label, 0)
-        config_line_layout.addWidget(self.format_combo, 1)
-        config_line_layout.addSpacing(15)
-        config_line_layout.addWidget(attack_label, 0)
-        config_line_layout.addWidget(self.attack_mode_combo, 1)
-        config_line_layout.addSpacing(15)
-        config_line_layout.addWidget(wordlist_label, 0)
-        config_line_layout.addWidget(self.wordlist_input, 2)
-        config_line_layout.addWidget(self.wordlist_browse_button, 0)
-
-        config_layout.addLayout(config_line_layout)
-        control_layout.addLayout(config_layout)
-
-        # Mask input (for mask attack)
-        mask_label = QLabel("Mask (for Mask Attack)")
-        mask_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        control_layout.addWidget(mask_label)
-
+        config_row.addWidget(wordlist_browse)
+        
+        section_layout.addLayout(config_row)
+        return section
+        
+    def _create_mask_section(self) -> QWidget:
+        """Create mask input section for mask attacks."""
+        section = QWidget()
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(5)
+        
+        label = QLabel("Mask (for Mask Attack)")
+        label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
+        section_layout.addWidget(label)
+        
         self.mask_input = QLineEdit()
         self.mask_input.setPlaceholderText("e.g., ?l?l?l?l?d?d (4 lowercase + 2 digits)")
         self.mask_input.setMinimumHeight(36)
@@ -318,53 +633,63 @@ class JohnToolView(QWidget):
                 border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
             }}
         """)
-        control_layout.addWidget(self.mask_input)
+        self.mask_input.textChanged.connect(self._update_command)
+        section_layout.addWidget(self.mask_input)
+        
+        return section
+        
+    def _create_advanced_section(self) -> QWidget:
+        """Create advanced options section."""
+        section = QWidget()
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(5)
+        
+        label = QLabel("Advanced Options")
+        label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
+        section_layout.addWidget(label)
+        
+        options_row = QHBoxLayout()
+        
 
-        # Advanced options
-        advanced_label = QLabel("Advanced Options")
-        advanced_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        control_layout.addWidget(advanced_label)
-
-        advanced_layout = QHBoxLayout()
-
-        # Fork processes
-        fork_label = QLabel("Processes:")
-        self.fork_spin = QSpinBox()
-        self.fork_spin.setRange(1, 8)
-        self.fork_spin.setValue(1)
-        self.fork_spin.setSuffix(" CPU cores")
-
-        # Rules file
+        
+        # Rules
         self.rules_check = QCheckBox("Use Rules")
+        self.rules_check.stateChanged.connect(self._update_command)
+        options_row.addWidget(self.rules_check)
+        
         self.rules_input = QLineEdit()
         self.rules_input.setPlaceholderText("Rules file...")
         self.rules_input.setEnabled(False)
-        self.rules_check.stateChanged.connect(lambda: self.rules_input.setEnabled(self.rules_check.isChecked()))
+        self.rules_input.textChanged.connect(self._update_command)
+        self.rules_check.stateChanged.connect(
+            lambda: self.rules_input.setEnabled(self.rules_check.isChecked())
+        )
+        options_row.addWidget(self.rules_input)
+        
+        options_row.addSpacing(20)
+        
 
-        # Session name
-        session_label = QLabel("Session:")
-        self.session_input = QLineEdit()
-        self.session_input.setPlaceholderText("session name")
-        self.session_input.setText("john_session")
-
-        advanced_layout.addWidget(fork_label)
-        advanced_layout.addWidget(self.fork_spin)
-        advanced_layout.addSpacing(20)
-        advanced_layout.addWidget(self.rules_check)
-        advanced_layout.addWidget(self.rules_input)
-        advanced_layout.addSpacing(20)
-        advanced_layout.addWidget(session_label)
-        advanced_layout.addWidget(self.session_input)
-        advanced_layout.addStretch()
-
-        control_layout.addLayout(advanced_layout)
-
-        # Command display
-        command_label = QLabel("Command")
-        command_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        self.command_input = QLineEdit()
-        self.command_input.setReadOnly(False)
-        self.command_input.setStyleSheet(f"""
+        
+        options_row.addStretch()
+        
+        section_layout.addLayout(options_row)
+        return section
+        
+    def _create_command_section(self) -> QWidget:
+        """Create command display section."""
+        section = QWidget()
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(5)
+        
+        label = QLabel("Command")
+        label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
+        section_layout.addWidget(label)
+        
+        self.command_display = QLineEdit()
+        self.command_display.setReadOnly(False)  # Editable
+        self.command_display.setStyleSheet(f"""
             QLineEdit {{
                 padding: 6px;
                 font-size: 14px;
@@ -377,31 +702,18 @@ class JohnToolView(QWidget):
                 border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
             }}
         """)
-        control_layout.addWidget(command_label)
-        control_layout.addWidget(self.command_input)
-
-        # Progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet(f"""
-            QProgressBar {{
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                text-align: center;
-                height: 25px;
-            }}
-            QProgressBar::chunk {{
-                background-color: #28A745;
-            }}
-        """)
-
-        control_layout.addWidget(self.progress_bar)
-        control_layout.addStretch()
-
-        # Output area with tabs
+        section_layout.addWidget(self.command_display)
+        
+        # Initialize command
+        self._update_command()
+        
+        return section
+        
+    def _create_output_panel(self) -> QWidget:
+        """Create output panel with tabs for console and results."""
         self.tab_widget = QTabWidget()
-
-        # Main output tab
+        
+        # Console output tab
         self.output = QTextEdit()
         self.output.setReadOnly(True)
         self.output.setStyleSheet(f"""
@@ -415,11 +727,11 @@ class JohnToolView(QWidget):
                 font-size: 12px;
             }}
         """)
-
+        
         # Results table tab
         self.results_table = QTableWidget()
-        self.results_table.setColumnCount(3)
-        self.results_table.setHorizontalHeaderLabels(["Username", "Password", "Hash"])
+        self.results_table.setColumnCount(4)
+        self.results_table.setHorizontalHeaderLabels(["Hash", "Username", "Password", "Time"])
         self.results_table.horizontalHeader().setStretchLastSection(True)
         self.results_table.setStyleSheet(f"""
             QTableWidget {{
@@ -437,43 +749,14 @@ class JohnToolView(QWidget):
                 font-weight: bold;
             }}
         """)
-
+        
         self.tab_widget.addTab(self.output, "Output")
         self.tab_widget.addTab(self.results_table, "Cracked Accounts")
-
-        splitter.addWidget(control_panel)
-        splitter.addWidget(self.tab_widget)
-        splitter.setSizes([500, 400])
-
-        # Connect signals
-        for widget in [self.hash_input, self.format_combo, self.attack_mode_combo,
-                    self.wordlist_input, self.mask_input, self.fork_spin,
-                    self.rules_check, self.rules_input, self.session_input]:
-            if isinstance(widget, QLineEdit):
-                widget.textChanged.connect(self.update_command)
-            elif isinstance(widget, QComboBox):
-                widget.currentTextChanged.connect(self.update_command)
-            elif isinstance(widget, QSpinBox):
-                widget.valueChanged.connect(self.update_command)
-            elif isinstance(widget, QCheckBox):
-                widget.stateChanged.connect(self.update_command)
-
-    def _info(self, message):
-        """Add info message to output."""
-        self.output.appendPlainText(f"[INFO] {message}")
-
-    def _error(self, message):
-        """Add error message to output."""
-        self.output.appendPlainText(f"[ERROR] {message}")
-
-    def _section(self, title):
-        """Add section header to output."""
-        self.output.appendPlainText(f"\n===== {title} =====")
-
-    def _on_scan_completed(self):
-        """Handle scan completion."""
-        pass
-
+        
+        return self.tab_widget
+        
+    # ==================== Event Handlers ====================
+    
     def _browse_hash_file(self):
         """Browse for hash file."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -482,8 +765,7 @@ class JohnToolView(QWidget):
         )
         if file_path:
             self.hash_input.setText(file_path)
-            self.update_command()
-
+            
     def _browse_wordlist(self):
         """Browse for wordlist file."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -492,232 +774,426 @@ class JohnToolView(QWidget):
         )
         if file_path:
             self.wordlist_input.setText(file_path)
-            self.update_command()
-
-    def update_command(self):
+            
+    def _update_command(self):
+        """Update the command display based on current settings."""
         try:
             hash_input = self.hash_input.text().strip() or "<hash_file>"
-            format_name = self.format_mappings.get(self.format_combo.currentText(), "auto")
+            format_name = self.FORMAT_MAPPINGS.get(self.format_combo.currentText(), "auto")
             attack_mode = self.attack_mode_combo.currentText()
-
+            
             cmd_parts = ["john"]
-
-            # Format specification
+            
+            # Format
             if format_name != "auto":
-                cmd_parts.extend(["--format=" + format_name])
-
-            # Attack mode specific options
+                cmd_parts.append(f"--format={format_name}")
+                
+            # Attack mode
             if attack_mode == "Wordlist (Dictionary)" and self.wordlist_input.text().strip():
-                cmd_parts.extend(["--wordlist=" + self.wordlist_input.text().strip()])
+                cmd_parts.append(f"--wordlist={self.wordlist_input.text().strip()}")
             elif attack_mode == "Incremental (Brute-force)":
                 cmd_parts.append("--incremental")
             elif attack_mode == "Mask Attack" and self.mask_input.text().strip():
-                cmd_parts.extend(["--mask=" + self.mask_input.text().strip()])
+                cmd_parts.append(f"--mask={self.mask_input.text().strip()}")
             elif attack_mode == "Single Crack":
                 cmd_parts.append("--single")
-
+            elif attack_mode == "External (Custom modes)":
+                cmd_parts.append("--external")
+                
             # Rules
             if self.rules_check.isChecked() and self.rules_input.text().strip():
-                cmd_parts.extend(["--rules=" + self.rules_input.text().strip()])
+                cmd_parts.append(f"--rules={self.rules_input.text().strip()}")
+                
 
-            # Fork processes
-            if self.fork_spin.value() > 1:
-                cmd_parts.extend(["--fork=" + str(self.fork_spin.value())])
-
-            # Session name
-            if self.session_input.text().strip():
-                cmd_parts.extend(["--session=" + self.session_input.text().strip()])
-
+                
             # Hash file
             cmd_parts.append(hash_input)
-
-            cmd = " ".join(cmd_parts)
-            if hasattr(self, 'command_display'):
-                self.command_display.setText(cmd)
-        except AttributeError:
+            
+            self.command_display.setText(" ".join(cmd_parts))
+            
+        except (AttributeError, RuntimeError):
+            # Widget doesn't exist or was deleted
             pass
-
-    def run_scan(self):
-        """Start hash cracking with John."""
+            
+    # ==================== Core Functionality ====================
+    
+    def _run_crack(self):
+        """Start the password cracking process."""
+        # Validate inputs
         hash_input = self.hash_input.text().strip()
         if not hash_input:
             QMessageBox.warning(self, "No Hash Input", "Please select a hash file or enter a hash.")
             return
-
+            
         attack_mode = self.attack_mode_combo.currentText()
+        
+        # Validate attack mode requirements
         if attack_mode == "Wordlist (Dictionary)" and not self.wordlist_input.text().strip():
             QMessageBox.warning(self, "No Wordlist", "Please select a wordlist for dictionary attack.")
             return
-
+            
         if attack_mode == "Mask Attack" and not self.mask_input.text().strip():
             QMessageBox.warning(self, "No Mask", "Please specify a mask for mask attack.")
             return
-
-        if not os.path.exists(hash_input):
-            QMessageBox.warning(self, "Hash File Not Found", f"Hash file does not exist: {hash_input}")
+            
+        # Handle hash input - file or direct hash
+        hash_file_path = self._prepare_hash_file(hash_input)
+        if not hash_file_path:
             return
-
+            
+        # Validate wordlist exists
         if self.wordlist_input.text().strip() and not os.path.exists(self.wordlist_input.text().strip()):
-            QMessageBox.warning(self, "Wordlist Not Found", f"Wordlist file does not exist: {self.wordlist_input.text().strip()}")
+            QMessageBox.warning(self, "Wordlist Not Found", 
+                              f"Wordlist file does not exist: {self.wordlist_input.text().strip()}")
             return
-
+            
+        # Clear previous results
         self.output.clear()
         self.results_table.setRowCount(0)
         self._is_stopping = False
-        self._scan_complete_added = False
-
-        try:
-            # Create target directory
-            hash_name = os.path.basename(hash_input)
-            if "." in hash_name:
-                hash_name = hash_name.rsplit(".", 1)[0]
-            base_dir = create_target_dirs(f"john_{hash_name}")
-            logs_dir = os.path.join(base_dir, "Logs")
-            os.makedirs(logs_dir, exist_ok=True)
-
-            self._info(f"Starting John The Ripper cracking session")
-            self._info(f"Hash file: {hash_input}")
-            self._info(f"Format: {self.format_combo.currentText()}")
-            self._info(f"Attack mode: {attack_mode}")
-            self.output.appendPlainText("")
-
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setRange(0, 0)  # Indeterminate progress
-
-            # Build john command
-            cmd = ["john"]
-
-            format_name = self.format_mappings.get(self.format_combo.currentText(), "auto")
-            if format_name != "auto":
-                cmd.append(f"--format={format_name}")
-
-            # Attack mode specific options
-            if attack_mode == "Wordlist (Dictionary)" and self.wordlist_input.text().strip():
-                cmd.append(f"--wordlist={self.wordlist_input.text().strip()}")
-            elif attack_mode == "Incremental (Brute-force)":
-                cmd.append("--incremental")
-            elif attack_mode == "Mask Attack" and self.mask_input.text().strip():
-                cmd.append(f"--mask={self.mask_input.text().strip()}")
-            elif attack_mode == "Single Crack":
-                cmd.append("--single")
-
-            # Rules
-            if self.rules_check.isChecked() and self.rules_input.text().strip():
-                cmd.append(f"--rules={self.rules_input.text().strip()}")
-
-            # Fork processes
-            if self.fork_spin.value() > 1:
-                cmd.append(f"--fork={self.fork_spin.value()}")
-
-            # Session name
-            session_name = self.session_input.text().strip() or "john_session"
-            cmd.append(f"--session={session_name}")
-
-            # Hash file
-            cmd.append(hash_input)
-
-            self._info(f"Command: {' '.join(cmd)}")
-            self.output.appendPlainText("")
-
-            self.worker = ProcessWorker(cmd)
-            self.worker.output_ready.connect(self._on_output)
-            self.worker.finished.connect(self._on_finished)
-            self.worker.error.connect(self._error)
-
-            self.run_button.setEnabled(False)
-            self.stop_button.setEnabled(True)
-            self.worker.start()
-
-        except Exception as e:
-            self._error(f"Failed to start cracking: {str(e)}")
-
-    def _on_output(self, line):
-        """Process John output."""
-        self.output.appendPlainText(line)
-
-        # Parse cracked accounts and add to table
-        # John typically outputs in format: username (hash_type:password)
-        if "(" in line and ")" in line and ":" in line:
+        self._original_hashes.clear()
+        
+        # Create output directory
+        self._create_output_directory(hash_input)
+        
+        # Load hash file to store original hashes
+        self._load_original_hashes(hash_file_path)
+        
+        # Build and execute command
+        cmd = self._build_john_command(hash_file_path, attack_mode)
+        self._execute_john(cmd, hash_file_path)
+        
+    def _prepare_hash_file(self, hash_input: str) -> Optional[str]:
+        """
+        Prepare hash file from input.
+        If input is a file path, use it directly.
+        If input is a hash string, create temporary file.
+        
+        Returns:
+            Path to hash file, or None on error
+        """
+        if os.path.exists(hash_input):
+            # It's a file
+            self._hash_file_path = hash_input
+            return hash_input
+        else:
+            # It's a direct hash - create temp file
             try:
-                # Extract username and password from John's output
-                parts = line.split("(")
-                if len(parts) >= 2:
-                    username = parts[0].strip()
-                    rest = parts[1].split(":")
-                    if len(rest) >= 2:
-                        password = rest[1].split(")")[0].strip()
-                        # Add to results table
-                        row_count = self.results_table.rowCount()
-                        self.results_table.insertRow(row_count)
-                        self.results_table.setItem(row_count, 0, QTableWidgetItem(username))
-                        self.results_table.setItem(row_count, 1, QTableWidgetItem(password))
-                        self.results_table.setItem(row_count, 2, QTableWidgetItem(line.strip()))
-            except:
-                pass
-
-    def _on_finished(self):
-        """Handle cracking completion."""
-        self.progress_bar.setVisible(False)
-        self._on_scan_completed()
-
-        if self._is_stopping:
-            return
-
-        # Save results
+                temp_file = tempfile.NamedTemporaryFile(
+                    mode='w', delete=False, suffix='.hash', prefix='john_'
+                )
+                temp_file.write(hash_input + '\n')
+                temp_file.close()
+                
+                self._temp_hash_file = temp_file.name
+                self._hash_file_path = temp_file.name
+                
+                self._log_info("Created temporary hash file for direct input")
+                return temp_file.name
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to create temporary hash file: {str(e)}")
+                return None
+                
+    def _create_output_directory(self, hash_input: str):
+        """Create organized output directory structure."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Get base name
+        if os.path.exists(hash_input):
+            hash_name = os.path.splitext(os.path.basename(hash_input))[0]
+        else:
+            hash_name = "hash"
+            
+        # Create directory: /tmp/Vajra-results/{hash_name}_{timestamp}/Logs/
+        base_dir = os.path.join("/tmp", "Vajra-results", f"{hash_name}_{timestamp}")
+        self._logs_dir = os.path.join(base_dir, "Logs")
+        os.makedirs(self._logs_dir, exist_ok=True)
+        
+        self._log_info(f"Output directory: {self._logs_dir}")
+        
+    def _load_original_hashes(self, hash_file_path: str):
+        """Load original hashes from file for later display."""
         try:
-            hash_name = os.path.basename(self.hash_input.text().strip())
-            if "." in hash_name:
-                hash_name = hash_name.rsplit(".", 1)[0]
-            base_dir = create_target_dirs(f"john_{hash_name}")
-            logs_dir = os.path.join(base_dir, "Logs")
-
-            # Save results table to file
-            results_file = os.path.join(logs_dir, "cracked_accounts.txt")
-            with open(results_file, 'w') as f:
-                f.write("John The Ripper Cracking Results\n")
+            with open(hash_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                        
+                    # Parse hash format: username:hash or just hash
+                    if ':' in line:
+                        parts = line.split(':', 1)
+                        if len(parts) >= 2:
+                            username = parts[0]
+                            hash_value = line  # Store full line
+                            self._original_hashes[username] = hash_value
+                    else:
+                        # Raw hash without username
+                        self._original_hashes['?'] = line
+                        
+        except Exception as e:
+            self._log_error(f"Error loading hashes: {str(e)}")
+            
+    def _build_john_command(self, hash_file_path: str, attack_mode: str) -> List[str]:
+        """Build John the Ripper command based on settings."""
+        cmd = ["john"]
+        
+        # Format
+        format_name = self.FORMAT_MAPPINGS.get(self.format_combo.currentText(), "auto")
+        if format_name != "auto":
+            cmd.append(f"--format={format_name}")
+            
+        # Attack mode
+        if attack_mode == "Wordlist (Dictionary)" and self.wordlist_input.text().strip():
+            cmd.append(f"--wordlist={self.wordlist_input.text().strip()}")
+        elif attack_mode == "Incremental (Brute-force)":
+            cmd.append("--incremental")
+        elif attack_mode == "Mask Attack" and self.mask_input.text().strip():
+            cmd.append(f"--mask={self.mask_input.text().strip()}")
+        elif attack_mode == "Single Crack":
+            cmd.append("--single")
+        elif attack_mode == "External (Custom modes)":
+            cmd.append("--external")
+            
+        # Rules
+        if self.rules_check.isChecked() and self.rules_input.text().strip():
+            cmd.append(f"--rules={self.rules_input.text().strip()}")
+            
+        # Session - Force to logs directory to avoid polluting user folder
+        if self._logs_dir:
+            session_path = os.path.join(self._logs_dir, "john_session")
+            cmd.append(f"--session={session_path}")
+        
+        # Hash file
+        cmd.append(hash_file_path)
+        
+        return cmd
+        
+    def _execute_john(self, cmd: List[str], hash_file_path: str):
+        """Execute John the Ripper command."""
+        self._log_section("Starting John The Ripper")
+        self._log_info(f"Hash file: {hash_file_path}")
+        self._log_info(f"Format: {self.format_combo.currentText()}")
+        self._log_info(f"Attack mode: {self.attack_mode_combo.currentText()}")
+        self._log_info(f"Command: {' '.join(cmd)}")
+        self.output.append("")
+        
+        # Show progress
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)  # Indeterminate
+        
+        # Create worker
+        self.worker = ProcessWorker(cmd)
+        self.worker.output_ready.connect(self._on_output)
+        self.worker.finished.connect(self._on_finished)
+        self.worker.error.connect(self._log_error)
+        
+        # Update UI state
+        self.run_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+        
+        # Start
+        self.worker.start()
+        
+    def _on_output(self, line: str):
+        """Handle output from John the Ripper process."""
+        self.output.append(line)
+        
+        # Note: We don't parse passwords from live output anymore.
+        # We'll use 'john --show' after completion for reliable extraction.
+        
+    def _on_finished(self):
+        """Handle process completion and extract cracked passwords."""
+        # Reset UI
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.progress_bar.setVisible(False)
+        
+        if self._is_stopping:
+            self._log_info("Cracking stopped by user")
+            return
+            
+        # Extract passwords using 'john --show'
+        self._extract_cracked_passwords()
+        
+        # Save results
+        self._save_results()
+        
+        # Cleanup temp file if created
+        if self._temp_hash_file and os.path.exists(self._temp_hash_file):
+            try:
+                os.unlink(self._temp_hash_file)
+                self._temp_hash_file = None
+            except Exception:
+                pass
+                
+        self._log_section("Cracking Complete")
+        
+    def _extract_cracked_passwords(self):
+        """
+        Extract cracked passwords using 'john --show' command.
+        This is the most reliable method to get results.
+        """
+        if not self._hash_file_path or not os.path.exists(self._hash_file_path):
+            self._log_error("Hash file not found - cannot extract results")
+            return
+            
+        self._log_info("Extracting cracked passwords with 'john --show'...")
+        
+        try:
+            # Build john --show command
+            show_cmd = ["john", "--show"]
+            
+            # Add format if specified
+            format_name = self.FORMAT_MAPPINGS.get(self.format_combo.currentText(), "auto")
+            if format_name != "auto":
+                show_cmd.append(f"--format={format_name}")
+                
+            show_cmd.append(self._hash_file_path)
+            
+            # Execute
+            result = subprocess.run(
+                show_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            # Parse output
+            cracked_count = 0
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                
+                # Skip empty lines and summary lines
+                if not line or "password hash" in line.lower():
+                    continue
+                    
+                # Parse: username:password or ?:password
+                if ':' in line:
+                    parts = line.split(':', 1)
+                    if len(parts) == 2:
+                        username = parts[0].strip()
+                        password = parts[1].strip()
+                        
+                        # Get original hash
+                        original_hash = self._original_hashes.get(username, line)
+                        
+                        # Add to results table
+                        self._add_result(
+                            original_hash,
+                            username if username != '?' else 'N/A',
+                            password
+                        )
+                        cracked_count += 1
+                        
+            if cracked_count > 0:
+                self._log_info(f"Successfully extracted {cracked_count} cracked password(s)")
+            else:
+                self._log_info("No passwords cracked")
+                
+        except subprocess.TimeoutExpired:
+            self._log_error("Timeout while extracting passwords")
+        except Exception as e:
+            self._log_error(f"Error extracting passwords: {str(e)}")
+            
+    def _add_result(self, hash_value: str, username: str, password: str):
+        """Add a cracked password to the results table."""
+        # Check for duplicates
+        for row in range(self.results_table.rowCount()):
+            existing_user = self.results_table.item(row, 1)
+            existing_pass = self.results_table.item(row, 2)
+            
+            if (existing_user and existing_pass and
+                existing_user.text() == username and
+                existing_pass.text() == password):
+                return  # Duplicate
+                
+        # Add new result
+        row_count = self.results_table.rowCount()
+        self.results_table.insertRow(row_count)
+        
+        self.results_table.setItem(row_count, 0, QTableWidgetItem(hash_value))
+        self.results_table.setItem(row_count, 1, QTableWidgetItem(username))
+        self.results_table.setItem(row_count, 2, QTableWidgetItem(password))
+        self.results_table.setItem(row_count, 3, 
+                                   QTableWidgetItem(datetime.now().strftime("%H:%M:%S")))
+        
+    def _save_results(self):
+        """Save cracked passwords to john.txt file."""
+        if not self._logs_dir:
+            self._log_error("No output directory - cannot save results")
+            return
+            
+        try:
+            results_file = os.path.join(self._logs_dir, "john.txt")
+            
+            with open(results_file, 'w', encoding='utf-8') as f:
+                # Header
+                f.write("=" * 80 + "\n")
+                f.write("John The Ripper - Cracking Results\n")
+                f.write("=" * 80 + "\n\n")
+                
                 f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"Hash Format: {self.format_combo.currentText()}\n")
-                f.write(f"Attack Mode: {self.attack_mode_combo.currentText()}\n\n")
-
-                f.write("Cracked Accounts:\n")
-                f.write("-" * 80 + "\n")
-                for row in range(self.results_table.rowCount()):
-                    user_item = self.results_table.item(row, 0)
-                    pass_item = self.results_table.item(row, 1)
-                    hash_item = self.results_table.item(row, 2)
-                    if user_item and pass_item and hash_item:
-                        f.write(f"Username: {user_item.text()}\n")
-                        f.write(f"Password: {pass_item.text()}\n")
-                        f.write(f"Hash: {hash_item.text()}\n")
-                        f.write("-" * 40 + "\n")
-
-            self._info(f"Results saved to: {results_file}")
-
+                f.write(f"Attack Mode: {self.attack_mode_combo.currentText()}\n")
+                
+                if self.wordlist_input.text().strip():
+                    f.write(f"Wordlist: {self.wordlist_input.text().strip()}\n")
+                    
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("Cracked Accounts\n")
+                f.write("=" * 80 + "\n\n")
+                
+                # Results
+                if self.results_table.rowCount() == 0:
+                    f.write("No passwords cracked.\n")
+                else:
+                    for row in range(self.results_table.rowCount()):
+                        hash_item = self.results_table.item(row, 0)
+                        user_item = self.results_table.item(row, 1)
+                        pass_item = self.results_table.item(row, 2)
+                        time_item = self.results_table.item(row, 3)
+                        
+                        if hash_item and user_item and pass_item:
+                            f.write(f"Hash:     {hash_item.text()}\n")
+                            f.write(f"Username: {user_item.text()}\n")
+                            f.write(f"Password: {pass_item.text()}\n")
+                            if time_item:
+                                f.write(f"Time:     {time_item.text()}\n")
+                            f.write("-" * 40 + "\n\n")
+                            
+                f.write("\n" + "=" * 80 + "\n")
+                f.write(f"Total Cracked: {self.results_table.rowCount()}\n")
+                f.write("=" * 80 + "\n")
+                
+            self._log_info(f"Results saved to: {results_file}")
+            
         except Exception as e:
-            self._error(f"Failed to save results: {str(e)}")
-
-        if not self._scan_complete_added:
-            self._section("Cracking Complete")
-            self._scan_complete_added = True
-
-    def stop_scan(self):
+            self._log_error(f"Failed to save results: {str(e)}")
+            
+    def _stop_crack(self):
         """Stop the cracking process."""
-        if self.worker and self.worker.is_running:
+        if hasattr(self, 'worker') and self.worker and self.worker.is_running:
             self._is_stopping = True
             self.worker.stop()
-            self._info("Cracking stopped.")
-        self._on_scan_completed()
+            self._log_info("Stopping cracking process...")
+            
+        # Reset UI
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
         self.progress_bar.setVisible(False)
-
-    def copy_results_to_clipboard(self):
-        """Copy cracking results to clipboard."""
-        results_text = self.output.toPlainText()
-        if results_text.strip():
-            QApplication.clipboard().setText(results_text)
-            self._notify("Results copied to clipboard.")
-        else:
-            self._notify("No results to copy.")
-
-    def _notify(self, message):
-        """Show notification (placeholder for now)."""
-        self._info(f"Notification: {message}")
+        
+    # ==================== Logging Helpers ====================
+    
+    def _log_info(self, message: str):
+        """Log info message to output."""
+        self.output.append(f"[INFO] {message}")
+        
+    def _log_error(self, message: str):
+        """Log error message to output."""
+        self.output.append(f"[ERROR] {message}")
+        
+    def _log_section(self, title: str):
+        """Log section header to output."""
+        self.output.append(f"\n{'=' * 5} {title} {'=' * 5}")

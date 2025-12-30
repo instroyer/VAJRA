@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.main_window import BaseToolView
+from ui.widgets import BaseToolView
 from ui.worker import ProcessWorker
 from core.tgtinput import parse_targets
 from core.fileops import create_target_dirs

@@ -4,7 +4,27 @@
 # Decoder/Encoder facility similar to Burp Suite's Decoder tab.
 # Provides encoding/decoding for various formats commonly used in security testing.
 # =============================================================================
+'''
+Perfect decision! ✅ The Dencoder tool is now complete and production-ready.
 
+🎉 Final Summary - Dencoder Enhancements:
+✅ Implemented:
+⌨️ Ctrl+D Shortcut - Auto-Detect (widget-scoped, no conflicts)
+📁 File Input - Load files (.txt, .log, .json, .xml, .bin, .dat) up to 10MB
+✨ Visual Feedback - Orange border pulse during processing
+💡 Better Error Messages - Context-aware hints for Base64, URL, Hex, JWT errors
+💬 White Tooltips - Better visibility
+🚀 Auto-Detect Auto-Process - Immediately shows output when operation is detected
+🎨 Clean UI - Removed Process button and live mode text
+🐛 Bug Fixes - Fixed AttributeError and removed debug spam
+
+✅ Core Features:
+Live auto-processing (100ms debounce)
+Smart encoding detection
+60+ encoding/decoding operations
+Copy buttons on input & output
+Silent, clean operation
+'''
 import base64
 import binascii
 import html

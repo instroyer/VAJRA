@@ -16,10 +16,10 @@ import json
 import re
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-    QPushButton, QComboBox, QSplitter, QGroupBox, QMessageBox, QGridLayout, QApplication, QCompleter
+    QPushButton, QComboBox, QSplitter, QGroupBox, QMessageBox, QGridLayout, QApplication, QCheckBox, QFileDialog
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QKeySequence, QShortcut
 
 from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
@@ -62,7 +62,35 @@ class DencoderToolView(QWidget):
         super().__init__()
         self.main_window = main_window
         self.setStyleSheet(f"background-color: #1E1E1E;")
+        
+        # Timer for debounced auto-processing (always on - Burp Suite style)
+        from PySide6.QtCore import QTimer
+        self.process_timer = QTimer()
+        self.process_timer.setSingleShot(True)
+        self.process_timer.setInterval(100)  # 100ms debounce
+        self.process_timer.timeout.connect(self._auto_process)
+        
         self._build_ui()
+        
+        # Connect auto-processing signals after UI is built
+        self.input_text.textChanged.connect(self._on_input_changed)
+        self.operation_combo.activated.connect(self._on_input_changed)
+        
+        # Add keyboard shortcut for Auto-Detect (Ctrl+D) - scoped to this widget only
+        self.auto_detect_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
+        self.auto_detect_shortcut.activated.connect(self._auto_detect_encoding)
+        
+        # Set white tooltips globally for this widget
+        self.setStyleSheet("""
+            QToolTip {
+                background-color: white;
+                color: black;
+                border: 1px solid #999;
+                border-radius: 3px;
+                padding: 4px;
+                font-size: 13px;
+            }
+        """)
 
     def _build_ui(self):
         """Build the user interface."""
@@ -85,7 +113,7 @@ class DencoderToolView(QWidget):
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
 
-        # Header
+        # Header - Clean and simple  
         header = QLabel("Cracker › Dencoder")
         header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
         control_layout.addWidget(header)
@@ -159,29 +187,52 @@ class DencoderToolView(QWidget):
 
         self.operation_combo.addItems(operations)
         
-        # Add completer for filtering search results
-        completer = QCompleter(operations, self)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchContains)  # Match anywhere in the string
-        completer.setCompletionMode(QCompleter.PopupCompletion)  # Don't auto-complete, just filter
-        
-        # COMPLETELY HIDE the completer's popup (prevent small dropdown)
-        completer_popup = completer.popup()
-        completer_popup.setMaximumHeight(0)  # Hide it completely
-        completer_popup.setStyleSheet("QListView { max-height: 0px; min-height: 0px; border: none; }")
-        
-        self.operation_combo.setCompleter(completer)
-        
-        # Keep focus in the input while showing dropdown
+        # Keep insertion policy - don't allow typing new items
         self.operation_combo.setInsertPolicy(QComboBox.NoInsert)
         
-        # Auto-show dropdown when typing
-        def on_text_changed():
-            if not self.operation_combo.view().isVisible():
-                self.operation_combo.showPopup()
-            # Keep focus in the line edit
-            self.operation_combo.lineEdit().setFocus()
+        # Store original items for filtering
+        self._all_operations = operations
+        self._is_filtering = False  # Flag to prevent filter during selection
         
+        # Handle item selection - single click to select
+        def on_item_activated(index):
+            # Item was selected from dropdown
+            self._is_filtering = False
+            self.operation_combo.hidePopup()
+        
+        # Auto-show dropdown when typing and filter items
+        def on_text_changed(text):
+            # Don't filter if we're in the middle of selecting an item
+            if not self._is_filtering and text in self._all_operations:
+                # Text exactly matches an operation - user selected it
+                return
+            
+            # User is typing - enable filtering
+            self._is_filtering = True
+            
+            # Filter items based on search text
+            search_text = text.lower()
+            self.operation_combo.blockSignals(True)
+            self.operation_combo.clear()
+            
+            if search_text:
+                # Filter to matching items
+                matching = [op for op in self._all_operations if search_text in op.lower()]
+                self.operation_combo.addItems(matching)
+            else:
+                # Show all items when empty
+                self.operation_combo.addItems(self._all_operations)
+            
+            # Restore the search text (adding items clears it)
+            self.operation_combo.setEditText(text)
+            self.operation_combo.blockSignals(False)
+            
+            # Show dropdown if not already visible
+            if not self.operation_combo.view().isVisible() and text:
+                self.operation_combo.showPopup()
+        
+        # Connect signals
+        self.operation_combo.activated.connect(on_item_activated)
         self.operation_combo.lineEdit().textChanged.connect(on_text_changed)
 
         self.operation_combo.setStyleSheet(f"""
@@ -268,11 +319,11 @@ class DencoderToolView(QWidget):
         # Spacer
         operation_layout.addSpacing(20)
 
-        # Process button
-        self.process_button = QPushButton("Process")
-        self.process_button.setStyleSheet(f"""
+        # Auto-detect button with keyboard shortcut
+        self.auto_detect_button = QPushButton("🔍 Auto-Detect")
+        self.auto_detect_button.setStyleSheet(f"""
             QPushButton {{
-                background-color: #FF6B35;
+                background-color: #6366F1;
                 color: white;
                 border: none;
                 border-radius: 4px;
@@ -282,14 +333,41 @@ class DencoderToolView(QWidget):
                 min-height: 18px;
             }}
             QPushButton:hover {{
-                background-color: #E55A2B;
+                background-color: #4F46E5;
             }}
             QPushButton:pressed {{
-                background-color: #CC4F26;
+                background-color: #4338CA;
             }}
         """)
-        self.process_button.clicked.connect(self._process_text)
-        operation_layout.addWidget(self.process_button)
+        self.auto_detect_button.setToolTip("Automatically detect encoding type (Ctrl+D)")
+        self.auto_detect_button.clicked.connect(self._auto_detect_encoding)
+        operation_layout.addWidget(self.auto_detect_button)
+
+        # File Input button
+        self.file_input_button = QPushButton("📁 Load File")
+        self.file_input_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #10B981;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 13px;
+                font-weight: bold;
+                padding: 8px 16px;
+                min-height: 18px;
+            }}
+            QPushButton:hover {{
+                background-color: #059669;
+            }}
+            QPushButton:pressed {{
+                background-color: #047857;
+            }}
+        """)
+        self.file_input_button.setToolTip("Load text file to decode (max 10MB)")
+        self.file_input_button.clicked.connect(self._load_file)
+        operation_layout.addWidget(self.file_input_button)
+
+        operation_layout.addSpacing(20)
 
         # Clear button
         self.clear_button = QPushButton("Clear")
@@ -410,6 +488,9 @@ class DencoderToolView(QWidget):
         """)
         self.output_text.setReadOnly(True)
         self.output_text.setMinimumHeight(100)
+        
+        # Store default style for border animation reset
+        self.default_output_style = self.output_text.styleSheet()
 
         self.output_copy_button = QPushButton("📋")
         self.output_copy_button.setStyleSheet('''
@@ -430,20 +511,226 @@ class DencoderToolView(QWidget):
 
         control_layout.addWidget(io_group)
 
+    def _on_live_mode_changed(self, state):
+        """Handle Live Mode toggle."""
+        from PySide6.QtCore import Qt
+        is_live = (state == Qt.Checked)
+        
+        print(f"[Dencoder] Live Mode changed: {is_live}")  # Debug
+        
+        # Update button states
+        self.process_button.setEnabled(not is_live)
+        
+        if is_live:
+            # Only disconnect if signals were previously connected
+            if self.live_mode_signals_connected:
+                try:
+                    self.input_text.textChanged.disconnect(self._on_input_changed)
+                except:
+                    pass
+                try:
+                    self.operation_combo.activated.disconnect(self._on_input_changed)
+                except:
+                    pass
+            
+            # Connect input changes to auto-process
+            self.input_text.textChanged.connect(self._on_input_changed)
+            # Use activated instead of currentTextChanged (only fires on user selection)
+            self.operation_combo.activated.connect(self._on_input_changed)
+            self.live_mode_signals_connected = True
+            
+            # Update checkbox appearance
+            self.live_mode_check.setText("⚡ Live Mode (Active)")
+            # Force style update to green
+            self.live_mode_check.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {COLOR_TEXT_PRIMARY};
+                    font-size: 14px;
+                    font-weight: bold;
+                    spacing: 8px;
+                }}
+                QCheckBox::indicator {{
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 4px;
+                    border: 2px solid {COLOR_BORDER};
+                    background-color: {COLOR_BACKGROUND_INPUT};
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: #10B981;
+                    border: 2px solid #10B981;
+                }}
+                QCheckBox::indicator:hover {{
+                    border: 2px solid {COLOR_BORDER_INPUT_FOCUSED};
+                }}
+            """)
+            
+            print("[Dencoder] Live Mode activated - signals connected")  # Debug
+            
+            # If there's already input and an operation, process immediately
+            if self.input_text.toPlainText().strip() and self.operation_combo.currentText():
+                print("[Dencoder] Processing existing input immediately")
+                self._process_text()
+        else:
+            # Disconnect auto-process
+            try:
+                self.input_text.textChanged.disconnect(self._on_input_changed)
+                self.operation_combo.activated.disconnect(self._on_input_changed)
+            except Exception as e:
+                print(f"[Dencoder] Error disconnecting: {e}")
+            
+            # Reset checkbox appearance
+            self.live_mode_check.setText("⚡ Live Mode")
+            self.live_mode_check.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {COLOR_TEXT_PRIMARY};
+                    font-size: 14px;
+                    font-weight: bold;
+                    spacing: 8px;
+                }}
+                QCheckBox::indicator {{
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 4px;
+                    border: 2px solid {COLOR_BORDER};
+                    background-color: {COLOR_BACKGROUND_INPUT};
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: #FF6B35;
+                    border: 2px solid #FF6B35;
+                }}
+                QCheckBox::indicator:hover {{
+                    border: 2px solid {COLOR_BORDER_INPUT_FOCUSED};
+                }}
+            """)
+            
+            print("[Dencoder] Live Mode deactivated - signals disconnected")  # Debug
+    
+    def _on_input_changed(self):
+        """Input changed - start debounce timer for auto-processing."""
+        # Stop any existing timer
+        self.process_timer.stop()
+        # Start new timer (will auto-process after 100ms of no typing)
+        self.process_timer.start()
+    
+    def _auto_process(self):
+        """Auto-process the text (called after debounce)."""
+        # Show processing visual feedback
+        self.output_text.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 2px solid #FF6B35;
+                border-radius: 4px;
+                padding: 8px;
+                font-family: Consolas, 'Courier New', monospace;
+                font-size: 12px;
+            }}
+        """)
+        
+        # Process the text
+        self._process_text()
+        
+        # Reset border after processing
+        self.output_text.setStyleSheet(self.default_output_style)
+
+    def _auto_detect_encoding(self):
+        """Smart auto-detection of encoding type."""
+        input_text = self.input_text.toPlainText().strip()
+        if not input_text:
+            return
+        
+        detected = None
+        
+        # Base64 detection (includes padding and valid chars)
+        if re.match(r'^[A-Za-z0-9+/]+={0,2}$', input_text) and len(input_text) % 4 == 0:
+            detected = "Base64 Decode"
+        # URL encoding detection
+        elif '%' in input_text and re.search(r'%[0-9A-Fa-f]{2}', input_text):
+            detected = "URL Decode"
+        # Hex detection
+        elif re.match(r'^[0-9A-Fa-f\s]+$', input_text.replace(' ', '')): 
+            if len(input_text.replace(' ', '')) % 2 == 0:
+                detected = "Hex Decode"
+        # HTML entities
+        elif '&' in input_text and (';' in input_text or '#' in input_text):
+            detected = "HTML Decode"
+        # JWT detection
+        elif input_text.count('.') == 2 and len(input_text) > 50:
+            detected = "JWT Payload Decode"
+        # Binary detection
+        elif re.match(r'^[01\s]+$', input_text):
+            detected = "Binary to Text"
+        
+        if detected:
+            # Set the detected operation
+            self.operation_combo.setCurrentText(detected)
+            # Show notification
+            if self.main_window and hasattr(self.main_window, 'notification_manager'):
+                self.main_window.notification_manager.notify(f"Detected: {detected}")
+            # Always auto-process after detection
+            self._process_text()
+        else:
+            # No detection - notify user
+            if self.main_window and hasattr(self.main_window, 'notification_manager'):
+                self.main_window.notification_manager.notify("Could not auto-detect encoding type")
+
     def _process_text(self):
         """Process the input text based on selected operation."""
         input_text = self.input_text.toPlainText().strip()
+        
+        # Auto-processing mode: don't show errors for empty input
         if not input_text:
-            self._show_error("Please enter some text to process.")
+            self.output_text.clear()
             return
 
         operation_text = self.operation_combo.currentText()
+        
+        # If no operation selected, return silently
+        if not operation_text:
+            return
 
         try:
             result = self._perform_operation(input_text, operation_text)
             self.output_text.setPlainText(result)
         except Exception as e:
-            self._show_error(f"Error processing text: {str(e)}")
+            # Generate helpful error message based on operation and error type
+            error_msg = self._get_helpful_error_message(operation_text, str(e))
+            self.output_text.setPlainText(error_msg)
+
+    def _get_helpful_error_message(self, operation, error_str):
+        """Generate context-aware helpful error messages."""
+        error_lower = error_str.lower()
+        
+        # Base64 errors
+        if "base64" in operation.lower():
+            if "padding" in error_lower or "incorrect" in error_lower:
+                return "❌ Invalid Base64: Missing or incorrect padding (=)\nTip: Valid Base64 uses A-Z, a-z, 0-9, +, / and ends with 0-2 '=' signs"
+            elif "invalid" in error_lower:
+                return "❌ Invalid Base64: Contains invalid characters\nTip: Only A-Z, a-z, 0-9, +, /, = are allowed"
+                
+        # URL encoding errors  
+        elif "url" in operation.lower():
+            if "incomplete" in error_lower:
+                return "❌ Invalid URL encoding: Incomplete percent sequence\nTip: Percent signs must be followed by two hex digits (e.g., %20)"
+                
+        # Hex errors
+        elif "hex" in operation.lower():
+            if "odd" in error_lower or "length" in error_lower:
+                return "❌ Invalid Hex: Odd number of hex digits\nTip: Hex strings must have even length (2 chars per byte)"
+            elif "invalid" in error_lower:
+                return "❌ Invalid Hex: Contains non-hex characters\nTip: Only 0-9 and A-F are allowed"
+                
+        # JWT errors
+        elif "jwt" in operation.lower():
+            return "❌ Invalid JWT: Malformed token\nTip: JWT must have 3 parts separated by dots (header.payload.signature)"
+            
+        # Hash errors
+        elif "hash" in operation.lower():
+            return f"❌ Hashing error: {error_str}\nTip: Ensure input is valid text"
+            
+        # Generic error
+        return f"❌ Error ({operation}): {error_str}"
 
     def _perform_operation(self, text, operation_text):
         """Perform the actual encoding/decoding operation based on menu selection."""
@@ -796,6 +1083,42 @@ class DencoderToolView(QWidget):
         encoded = encoded.replace('<%', '<\\%')
         encoded = encoded.replace('%>', '%\\>')
         return encoded
+
+    def _load_file(self):
+        """Load a file into the input area."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load File to Decode",
+            "",
+            "Text Files (*.txt *.log *.dat *.json *.xml *.bin);;All Files (*.*)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            # Check file size (max 10MB)
+            import os
+            file_size = os.path.getsize(file_path)
+            max_size = 10 * 1024 * 1024  # 10MB in bytes
+            
+            if file_size > max_size:
+                self._show_error(f"File too large: {file_size / (1024*1024):.1f}MB\nMaximum allowed: 10MB")
+                return
+            
+            # Read file content
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            # Set file content to input
+            self.input_text.setPlainText(content)
+            
+            # Show success notification
+            if self.main_window and hasattr(self.main_window, 'notification_manager'):
+                self.main_window.notification_manager.notify(f"Loaded {os.path.basename(file_path)} ({file_size} bytes)")
+                
+        except Exception as e:
+            self._show_error(f"Failed to load file:\n{str(e)}")
 
     def _clear_text(self):
         """Clear all input and output fields."""

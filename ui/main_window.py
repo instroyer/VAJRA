@@ -55,8 +55,7 @@ class MainWindow(QMainWindow):
 
     def _discover_tools(self):
         tools = {}
-        tool_sources = {}  # Track which module file each tool came from
-        duplicates_found = []  # Track duplicate tool names
+
         
         module_path = "modules"
         try:
@@ -70,25 +69,8 @@ class MainWindow(QMainWindow):
                                 tool_instance = obj()
                                 tool_name = tool_instance.name
                                 
-                                # Check for duplicate tool names
-                                if tool_name in tools:
-                                    # Duplicate found! Log warning
-                                    existing_source = tool_sources[tool_name]
-                                    duplicates_found.append({
-                                        'name': tool_name,
-                                        'existing_file': existing_source,
-                                        'duplicate_file': name,
-                                        'existing_class': tools[tool_name].__class__.__name__,
-                                        'duplicate_class': obj.__name__
-                                    })
-                                    print(f"⚠️  WARNING: Duplicate tool name '{tool_name}' found!")
-                                    print(f"   → Keeping: {existing_source}.py (class: {tools[tool_name].__class__.__name__})")
-                                    print(f"   → Ignoring: {name}.py (class: {obj.__name__})")
-                                    print(f"   → Fix: Change the 'name' property in {name}.py to be unique\n")
-                                else:
-                                    # New unique tool - add it
-                                    tools[tool_name] = tool_instance
-                                    tool_sources[tool_name] = name
+                                tools[tool_name] = tool_instance
+
                                     
                     except ImportError as e:
                         print(f"❌ Could not import module '{name}': {e}")
@@ -97,13 +79,6 @@ class MainWindow(QMainWindow):
                         
         except (ImportError, AttributeError) as e:
             print(f"❌ Error discovering tools: {e}")
-        
-        # Print summary
-        print(f"\n✅ Tool Discovery Complete:")
-        print(f"   → {len(tools)} unique tools loaded")
-        if duplicates_found:
-            print(f"   → {len(duplicates_found)} duplicate(s) ignored (see warnings above)")
-        print()
         
         return tools
 

@@ -46,10 +46,9 @@ from ui.styles import (
     TARGET_INPUT_STYLE, COMBO_BOX_STYLE, COLOR_BACKGROUND_INPUT,
     COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
     COLOR_SUCCESS, COLOR_ERROR, COLOR_BACKGROUND_BUTTON, COLOR_TEXT_BUTTON,
-    StyledComboBox  # Import from centralized styles
+    StyledComboBox,
+    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE
 )
-
-
 
 class DencoderTool(ToolBase):
     """Decoder/Encoder tool for various encoding schemes."""
@@ -120,13 +119,7 @@ class DencoderToolView(QWidget):
 
         # Create main panel
         main_panel = QWidget()
-        main_panel.setStyleSheet(f"""
-            QWidget {{
-                background-color: #1C1C1C;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-        """)
+        main_panel.setStyleSheet(TOOL_VIEW_STYLE)
         main_layout.addWidget(main_panel)
 
         control_layout = QVBoxLayout(main_panel)
@@ -135,7 +128,7 @@ class DencoderToolView(QWidget):
 
         # Header - Clean and simple  
         header = QLabel("Cracker › Dencoder")
-        header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
+        header.setStyleSheet(TOOL_HEADER_STYLE)
         control_layout.addWidget(header)
 
         # Operation selection with buttons all in one line

@@ -26,7 +26,8 @@ from ui.worker import ProcessWorker
 from ui.styles import (
     COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
     COLOR_BORDER_INPUT_FOCUSED, StyledComboBox,
-    RUN_BUTTON_STYLE, STOP_BUTTON_STYLE
+    RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
+    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE
 )
 
 
@@ -397,13 +398,7 @@ class JohnToolView(QWidget):
     def _create_control_panel(self) -> QWidget:
         """Create the control panel with all input widgets."""
         panel = QWidget()
-        panel.setStyleSheet(f"""
-            QWidget {{
-                background-color: #1C1C1C;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-        """)
+        panel.setStyleSheet(TOOL_VIEW_STYLE)
         
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -411,7 +406,7 @@ class JohnToolView(QWidget):
         
         # Header
         header = QLabel("Cracker › John The Ripper")
-        header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
+        header.setStyleSheet(TOOL_HEADER_STYLE)
         layout.addWidget(header)
         
         # Hash input section

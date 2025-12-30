@@ -1,30 +1,26 @@
 import os
-import subprocess
+import re
 from datetime import datetime
+from typing import Optional, Set, Tuple
 
-from PySide6.QtCore import QObject, Signal, Qt, QRect, QThread
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QSpinBox, QLineEdit, QGroupBox, QMessageBox, QSplitter, QCompleter, QApplication, QCheckBox,
+    QComboBox, QSpinBox, QLineEdit, QGroupBox, QMessageBox, QSplitter,
     QFileDialog, QProgressBar, QTextEdit, QTabWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QRadioButton, QButtonGroup, QGroupBox
+    QHeaderView, QRadioButton, QButtonGroup, QCheckBox
 )
 
 from modules.bases import ToolBase, ToolCategory
 from ui.worker import ProcessWorker
-from core.tgtinput import parse_targets
 from core.fileops import create_target_dirs
 from ui.styles import (
     TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
     COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
-    StyledComboBox,  # Import from centralized styles
-    RUN_BUTTON_STYLE, STOP_BUTTON_STYLE  # Centralized button styles
+    StyledComboBox, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
+    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE
 )
 
-
-# ==============================
-# Hydra Tool
-# ==============================
 
 class HydraTool(ToolBase):
     """Hydra brute force attack tool."""
@@ -43,13 +39,17 @@ class HydraTool(ToolBase):
 
 
 class HydraToolView(QWidget):
+    """Hydra tool interface with improved command generation and result handling."""
+    
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
         self._is_stopping = False
-        self._scan_complete_added = False
+        self._discovered_creds: Set[Tuple[str, str, str]] = set()  # Track unique credentials
+        self.worker: Optional[ProcessWorker] = None
+        self._logs_dir: Optional[str] = None
 
-        # Hydra service mappings
+        # Service mappings
         self.service_mappings = {
             "FTP": "ftp",
             "SSH": "ssh",
@@ -77,22 +77,13 @@ class HydraToolView(QWidget):
             "VNC": "vnc",
             "SNMP": "snmp",
             "Cisco": "cisco",
-            "Cisco Enable": "cisco-enable",
-            "CVS": "cvs",
-            "SVN": "svn",
-            "Firebird": "firebird",
-            "AFP": "afp",
-            "ICQ": "icq",
-            "IRC": "irc",
-            "SAP R/3": "sapr3",
-            "Teamspeak": "teamspeak",
-            "PCAnywhere": "pcanywhere"
+            "Cisco Enable": "cisco-enable"
         }
 
-        self._build_custom_ui()
+        self._build_ui()
 
-    def _build_custom_ui(self):
-        # Create main layout
+    def _build_ui(self):
+        """Build the user interface."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -101,414 +92,35 @@ class HydraToolView(QWidget):
         splitter = QSplitter(Qt.Vertical)
         main_layout.addWidget(splitter)
 
-        # Create control panel
+        # Control panel
         control_panel = QWidget()
-        control_panel.setStyleSheet(f"""
-            QWidget {{
-                background-color: #1C1C1C;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-        """)
+        control_panel.setStyleSheet(TOOL_VIEW_STYLE)
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
 
         # Header
         header = QLabel("Cracker › Hydra")
-        header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
+        header.setStyleSheet(TOOL_HEADER_STYLE)
         control_layout.addWidget(header)
 
-        # Target configuration with Start/Stop buttons
-        target_group = QGroupBox("Target Configuration")
-        target_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
-
-        target_layout = QVBoxLayout(target_group)
-
-        # Target host with buttons
-        host_layout = QHBoxLayout()
-        host_label = QLabel("Target Host/IP:")
-        self.host_input = QLineEdit()
-        self.host_input.setPlaceholderText("e.g., 192.168.1.100 or example.com")
-        self.host_input.setMinimumHeight(36)
-        self.host_input.setStyleSheet(f"""
-            QLineEdit {{
-                padding: 6px;
-                font-size: 14px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-        """)
-
-        # Port with dropdown and input
-        port_label = QLabel("Port:")
-        self.port_combo = StyledComboBox()
-        self.port_combo.addItems(["22", "80", "443", "3306", "5432", "3389", "445", "21"])
-        self.port_combo.setEditable(True)
-        self.port_combo.setCurrentText("22")
-        self.port_combo.setMinimumHeight(36)
-        self.port_combo.setMaximumWidth(100)
-
-        # Start button (text style like nmap)
-        self.run_button = QPushButton("RUN")
-        self.run_button.setCursor(Qt.PointingHandCursor)
-        self.run_button.setToolTip("Start Brute Force")
-        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
-        self.run_button.clicked.connect(self.run_scan)
-
-        # Stop button (square icon like nmap)
-        self.stop_button = QPushButton("■")
-        self.stop_button.setCursor(Qt.PointingHandCursor)
-        self.stop_button.setToolTip("Stop Brute Force")
-        self.stop_button.setEnabled(False)
-        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
-        self.stop_button.clicked.connect(self.stop_scan)
-
-        host_layout.addWidget(host_label)
-        host_layout.addWidget(self.host_input, 2)
-        host_layout.addSpacing(10)
-        host_layout.addWidget(port_label)
-        host_layout.addWidget(self.port_combo)
-        host_layout.addWidget(self.run_button)
-        host_layout.addWidget(self.stop_button)
-        target_layout.addLayout(host_layout)
-
+        # Target Configuration
+        target_group = self._create_target_section()
         control_layout.addWidget(target_group)
 
-        # Service configuration
-        service_group = QGroupBox("Service Configuration")
-        service_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
-
-        service_layout = QVBoxLayout(service_group)
-
-        # Service selection
-        service_sel_layout = QHBoxLayout()
-        service_label = QLabel("Service:")
-        self.service_combo = StyledComboBox()
-        self.service_combo.addItems(sorted(self.service_mappings.keys()))
-        self.service_combo.setCurrentText("SSH")
-        self.service_combo.currentTextChanged.connect(self._on_service_changed)
-
-        service_sel_layout.addWidget(service_label)
-        service_sel_layout.addWidget(self.service_combo)
-        service_layout.addLayout(service_sel_layout)
-
-        # Service-specific options
-        self.service_options_layout = QVBoxLayout()
-
-        # HTTP options (initially hidden)
-        self.http_options_widget = QWidget()
-        http_layout = QVBoxLayout(self.http_options_widget)
-        http_layout.setContentsMargins(0, 0, 0, 0)
-
-        http_url_layout = QHBoxLayout()
-        http_url_label = QLabel("URL Path:")
-        self.http_url_input = QLineEdit()
-        self.http_url_input.setPlaceholderText("/login.php")
-        self.http_url_input.setText("/")
-        http_url_layout.addWidget(http_url_label)
-        http_url_layout.addWidget(self.http_url_input)
-
-        http_method_layout = QHBoxLayout()
-        http_method_label = QLabel("HTTP Method:")
-        self.http_method_combo = StyledComboBox()
-        self.http_method_combo.addItems(["GET", "POST"])
-        self.http_method_combo.setCurrentText("POST")
-        http_method_layout.addWidget(http_method_label)
-        http_method_layout.addWidget(self.http_method_combo)
-
-        http_layout.addLayout(http_url_layout)
-        http_layout.addLayout(http_method_layout)
-        self.http_options_widget.hide()
-
-        self.service_options_layout.addWidget(self.http_options_widget)
-        service_layout.addLayout(self.service_options_layout)
-
-
-
-        # Credentials configuration
-        creds_group = QGroupBox("Credentials Configuration")
-        creds_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
-
-        creds_layout = QVBoxLayout(creds_group)
-
-        # Username and Password options on one line
-        cred_options_layout = QHBoxLayout()
-
-        # Username options
-        user_group = QGroupBox("Username Options")
-        user_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; border-radius: 3px; margin-top: 0.5ex; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
-        user_layout = QVBoxLayout(user_group)
-        user_layout.setSpacing(15)  # Increased spacing between elements
-        user_layout.setContentsMargins(10, 20, 10, 10)  # Increased top margin for more spacing from title
-
-        # Username input type
-        user_type_layout = QHBoxLayout()
-        user_type_layout.setSpacing(20)  # Add spacing between radio buttons
-        self.single_user_radio = QRadioButton("Single Username:")
-        self.userlist_radio = QRadioButton("Username List:")
-        self.userlist_radio.setChecked(True)
-
-        user_type_layout.addWidget(self.single_user_radio)
-        user_type_layout.addWidget(self.userlist_radio)
-        user_type_layout.addStretch()
-        user_layout.addLayout(user_type_layout)
-
-        # Username input
-        self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("Enter single username")
-        self.username_input.setEnabled(False)
-        self.username_input.setMinimumHeight(36)
-        self.username_input.setStyleSheet(f"""
-            QLineEdit {{
-                padding: 6px;
-                font-size: 14px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-        """)
-        user_layout.addWidget(self.username_input)
-
-        # Username list file
-        userlist_layout = QHBoxLayout()
-        self.userlist_input = QLineEdit()
-        self.userlist_input.setPlaceholderText("Select username wordlist...")
-        self.userlist_input.setMinimumHeight(36)
-        self.userlist_input.setStyleSheet(f"""
-            QLineEdit {{
-                padding: 6px;
-                font-size: 14px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-        """)
-
-        self.userlist_browse_button = QPushButton("📁")
-        self.userlist_browse_button.setFixedSize(36, 36)
-        self.userlist_browse_button.setCursor(Qt.PointingHandCursor)
-        self.userlist_browse_button.clicked.connect(self._browse_userlist)
-        self.userlist_browse_button.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 16px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: #4A4A4A;
-            }}
-            QPushButton:pressed {{
-                background-color: #2A2A2A;
-            }}
-        """)
-
-        userlist_layout.addWidget(self.userlist_input)
-        userlist_layout.addWidget(self.userlist_browse_button)
-        user_layout.addLayout(userlist_layout)
-
-        cred_options_layout.addWidget(user_group, 1)
-        cred_options_layout.addSpacing(20)  # Add gap between Username and Password boxes
-
-        # Password options
-        pass_group = QGroupBox("Password Options")
-        pass_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; border-radius: 3px; margin-top: 0.5ex; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }")
-        pass_layout = QVBoxLayout(pass_group)
-        pass_layout.setSpacing(15)  # Increased spacing between elements
-        pass_layout.setContentsMargins(10, 20, 10, 10)  # Increased top margin for more spacing from title
-
-        # Password input type
-        pass_type_layout = QHBoxLayout()
-        pass_type_layout.setSpacing(20)  # Add spacing between radio buttons
-        self.single_pass_radio = QRadioButton("Single Password:")
-        self.passlist_radio = QRadioButton("Password List:")
-        self.passlist_radio.setChecked(True)
-
-        pass_type_layout.addWidget(self.single_pass_radio)
-        pass_type_layout.addWidget(self.passlist_radio)
-        pass_type_layout.addStretch()
-        pass_layout.addLayout(pass_type_layout)
-
-        # Password input
-        self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("Enter single password")
-        self.password_input.setEnabled(False)
-        self.password_input.setEchoMode(QLineEdit.Password)
-        self.password_input.setMinimumHeight(36)
-        self.password_input.setStyleSheet(f"""
-            QLineEdit {{
-                padding: 6px;
-                font-size: 14px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-        """)
-        pass_layout.addWidget(self.password_input)
-
-        # Password list file
-        passlist_layout = QHBoxLayout()
-        self.passlist_input = QLineEdit()
-        self.passlist_input.setPlaceholderText("Select password wordlist...")
-        self.passlist_input.setMinimumHeight(36)
-        self.passlist_input.setStyleSheet(f"""
-            QLineEdit {{
-                padding: 6px;
-                font-size: 14px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-        """)
-
-        self.passlist_browse_button = QPushButton("📁")
-        self.passlist_browse_button.setFixedSize(36, 36)
-        self.passlist_browse_button.setCursor(Qt.PointingHandCursor)
-        self.passlist_browse_button.clicked.connect(self._browse_passlist)
-        self.passlist_browse_button.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 16px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: #4A4A4A;
-            }}
-            QPushButton:pressed {{
-                background-color: #2A2A2A;
-            }}
-        """)
-
-        passlist_layout.addWidget(self.passlist_input)
-        passlist_layout.addWidget(self.passlist_browse_button)
-        pass_layout.addLayout(passlist_layout)
-
-        cred_options_layout.addWidget(pass_group, 1)
-        creds_layout.addLayout(cred_options_layout)
-
+        # Credentials Configuration
+        creds_group = self._create_credentials_section()
         control_layout.addWidget(creds_group)
 
-        # Advanced options
-        advanced_group = QGroupBox("Advanced Options")
-        advanced_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
-
-        advanced_layout = QHBoxLayout(advanced_group)
-
-        # Tasks/threads
-        tasks_label = QLabel("Tasks:")
-        self.tasks_spin = QSpinBox()
-        self.tasks_spin.setRange(1, 64)
-        self.tasks_spin.setValue(4)
-        self.tasks_spin.setSuffix(" parallel")
-
-        # Timeout
-        timeout_label = QLabel("Timeout:")
-        self.timeout_spin = QSpinBox()
-        self.timeout_spin.setRange(1, 300)
-        self.timeout_spin.setValue(30)
-        self.timeout_spin.setSuffix(" sec")
-
-        # Wait between attempts
-        wait_label = QLabel("Wait:")
-        self.wait_spin = QSpinBox()
-        self.wait_spin.setRange(0, 100)
-        self.wait_spin.setValue(0)
-        self.wait_spin.setSuffix(" ms")
-
-        advanced_layout.addWidget(tasks_label)
-        advanced_layout.addWidget(self.tasks_spin)
-        advanced_layout.addSpacing(20)
-        advanced_layout.addWidget(timeout_label)
-        advanced_layout.addWidget(self.timeout_spin)
-        advanced_layout.addSpacing(20)
-        advanced_layout.addWidget(wait_label)
-        advanced_layout.addWidget(self.wait_spin)
-        advanced_layout.addStretch()
-
+        # Advanced Options
+        advanced_group = self._create_advanced_section()
         control_layout.addWidget(advanced_group)
 
-        # Command display (moved below config sections) - EDITABLE
+        # Command display
         command_label = QLabel("Command")
         command_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
         self.command_display = QLineEdit()
-        self.command_display.setReadOnly(False)  # Editable - users can modify
+        self.command_display.setReadOnly(False)  # Editable
         self.command_display.setPlaceholderText("Configure options to generate command...")
         self.command_display.setStyleSheet(f"""
             QLineEdit {{
@@ -523,11 +135,8 @@ class HydraToolView(QWidget):
                 border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
             }}
         """)
-
         control_layout.addWidget(command_label)
         control_layout.addWidget(self.command_display)
-
-
 
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -543,14 +152,13 @@ class HydraToolView(QWidget):
                 background-color: #DC3545;
             }}
         """)
-
         control_layout.addWidget(self.progress_bar)
         control_layout.addStretch()
 
         # Output area with tabs
         self.tab_widget = QTabWidget()
 
-        # Main output tab
+        # Output tab
         self.output = QTextEdit()
         self.output.setReadOnly(True)
         self.output.setStyleSheet(f"""
@@ -565,7 +173,7 @@ class HydraToolView(QWidget):
             }}
         """)
 
-        # Results table tab
+        # Results table (no buttons here anymore)
         self.results_table = QTableWidget()
         self.results_table.setColumnCount(3)
         self.results_table.setHorizontalHeaderLabels(["Host", "Username", "Password"])
@@ -594,89 +202,468 @@ class HydraToolView(QWidget):
         splitter.addWidget(self.tab_widget)
         splitter.setSizes([500, 400])
 
-        # Radio button groups
-        self.user_radio_group = QButtonGroup()
-        self.user_radio_group.addButton(self.single_user_radio, 1)
-        self.user_radio_group.addButton(self.userlist_radio, 2)
-        self.user_radio_group.buttonClicked.connect(self._on_user_radio_changed)
-
-        self.pass_radio_group = QButtonGroup()
-        self.pass_radio_group.addButton(self.single_pass_radio, 1)
-        self.pass_radio_group.addButton(self.passlist_radio, 2)
-        self.pass_radio_group.buttonClicked.connect(self._on_pass_radio_changed)
-
         # Connect signals
-        for widget in [self.host_input, self.port_combo, self.service_combo, self.username_input,
-                      self.userlist_input, self.password_input, self.passlist_input,
-                      self.tasks_spin, self.timeout_spin, self.wait_spin,
-                      self.http_url_input, self.http_method_combo]:
-            if isinstance(widget, QLineEdit):
-                widget.textChanged.connect(self.update_command)
-            elif isinstance(widget, QComboBox):
-                widget.currentTextChanged.connect(self.update_command)
-            elif isinstance(widget, QSpinBox):
-                widget.valueChanged.connect(self.update_command)
+        self._connect_signals()
         
         # Initial command update
-        self.update_command()
+        self._update_command_display()
 
-    def _info(self, message):
-        """Add info message to output."""
-        self.output.appendPlainText(f"[INFO] {message}")
+    def _create_target_section(self) -> QGroupBox:
+        """Create target configuration section."""
+        target_group = QGroupBox("Target Configuration")
+        target_group.setStyleSheet(f"""
+            QGroupBox {{
+                font-weight: bold;
+                border: 2px solid {COLOR_BORDER};
+                border-radius: 5px;
+                margin-top: 1ex;
+                color: {COLOR_TEXT_PRIMARY};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }}
+        """)
 
-    def _error(self, message):
-        """Add error message to output."""
-        self.output.appendPlainText(f"[ERROR] {message}")
+        target_layout = QVBoxLayout(target_group)
 
-    def _section(self, title):
-        """Add section header to output."""
-        self.output.appendPlainText(f"\n===== {title} =====")
+        # Host row with buttons
+        host_row = QHBoxLayout()
+        
+        host_label = QLabel("Target Host/IP:")
+        self.host_input = QLineEdit()
+        self.host_input.setPlaceholderText("e.g., 192.168.1.100 or example.com")
+        self.host_input.setMinimumHeight(36)
+        self.host_input.setStyleSheet(f"""
+            QLineEdit {{
+                padding: 6px;
+                font-size: 14px;
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+            }}
+        """)
 
-    def _notify(self, message):
-        """Show notification (placeholder for now)."""
-        self._info(f"Notification: {message}")
+        # Run/Stop buttons
+        self.run_button = QPushButton("RUN")
+        self.run_button.setCursor(Qt.PointingHandCursor)
+        self.run_button.setToolTip("Start Brute Force")
+        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
+        self.run_button.clicked.connect(self._run_attack)
 
-    def _on_scan_completed(self):
-        """Handle scan completion."""
-        pass
+        self.stop_button = QPushButton("■")
+        self.stop_button.setCursor(Qt.PointingHandCursor)
+        self.stop_button.setToolTip("Stop Brute Force")
+        self.stop_button.setEnabled(False)
+        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
+        self.stop_button.clicked.connect(self._stop_attack)
+
+        # Save button
+        self.save_creds_button = QPushButton("💾")
+        self.save_creds_button.setFixedSize(36, 36)
+        self.save_creds_button.setStyleSheet(f'''
+            QPushButton {{
+                font-size: 16px;
+                background-color: {COLOR_BACKGROUND_INPUT};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: #28A745;
+            }}
+        ''')
+        self.save_creds_button.setCursor(Qt.PointingHandCursor)
+        self.save_creds_button.setToolTip("Save credentials")
+        self.save_creds_button.clicked.connect(self._save_credentials)
+
+        host_row.addWidget(host_label)
+        host_row.addWidget(self.host_input, 2)
+        host_row.addWidget(self.run_button)
+        host_row.addWidget(self.stop_button)
+        host_row.addWidget(self.save_creds_button)
+        target_layout.addLayout(host_row)
+
+        # Service and custom port row
+        service_row = QHBoxLayout()
+        service_label = QLabel("Service:")
+        
+        # Editable service combo
+        self.service_input = StyledComboBox()
+        self.service_input.setEditable(True)
+        self.service_input.addItems(sorted(self.service_mappings.values()))  # Add actual service names
+        self.service_input.setCurrentText("ssh")
+        self.service_input.setMinimumHeight(36)
+        
+        # Custom port checkbox and input
+        self.custom_port_check = QCheckBox("Custom Port:")
+        self.custom_port_check.stateChanged.connect(self._on_custom_port_changed)
+        
+        self.custom_port_input = QLineEdit()
+        self.custom_port_input.setPlaceholderText("Port")
+        self.custom_port_input.setEnabled(False)
+        self.custom_port_input.setMinimumHeight(36)
+        self.custom_port_input.setMaximumWidth(80)
+        self.custom_port_input.setStyleSheet(self.host_input.styleSheet())
+        
+        service_row.addWidget(service_label)
+        service_row.addWidget(self.service_input, 2)
+        service_row.addSpacing(20)
+        service_row.addWidget(self.custom_port_check)
+        service_row.addWidget(self.custom_port_input)
+        target_layout.addLayout(service_row)
+
+        return target_group
+
+    def _create_credentials_section(self) -> QGroupBox:
+        """Create credentials configuration section."""
+        creds_group = QGroupBox("Credentials Configuration")
+        creds_group.setStyleSheet(f"""
+            QGroupBox {{
+                font-weight: bold;
+                border: 2px solid {COLOR_BORDER};
+                border-radius: 5px;
+                margin-top: 1ex;
+                color: {COLOR_TEXT_PRIMARY};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }}
+        """)
+
+        creds_layout = QVBoxLayout(creds_group)
+
+        # Username row
+        user_row = QHBoxLayout()
+        user_label = QLabel("Username:")
+        user_label.setMinimumWidth(80)
+        
+        self.single_user_radio = QRadioButton("Single")
+        self.userlist_radio = QRadioButton("List")
+        self.userlist_radio.setChecked(True)
+        
+        self.username_input = QLineEdit()
+        self.username_input.setPlaceholderText("Enter username")
+        self.username_input.setEnabled(False)
+        self.username_input.setMinimumHeight(36)
+        self.username_input.setStyleSheet(f"""
+            QLineEdit {{
+                padding: 6px;
+                font-size: 14px;
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+            }}
+        """)
+        
+        self.userlist_input = QLineEdit()
+        self.userlist_input.setPlaceholderText("Select username wordlist...")
+        self.userlist_input.setMinimumHeight(36)
+        self.userlist_input.setStyleSheet(self.username_input.styleSheet())
+        
+        self.userlist_browse = QPushButton("📁")
+        self.userlist_browse.setFixedSize(36, 36)
+        self.userlist_browse.setCursor(Qt.PointingHandCursor)
+        self.userlist_browse.clicked.connect(self._browse_userlist)
+        self.userlist_browse.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 16px;
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: #4A4A4A;
+            }}
+        """)
+
+        user_row.addWidget(user_label)
+        user_row.addWidget(self.single_user_radio)
+        user_row.addWidget(self.username_input, 1)
+        user_row.addSpacing(10)
+        user_row.addWidget(self.userlist_radio)
+        user_row.addWidget(self.userlist_input, 1)
+        user_row.addWidget(self.userlist_browse)
+        creds_layout.addLayout(user_row)
+
+        # Password row
+        pass_row = QHBoxLayout()
+        pass_label = QLabel("Password:")
+        pass_label.setMinimumWidth(80)
+        
+        self.single_pass_radio = QRadioButton("Single")
+        self.passlist_radio = QRadioButton("List")
+        self.passlist_radio.setChecked(True)
+        
+        self.password_input = QLineEdit()
+        self.password_input.setPlaceholderText("Enter password")
+        self.password_input.setEnabled(False)
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.setMinimumHeight(36)
+        self.password_input.setStyleSheet(self.username_input.styleSheet())
+        
+        self.passlist_input = QLineEdit()
+        self.passlist_input.setPlaceholderText("Select password wordlist...")
+        self.passlist_input.setMinimumHeight(36)
+        self.passlist_input.setStyleSheet(self.username_input.styleSheet())
+        
+        self.passlist_browse = QPushButton("📁")
+        self.passlist_browse.setFixedSize(36, 36)
+        self.passlist_browse.setCursor(Qt.PointingHandCursor)
+        self.passlist_browse.clicked.connect(self._browse_passlist)
+        self.passlist_browse.setStyleSheet(self.userlist_browse.styleSheet())
+
+        pass_row.addWidget(pass_label)
+        pass_row.addWidget(self.single_pass_radio)
+        pass_row.addWidget(self.password_input, 1)
+        pass_row.addSpacing(10)
+        pass_row.addWidget(self.passlist_radio)
+        pass_row.addWidget(self.passlist_input, 1)
+        pass_row.addWidget(self.passlist_browse)
+        creds_layout.addLayout(pass_row)
+
+        # Radio button groups
+        self.user_group = QButtonGroup()
+        self.user_group.addButton(self.single_user_radio, 1)
+        self.user_group.addButton(self.userlist_radio, 2)
+        self.user_group.buttonClicked.connect(self._on_user_mode_changed)
+
+        self.pass_group = QButtonGroup()
+        self.pass_group.addButton(self.single_pass_radio, 1)
+        self.pass_group.addButton(self.passlist_radio, 2)
+        self.pass_group.buttonClicked.connect(self._on_pass_mode_changed)
+
+        return creds_group
+
+    def _create_advanced_section(self) -> QGroupBox:
+        """Create advanced options section."""
+        advanced_group = QGroupBox("Advanced Options")
+        advanced_group.setStyleSheet(f"""
+            QGroupBox {{
+                font-weight: bold;
+                border: 2px solid {COLOR_BORDER};
+                border-radius: 5px;
+                margin-top: 1ex;
+                color: {COLOR_TEXT_PRIMARY};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }}
+        """)
+
+        advanced_layout = QVBoxLayout(advanced_group)
+
+        # Single row: Tasks, Wait, and all checkboxes
+        options_row = QHBoxLayout()
+        
+        tasks_label = QLabel("Tasks:")
+        self.tasks_spin = QSpinBox()
+        self.tasks_spin.setRange(1, 64)
+        self.tasks_spin.setValue(4)
+        self.tasks_spin.setSuffix(" parallel")
+
+        wait_label = QLabel("Wait:")
+        self.wait_spin = QSpinBox()
+        self.wait_spin.setRange(0, 100)
+        self.wait_spin.setValue(0)
+        self.wait_spin.setSuffix(" ms")
+
+        options_row.addWidget(tasks_label)
+        options_row.addWidget(self.tasks_spin)
+        options_row.addSpacing(15)
+        options_row.addWidget(wait_label)
+        options_row.addWidget(self.wait_spin)
+        options_row.addSpacing(20)
+        
+        # Checkboxes
+        self.exit_on_first_check = QCheckBox("Stop after success")
+        self.exit_on_first_check.setStyleSheet(f"font-size: 14px; color: {COLOR_TEXT_PRIMARY};")
+        options_row.addWidget(self.exit_on_first_check)
+        options_row.addSpacing(15)
+        
+        self.use_ssl_check = QCheckBox("Use SSL/TLS")
+        self.use_ssl_check.setStyleSheet(f"font-size: 14px; color: {COLOR_TEXT_PRIMARY};")
+        self.use_ssl_check.stateChanged.connect(self._on_ssl_changed)
+        options_row.addWidget(self.use_ssl_check)
+        options_row.addSpacing(15)
+        
+        self.use_proxy_check = QCheckBox("Use Proxy:")
+        self.use_proxy_check.setStyleSheet(f"font-size: 14px; color: {COLOR_TEXT_PRIMARY};")
+        self.use_proxy_check.stateChanged.connect(self._on_proxy_changed)
+        options_row.addWidget(self.use_proxy_check)
+        
+        self.proxy_input = QLineEdit()
+        self.proxy_input.setPlaceholderText("http://127.0.0.1:8080")
+        self.proxy_input.setEnabled(False)
+        self.proxy_input.setMinimumHeight(32)
+        self.proxy_input.setMaximumWidth(200)
+        self.proxy_input.setStyleSheet(f"""
+            QLineEdit {{
+                padding: 6px;
+                font-size: 14px;
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+            }}
+        """)
+        options_row.addWidget(self.proxy_input)
+        options_row.addStretch()
+        advanced_layout.addLayout(options_row)
+
+        # HTTP Form Options (conditional)
+        self.http_form_group = self._create_http_form_section()
+        self.http_form_group.hide()
+        advanced_layout.addWidget(self.http_form_group)
+
+        return advanced_group
+
+    def _create_http_form_section(self) -> QGroupBox:
+        """Create HTTP form options section."""
+        http_group = QGroupBox("HTTP Form Options")
+        http_group.setStyleSheet(f"""
+            QGroupBox {{
+                font-weight: bold;
+                border: 2px solid {COLOR_BORDER};
+                border-radius: 5px;
+                margin-top: 1ex;
+                color: {COLOR_TEXT_PRIMARY};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }}
+        """)
+        
+        layout = QVBoxLayout(http_group)
+        
+        # Form path
+        path_row = QHBoxLayout()
+        path_label = QLabel("Form Path:")
+        path_label.setMinimumWidth(100)
+        self.http_form_path = QLineEdit()
+        self.http_form_path.setPlaceholderText("/login.php")
+        self.http_form_path.setMinimumHeight(32)
+        path_row.addWidget(path_label)
+        path_row.addWidget(self.http_form_path)
+        layout.addLayout(path_row)
+        
+        # Username param
+        user_row = QHBoxLayout()
+        user_label = QLabel("Username Param:")
+        user_label.setMinimumWidth(100)
+        self.http_user_param = QLineEdit()
+        self.http_user_param.setPlaceholderText("username=^USER^")
+        self.http_user_param.setMinimumHeight(32)
+        user_row.addWidget(user_label)
+        user_row.addWidget(self.http_user_param)
+        layout.addLayout(user_row)
+        
+        # Password param
+        pass_row = QHBoxLayout()
+        pass_label = QLabel("Password Param:")
+        pass_label.setMinimumWidth(100)
+        self.http_pass_param = QLineEdit()
+        self.http_pass_param.setPlaceholderText("password=^PASS^")
+        self.http_pass_param.setMinimumHeight(32)
+        pass_row.addWidget(pass_label)
+        pass_row.addWidget(self.http_pass_param)
+        layout.addLayout(pass_row)
+        
+        # Failure string
+        fail_row = QHBoxLayout()
+        fail_label = QLabel("Failure String:")
+        fail_label.setMinimumWidth(100)
+        self.http_fail_string = QLineEdit()
+        self.http_fail_string.setPlaceholderText("Login Failed")
+        self.http_fail_string.setMinimumHeight(32)
+        fail_row.addWidget(fail_label)
+        fail_row.addWidget(self.http_fail_string)
+        layout.addLayout(fail_row)
+        
+        return http_group
+
+    def _connect_signals(self):
+        """Connect all signals."""
+        # Text fields
+        self.host_input.textChanged.connect(self._update_command_display)
+        self.username_input.textChanged.connect(self._update_command_display)
+        self.userlist_input.textChanged.connect(self._update_command_display)
+        self.password_input.textChanged.connect(self._update_command_display)
+        self.passlist_input.textChanged.connect(self._update_command_display)
+        
+        # Combos
+        self.service_input.currentTextChanged.connect(self._update_command_display)
+        self.service_input.currentTextChanged.connect(self._on_service_changed)
+        self.custom_port_input.textChanged.connect(self._update_command_display)
+        
+        # Spinboxes
+        self.tasks_spin.valueChanged.connect(self._update_command_display)
+        self.wait_spin.valueChanged.connect(self._update_command_display)
+        
+        # Checkboxes
+        self.exit_on_first_check.stateChanged.connect(self._update_command_display)
+        self.use_ssl_check.stateChanged.connect(self._update_command_display)
+        self.use_proxy_check.stateChanged.connect(self._update_command_display)
+        self.proxy_input.textChanged.connect(self._update_command_display)
+        
+        # HTTP form fields
+        self.http_form_path.textChanged.connect(self._update_command_display)
+        self.http_user_param.textChanged.connect(self._update_command_display)
+        self.http_pass_param.textChanged.connect(self._update_command_display)
+        self.http_fail_string.textChanged.connect(self._update_command_display)
 
     def _on_service_changed(self):
-        """Handle service selection change."""
-        service = self.service_combo.currentText()
-        is_http = "HTTP" in service
+        """Show/hide HTTP form options based on service."""
+        service = self.service_input.currentText().lower()
+        is_http = 'http' in service
+        self.http_form_group.setVisible(is_http)
 
-        self.http_options_widget.setVisible(is_http)
-        if is_http:
-            # Set default port based on HTTP/HTTPS
-            if "HTTPS" in service:
-                self.port_combo.setCurrentText("443")
-            else:
-                self.port_combo.setCurrentText("80")
-        else:
-            # Set default ports for other services
-            default_ports = {
-                "SSH": "22", "FTP": "21", "Telnet": "23", "SMTP": "25", "POP3": "110",
-                "IMAP": "143", "SMB": "445", "LDAP": "389", "MySQL": "3306", "RDP": "3389"
-            }
-            self.port_combo.setCurrentText(str(default_ports.get(service, "22")))
+    def _on_ssl_changed(self):
+        """Handle SSL/TLS toggle."""
+        self._update_command_display()
 
-        self.update_command()
+    def _on_proxy_changed(self):
+        """Handle proxy checkbox change."""
+        is_checked = self.use_proxy_check.isChecked()
+        self.proxy_input.setEnabled(is_checked)
+        self._update_command_display()
 
-    def _on_user_radio_changed(self):
-        """Handle username radio button change."""
+    def _on_custom_port_changed(self):
+        """Handle custom port checkbox change."""
+        is_checked = self.custom_port_check.isChecked()
+        self.custom_port_input.setEnabled(is_checked)
+        self._update_command_display()
+
+    def _on_user_mode_changed(self):
+        """Handle username mode change."""
         is_single = self.single_user_radio.isChecked()
         self.username_input.setEnabled(is_single)
         self.userlist_input.setEnabled(not is_single)
-        self.userlist_browse_button.setEnabled(not is_single)
-        self.update_command()
+        self.userlist_browse.setEnabled(not is_single)
+        self._update_command_display()
 
-    def _on_pass_radio_changed(self):
-        """Handle password radio button change."""
+    def _on_pass_mode_changed(self):
+        """Handle password mode change."""
         is_single = self.single_pass_radio.isChecked()
         self.password_input.setEnabled(is_single)
         self.passlist_input.setEnabled(not is_single)
-        self.passlist_browse_button.setEnabled(not is_single)
-        self.update_command()
+        self.passlist_browse.setEnabled(not is_single)
+        self._update_command_display()
 
     def _browse_userlist(self):
         """Browse for username wordlist."""
@@ -686,7 +673,6 @@ class HydraToolView(QWidget):
         )
         if file_path:
             self.userlist_input.setText(file_path)
-            self.update_command()
 
     def _browse_passlist(self):
         """Browse for password wordlist."""
@@ -696,275 +682,395 @@ class HydraToolView(QWidget):
         )
         if file_path:
             self.passlist_input.setText(file_path)
-            self.update_command()
 
-    def update_command(self):
+    def _update_command_display(self):
+        """Update the command display field."""
         try:
-            # Safety check: ensure all widgets exist and are valid
-            if not (hasattr(self, 'host_input') and hasattr(self, 'service_combo') and 
-                    hasattr(self, 'port_combo') and hasattr(self, 'command_display')):
-                return
-            
-            # Additional check to ensure widgets haven't been deleted
-            try:
-                _ = self.service_combo.currentText()
-            except RuntimeError:
-                return  # Widget was deleted, silently return
-            
-            host = self.host_input.text().strip() or "<host>"
-            port = self.port_combo.currentText().strip() or "22"
-            service = self.service_mappings.get(self.service_combo.currentText(), "ssh")
-
             cmd_parts = ["hydra"]
-
-            # Username configuration
+            
+            # Username
             if self.single_user_radio.isChecked():
                 username = self.username_input.text().strip()
-                if username:
-                    cmd_parts.extend(["-l", username])
-                else:
-                    cmd_parts.extend(["-l", "<username>"])
+                cmd_parts.extend(["-l", username if username else "<username>"])
             else:
                 userlist = self.userlist_input.text().strip()
-                if userlist:
-                    cmd_parts.extend(["-L", userlist])
-                else:
-                    cmd_parts.extend(["-L", "<userlist>"])
-
-            # Password configuration
+                cmd_parts.extend(["-L", userlist if userlist else "<userlist>"])
+            
+            # Password
             if self.single_pass_radio.isChecked():
                 password = self.password_input.text().strip()
-                if password:
-                    cmd_parts.extend(["-p", password])
-                else:
-                    cmd_parts.extend(["-p", "<password>"])
+                cmd_parts.extend(["-p", password if password else "<password>"])
             else:
                 passlist = self.passlist_input.text().strip()
-                if passlist:
-                    cmd_parts.extend(["-P", passlist])
-                else:
-                    cmd_parts.extend(["-P", "<passlist>"])
+                cmd_parts.extend(["-P", passlist if passlist else "<passlist>"])
+            
+            # Exit on first success
+            if self.exit_on_first_check.isChecked():
+                cmd_parts.append("-f")
+            
+            # Custom port
+            if self.custom_port_check.isChecked():
+                custom_port = self.custom_port_input.text().strip()
+                if custom_port:
+                    cmd_parts.extend(["-s", custom_port])
+            
+            # Proxy
+            if self.use_proxy_check.isChecked():
+                # Proxy is handled via env var usually, but can be shown here for clarity
+                # Hydra doesn't have a direct CLI arg for proxy URL in all versions, 
+                # usually uses HYDRA_PROXY_HTTP env var.
+                # However, we'll just show it as an env var export hint or ignore in display if not supported directly.
+                # Let's not clutter command display with env vars, just keep it internal logic or show comment.
+                pass
 
-            # Service and target
-            cmd_parts.append(service + "://" + host + ":" + port)
-
+            # Target & Service logic
+            host = self.host_input.text().strip()
+            service = self.service_input.currentText().strip()
+            
+            # Check for HTTP form options
+            http_module_opt = ""
+            if 'http' in service.lower() and self.http_form_path.text().strip():
+                # Construct form string
+                path = self.http_form_path.text().strip()
+                user_p = self.http_user_param.text().strip()
+                pass_p = self.http_pass_param.text().strip()
+                fail_s = self.http_fail_string.text().strip()
+                
+                # Format: "url:userparam:passparam:failstring"
+                # Hydra expects: http-post-form "/login.php:user=^USER^:pass=^PASS^:F=incorrect"
+                http_module_opt = f'"{path}:{user_p}:{pass_p}:{fail_s}"'
+                
+                # Update service name to form-based variant
+                if 'post' in service.lower():
+                    service = 'http-post-form'
+                elif 'get' in service.lower():
+                    service = 'http-get-form'
+            
+            # SSL/TLS toggle
+            if self.use_ssl_check.isChecked() and service:
+                if service == "http":
+                    service = "https"
+                elif service == "ftp":
+                    service = "ftps"
+                elif "http" in service and not service.startswith("https"):
+                     service = service.replace("http", "https")
+            
+            target = f"{service if service else '<service>'}://{host if host else '<host>'}"
+            cmd_parts.append(target)
+            
+            if http_module_opt:
+                cmd_parts.append(http_module_opt)
+            
             # Tasks
             cmd_parts.extend(["-t", str(self.tasks_spin.value())])
-
-            # Timeout
-            cmd_parts.extend(["-T", str(self.timeout_spin.value())])
-
+            
             # Wait
             if self.wait_spin.value() > 0:
                 cmd_parts.extend(["-w", str(self.wait_spin.value())])
-
-            # HTTP specific options
-            if "http" in service:
-                method = self.http_method_combo.currentText().lower()
-                url_path = self.http_url_input.text().strip()
-                if url_path:
-                    cmd_parts.extend([method + "-form", url_path])
-
-            cmd = " ".join(cmd_parts)
-            if hasattr(self, 'command_display'):
-                self.command_display.setText(cmd)
-        except (AttributeError, RuntimeError):
-            # Widget doesn't exist or was deleted, silently ignore
+            
+            self.command_display.setText(" ".join(cmd_parts))
+        except Exception:
             pass
 
-    def run_scan(self):
-        """Start Hydra brute force attack."""
+    def _build_hydra_command(self) -> list:
+        """Build the actual hydra command for execution."""
+        cmd = ["hydra"]
+        
+        # Username
+        if self.single_user_radio.isChecked():
+            cmd.extend(["-l", self.username_input.text().strip()])
+        else:
+            cmd.extend(["-L", self.userlist_input.text().strip()])
+        
+        # Password
+        if self.single_pass_radio.isChecked():
+            cmd.extend(["-p", self.password_input.text().strip()])
+        else:
+            cmd.extend(["-P", self.passlist_input.text().strip()])
+        
+        # Exit on first success
+        if self.exit_on_first_check.isChecked():
+            cmd.append("-f")
+        
+        # Custom port
+        if self.custom_port_check.isChecked():
+            custom_port = self.custom_port_input.text().strip()
+            if custom_port:
+                cmd.extend(["-s", custom_port])
+        
+        # Target logic
+        host = self.host_input.text().strip()
+        service = self.service_input.currentText().strip()
+        
+        # Check for HTTP form options
+        http_module_opt = ""
+        if 'http' in service.lower() and self.http_form_path.text().strip():
+            # Construct form string
+            path = self.http_form_path.text().strip()
+            user_p = self.http_user_param.text().strip()
+            pass_p = self.http_pass_param.text().strip()
+            fail_s = self.http_fail_string.text().strip()
+            
+            # Hydra expects: http-post-form "/login.php:user=^USER^:pass=^PASS^:F=incorrect"
+            http_module_opt = f'"{path}:{user_p}:{pass_p}:{fail_s}"'
+            
+            # Update service name
+            if 'post' in service.lower():
+                service = 'http-post-form'
+            elif 'get' in service.lower():
+                service = 'http-get-form'
+        
+        # SSL/TLS
+        if self.use_ssl_check.isChecked():
+            if service == "http":
+                service = "https"
+            elif service == "ftp":
+                service = "ftps"
+            elif "http" in service and not service.startswith("https"):
+                service = service.replace("http", "https")
+        
+        cmd.append(f"{service}://{host}")
+        
+        if http_module_opt:
+            cmd.append(http_module_opt)
+        
+        # Tasks
+        cmd.extend(["-t", str(self.tasks_spin.value())])
+        
+        # Wait
+        if self.wait_spin.value() > 0:
+            cmd.extend(["-w", str(self.wait_spin.value())])
+        
+        # Use proxy if enabled (set via environment variable, not arg, but we can try setting it prior if using subprocess env)
+        # Note: Hydra uses HYDRA_PROXY_HTTP or HYDRA_PROXY_CONNECT.
+        # Since we use QProcess/subprocess, we should set this in the environment of the worker.
+        # However, _build_hydra_command returns a list of args.
+        # We'll need to handle the env var in the execution method.
+        
+        # Output file
+        if self._logs_dir:
+            output_file = os.path.join(self._logs_dir, "hydra_results.txt")
+            cmd.extend(["-o", output_file])
+        
+        return cmd
+
+    def _run_attack(self):
+        """Start the brute force attack."""
+        # Validate inputs
         host = self.host_input.text().strip()
         if not host:
             QMessageBox.warning(self, "No Target", "Please enter a target host/IP.")
             return
 
-        # Check username configuration
+        # Check username
         if self.single_user_radio.isChecked():
             if not self.username_input.text().strip():
                 QMessageBox.warning(self, "No Username", "Please enter a username.")
                 return
         else:
-            if not self.userlist_input.text().strip():
+            userlist = self.userlist_input.text().strip()
+            if not userlist:
                 QMessageBox.warning(self, "No Username List", "Please select a username wordlist.")
                 return
-            if not os.path.exists(self.userlist_input.text().strip()):
-                QMessageBox.warning(self, "Username List Not Found", f"Username list file does not exist: {self.userlist_input.text().strip()}")
+            if not os.path.exists(userlist):
+                QMessageBox.warning(self, "File Not Found", f"Username list not found: {userlist}")
                 return
 
-        # Check password configuration
+        # Check password
         if self.single_pass_radio.isChecked():
             if not self.password_input.text().strip():
                 QMessageBox.warning(self, "No Password", "Please enter a password.")
                 return
         else:
-            if not self.passlist_input.text().strip():
+            passlist = self.passlist_input.text().strip()
+            if not passlist:
                 QMessageBox.warning(self, "No Password List", "Please select a password wordlist.")
                 return
-            if not os.path.exists(self.passlist_input.text().strip()):
-                QMessageBox.warning(self, "Password List Not Found", f"Password list file does not exist: {self.passlist_input.text().strip()}")
+            if not os.path.exists(passlist):
+                QMessageBox.warning(self, "File Not Found", f"Password list not found: {passlist}")
                 return
 
+        # Clear outputs
         self.output.clear()
         self.results_table.setRowCount(0)
+        self._discovered_creds.clear()
         self._is_stopping = False
-        self._scan_complete_added = False
 
         try:
-            # Create target directory
+            # Create directories
             base_dir = create_target_dirs(f"hydra_{host}")
-            logs_dir = os.path.join(base_dir, "Logs")
-            os.makedirs(logs_dir, exist_ok=True)
+            self._logs_dir = os.path.join(base_dir, "Logs")
+            os.makedirs(self._logs_dir, exist_ok=True)
 
             self._info(f"Starting Hydra brute force attack")
-            self._info(f"Target: {host}:{self.port_combo.currentText()}")
-            self._info(f"Service: {self.service_combo.currentText()}")
-            self.output.appendPlainText("")
+            self._info(f"Target: {host}")
+            self._info(f"Service: {self.service_input.currentText()}")
+            if self.custom_port_check.isChecked():
+                self._info(f"Custom Port: {self.custom_port_input.text().strip()}")
+            self.output.append("")
 
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setRange(0, 0)  # Indeterminate progress
-
-            # Build hydra command
-            cmd = ["hydra"]
-
-            # Username configuration
-            if self.single_user_radio.isChecked():
-                cmd.extend(["-l", self.username_input.text().strip()])
-            else:
-                cmd.extend(["-L", self.userlist_input.text().strip()])
-
-            # Password configuration
-            if self.single_pass_radio.isChecked():
-                cmd.extend(["-p", self.password_input.text().strip()])
-            else:
-                cmd.extend(["-P", self.passlist_input.text().strip()])
-
-            # Service and target
-            service = self.service_mappings.get(self.service_combo.currentText(), "ssh")
-            target = f"{service}://{host}:{self.port_combo.currentText()}"
-            cmd.append(target)
-
-            # Tasks
-            cmd.extend(["-t", str(self.tasks_spin.value())])
-
-            # Timeout
-            cmd.extend(["-T", str(self.timeout_spin.value())])
-
-            # Wait
-            if self.wait_spin.value() > 0:
-                cmd.extend(["-w", str(self.wait_spin.value())])
-
-            # HTTP specific options
-            if "http" in service:
-                method = self.http_method_combo.currentText().lower()
-                url_path = self.http_url_input.text().strip()
-                if url_path:
-                    cmd.extend([f"{method}-form", url_path])
-
-            # Output file
-            output_file = os.path.join(logs_dir, "hydra_results.txt")
-            cmd.extend(["-o", output_file])
-
+            # Build command
+            cmd = self._build_hydra_command()
             self._info(f"Command: {' '.join(cmd)}")
-            self.output.appendPlainText("")
+            self.output.append("")
 
+            # Start worker
             self.worker = ProcessWorker(cmd)
+            
+            # Set proxy environment variable if enabled
+            if self.use_proxy_check.isChecked():
+                proxy_url = self.proxy_input.text().strip()
+                if proxy_url:
+                    env = os.environ.copy()
+                    env["HYDRA_PROXY_HTTP"] = proxy_url
+                    # Also set connect proxy just in case, though usually one is sufficient depending on mode
+                    env["HYDRA_PROXY_CONNECT"] = proxy_url
+                    self.worker.process.setProcessEnvironment(env)
+            
             self.worker.output_ready.connect(self._on_output)
             self.worker.finished.connect(self._on_finished)
             self.worker.error.connect(self._error)
 
             self.run_button.setEnabled(False)
             self.stop_button.setEnabled(True)
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)  # Indeterminate
+
             self.worker.start()
 
         except Exception as e:
-            self._error(f"Failed to start brute force: {str(e)}")
+            self._error(f"Failed to start attack: {str(e)}")
 
-    def _on_output(self, line):
-        """Process Hydra output."""
-        self.output.appendPlainText(line)
+    def _stop_attack(self):
+        """Stop the attack."""
+        if self.worker and self.worker.is_running:
+            self._is_stopping = True
+            self.worker.stop()
+            self._info("Attack stopped by user.")
+        
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.progress_bar.setVisible(False)
 
-        # Parse successful logins and add to table
-        # Hydra outputs successful logins like: [port][service] host:port LOGIN - PASSWORD
-        if "LOGIN -" in line and "PASSWORD" in line:
+    def _on_output(self, line: str):
+        """Process output line."""
+        self.output.append(line)
+        
+        # Parse credentials
+        # Hydra format: [22][ssh] host: 192.168.1.1   login: admin   password: password123
+        if 'login:' in line and 'password:' in line:
             try:
-                # Extract login info from Hydra output
-                parts = line.split("LOGIN - ")
-                if len(parts) == 2:
-                    host_info = parts[0].strip()
-                    password = parts[1].split()[0].strip()  # Get password before other text
-
-                    # Extract username from the line (usually after host:port)
-                    host_parts = host_info.split()
-                    if len(host_parts) >= 2:
-                        username = host_parts[-1]  # Usually the last part before LOGIN
-
-                        # Add to results table
-                        row_count = self.results_table.rowCount()
-                        self.results_table.insertRow(row_count)
-                        self.results_table.setItem(row_count, 0, QTableWidgetItem(self.host_input.text().strip()))
-                        self.results_table.setItem(row_count, 1, QTableWidgetItem(username))
-                        self.results_table.setItem(row_count, 2, QTableWidgetItem(password))
-            except:
+                login_match = re.search(r'login:\s*(\S+)', line)
+                pass_match = re.search(r'password:\s*(.+?)(?:\s*$)', line)
+                
+                if login_match and pass_match:
+                    username = login_match.group(1).strip()
+                    password = pass_match.group(1).strip()
+                    host = self.host_input.text().strip()
+                    
+                    self._add_credential(host, username, password)
+            except Exception:
                 pass
 
+    def _add_credential(self, host: str, username: str, password: str):
+        """Add credential to results table (with duplicate check)."""
+        cred_key = (host, username, password)
+        
+        if cred_key in self._discovered_creds:
+            return  # Skip duplicate
+        
+        self._discovered_creds.add(cred_key)
+        
+        row = self.results_table.rowCount()
+        self.results_table.insertRow(row)
+        self.results_table.setItem(row, 0, QTableWidgetItem(host))
+        self.results_table.setItem(row, 1, QTableWidgetItem(username))
+        self.results_table.setItem(row, 2, QTableWidgetItem(password))
+        
+        # Switch to results tab
+        self.tab_widget.setCurrentIndex(1)
+
     def _on_finished(self):
-        """Handle brute force completion."""
+        """Handle attack completion."""
         self.progress_bar.setVisible(False)
-        self._on_scan_completed()
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
 
         if self._is_stopping:
             return
 
         # Save results
         try:
-            host = self.host_input.text().strip()
-            base_dir = create_target_dirs(f"hydra_{host}")
-            logs_dir = os.path.join(base_dir, "Logs")
-
-            # Save results table to file
-            results_file = os.path.join(logs_dir, "cracked_credentials.txt")
-            with open(results_file, 'w') as f:
-                f.write("Hydra Brute Force Results\n")
-                f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Target: {host}:{self.port_combo.currentText()}\n")
-                f.write(f"Service: {self.service_combo.currentText()}\n\n")
-
-                f.write("Cracked Credentials:\n")
-                f.write("-" * 80 + "\n")
-                for row in range(self.results_table.rowCount()):
-                    host_item = self.results_table.item(row, 0)
-                    user_item = self.results_table.item(row, 1)
-                    pass_item = self.results_table.item(row, 2)
-                    if host_item and user_item and pass_item:
-                        f.write(f"Host: {host_item.text()}\n")
-                        f.write(f"Username: {user_item.text()}\n")
-                        f.write(f"Password: {pass_item.text()}\n")
+            if self._logs_dir and self.results_table.rowCount() > 0:
+                results_file = os.path.join(self._logs_dir, "cracked_credentials.txt")
+                with open(results_file, 'w') as f:
+                    f.write("Hydra Brute Force Results\n")
+                    f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Target: {self.host_input.text().strip()}\n")
+                    f.write(f"Service: {self.service_input.currentText()}\n")
+                    if self.custom_port_check.isChecked():
+                        f.write(f"Custom Port: {self.custom_port_input.text().strip()}\n")
+                    f.write("\n")
+                    f.write("Cracked Credentials:\n")
+                    f.write("-" * 80 + "\n")
+                    
+                    for row in range(self.results_table.rowCount()):
+                        host = self.results_table.item(row, 0).text()
+                        user = self.results_table.item(row, 1).text()
+                        pwd = self.results_table.item(row, 2).text()
+                        f.write(f"Host: {host}\n")
+                        f.write(f"Username: {user}\n")
+                        f.write(f"Password: {pwd}\n")
                         f.write("-" * 40 + "\n")
-
-            self._info(f"Results saved to: {results_file}")
-
+                
+                self._info(f"Results saved to: {results_file}")
         except Exception as e:
             self._error(f"Failed to save results: {str(e)}")
 
-        if not self._scan_complete_added:
-            self._section("Brute Force Complete")
-            self._scan_complete_added = True
+        self.output.append("")
+        self._info("Attack completed.")
+        
+    def _save_credentials(self):
+        """Save credentials to file."""
+        if self.results_table.rowCount() == 0:
+            QMessageBox.information(self, "No Credentials", "No credentials to save.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Credentials", "", "Text Files (*.txt);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'w') as f:
+                    f.write("Hydra Brute Force Results\n")
+                    f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Target: {self.host_input.text().strip()}\n")
+                    f.write(f"Service: {self.service_input.currentText()}\n")
+                    if self.custom_port_check.isChecked():
+                        f.write(f"Custom Port: {self.custom_port_input.text().strip()}\n")
+                    f.write("\n")
+                    f.write("Cracked Credentials:\n")
+                    f.write("-" * 80 + "\n")
+                    
+                    for row in range(self.results_table.rowCount()):
+                        host = self.results_table.item(row, 0).text()
+                        user = self.results_table.item(row, 1).text()
+                        pwd = self.results_table.item(row, 2).text()
+                        f.write(f"Host: {host}\n")
+                        f.write(f"Username: {user}\n")
+                        f.write(f"Password: {pwd}\n")
+                        f.write("-" * 40 + "\n")
+                
+                self._info(f"Credentials saved to: {file_path}")
+                QMessageBox.information(self, "Saved", f"Credentials saved successfully!\n{file_path}")
+            except Exception as e:
+                self._error(f"Failed to save: {str(e)}")
 
-    def stop_scan(self):
-        """Stop the brute force attack."""
-        if self.worker and self.worker.is_running:
-            self._is_stopping = True
-            self.worker.stop()
-            self._info("Brute force stopped.")
-        self._on_scan_completed()
-        self.progress_bar.setVisible(False)
+    def _info(self, message: str):
+        """Add info message."""
+        self.output.append(f"[INFO] {message}")
 
-    def copy_results_to_clipboard(self):
-        """Copy brute force results to clipboard."""
-        results_text = self.output.toPlainText()
-        if results_text.strip():
-            QApplication.clipboard().setText(results_text)
-            self._notify("Results copied to clipboard.")
-        else:
-            self._notify("No results to copy.")
+    def _error(self, message: str):
+        """Add error message."""
+        self.output.append(f"[ERROR] {message}")

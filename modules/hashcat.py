@@ -27,7 +27,8 @@ from ui.styles import (
     TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
     COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
     StyledComboBox,  # Import from centralized styles
-    RUN_BUTTON_STYLE, STOP_BUTTON_STYLE  # Centralized button styles
+    RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,  # Centralized button styles
+    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE
 )
 
 
@@ -251,20 +252,14 @@ class HashcatToolView(QWidget):
 
         # Create control panel
         control_panel = QWidget()
-        control_panel.setStyleSheet(f"""
-            QWidget {{
-                background-color: #1C1C1C;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-        """)
+        control_panel.setStyleSheet(TOOL_VIEW_STYLE)
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
 
         # Header
         header = QLabel("Cracker › Hashcat")
-        header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
+        header.setStyleSheet(TOOL_HEADER_STYLE)
         control_layout.addWidget(header)
 
         # Hash file selection with Start/Stop buttons on same line

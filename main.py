@@ -1,9 +1,13 @@
 import sys
+import os
 from PySide6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 
 
 def main():
+    # Suppress annoying Qt warnings on Linux
+    os.environ["QT_LOGGING_RULES"] = "qt.xkb.compose=false"
+    
     app = QApplication(sys.argv)
 
     # ===== Global Font Scaling (+2) =====

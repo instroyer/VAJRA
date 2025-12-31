@@ -10,8 +10,9 @@ class ToolCategory(Enum):
     LIVE_SUBDOMAINS = "Live Subdomains"
     PORT_SCANNING = "Port Scanning"
     WEB_SCREENSHOTS = "Web Screenshots"
-    FILE_ANALYSIS = "File Analysis"
+    WEB_SCANNING = "Web Scanning"
     CRACKER = "Cracker"
+    FILE_ANALYSIS = "File Analysis"
 
 class ToolBase:
     """

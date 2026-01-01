@@ -110,8 +110,6 @@ class GobusterToolView(BaseToolView):
         if idx == 2: return "vhost"
         if idx == 3: return "fuzz"
         if idx == 4: return "s3"
-        if idx == 5: return "gcs"
-        if idx == 6: return "tftp"
         return "dir"
 
     def _build_custom_ui(self):
@@ -633,9 +631,7 @@ class GobusterToolView(BaseToolView):
         # Target handling
         if mode == "dns":
             cmd_parts.extend(["-d", target])
-        elif mode == "tftp":
-            cmd_parts.extend(["-s", target])
-        elif mode in ["s3", "gcs"]:
+        elif mode == "s3":
              if target != "<target>":
                  cmd_parts.append(target)
         elif mode == "fuzz":

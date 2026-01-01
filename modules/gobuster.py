@@ -119,36 +119,82 @@ class GobusterToolView(BaseToolView):
         
         insertion_index = 3
 
-        config_group = QGroupBox("Scan Configuration")
-        config_group.setStyleSheet(f"""
+        # ==================== WORDLIST & GLOBAL OPTIONS ====================
+        wordlist_group = QGroupBox("🔤 Wordlist & Performance")
+        wordlist_group.setStyleSheet(f"""
             QGroupBox {{
                 color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                margin-top: 10px;
-                margin-bottom: 5px; 
+                border: 2px solid {COLOR_BORDER};
+                border-radius: 5px;
+                margin-top: 1ex;
                 padding-top: 10px;
                 font-weight: bold;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
-                padding: 0 5px;
                 left: 10px;
+                padding: 0 5px 0 5px;
             }}
         """)
-        config_layout = QVBoxLayout(config_group)
-        config_layout.setSpacing(5) 
+        wordlist_layout = QVBoxLayout(wordlist_group)
+        wordlist_layout.setSpacing(8)
 
-        # --- Global Options (Row 1) ---
-        # Wordlist | Threads | Timeout
-        global_layout = QHBoxLayout()
-        global_layout.setSpacing(10)
+        # Wordlist row
+        wl_row = QHBoxLayout()
+        wl_label = QLabel("Wordlist:")
+        wl_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
+        wl_label.setFixedWidth(70)
 
-        # Wordlist (Expanded)
         self.dict_input = QLineEdit()
-        self.dict_input.setPlaceholderText("Wordlist Path")
+        self.dict_input.setPlaceholderText("Select wordlist file...")
         self.dict_input.setStyleSheet(f"""
             QLineEdit {{
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+                padding: 6px;
+                font-size: 14px;
+                min-height: 20px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {COLOR_BORDER_INPUT_FOCUSED}; }}
+        """)
+        self.dict_input.textChanged.connect(self.update_command)
+        
+        self.dict_browse_btn = QPushButton("📁 Browse")
+        self.dict_browse_btn.setFixedWidth(100)
+        self.dict_browse_btn.setCursor(Qt.PointingHandCursor)
+        self.dict_browse_btn.clicked.connect(self._browse_dict)
+        self.dict_browse_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+                padding: 6px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{ background-color: #4A4A4A; }}
+        """)
+
+        wl_row.addWidget(wl_label)
+        wl_row.addWidget(self.dict_input)
+        wl_row.addWidget(self.dict_browse_btn)
+        wordlist_layout.addLayout(wl_row)
+
+        # Performance row (Threads & Timeout)
+        perf_row = QHBoxLayout()
+        
+        thread_label = QLabel("Threads:")
+        thread_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
+        thread_label.setFixedWidth(70)
+        
+        self.threads_spin = QSpinBox()
+        self.threads_spin.setRange(1, 500)
+        self.threads_spin.setValue(10)
+        self.threads_spin.setFixedWidth(80)
+        self.threads_spin.setStyleSheet(f"""
+            QSpinBox {{
                 background-color: {COLOR_BACKGROUND_INPUT};
                 color: {COLOR_TEXT_PRIMARY};
                 border: 1px solid {COLOR_BORDER};
@@ -156,102 +202,64 @@ class GobusterToolView(BaseToolView):
                 padding: 4px;
             }}
         """)
-        self.dict_input.textChanged.connect(self.update_command)
-        
-        self.dict_browse_btn = QPushButton("📂")
-        self.dict_browse_btn.setFixedSize(30, 26)
-        self.dict_browse_btn.setCursor(Qt.PointingHandCursor)
-        self.dict_browse_btn.clicked.connect(self._browse_dict)
-        self.dict_browse_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QPushButton:hover {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-        """)
-        
-        # Threads
-        thread_label = QLabel("Threads:")
-        thread_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
-        self.threads_spin = QSpinBox()
-        self.threads_spin.setRange(1, 500)
-        self.threads_spin.setValue(10)
-        self.threads_spin.setFixedWidth(60)
-        self.threads_spin.setStyleSheet(f"""
-            QSpinBox {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 2px;
-            }}
-            QSpinBox::up-button, QSpinBox::down-button {{
-                background: transparent;
-                border: none;
-            }}
-            QSpinBox::up-arrow {{
-                border-bottom: 5px solid white; 
-                border-left: 3px solid transparent; 
-                border-right: 3px solid transparent; 
-                width: 0px; 
-                height: 0px; 
-            }}
-            QSpinBox::down-arrow {{
-                border-top: 5px solid white; 
-                border-left: 3px solid transparent; 
-                border-right: 3px solid transparent; 
-                width: 0px; 
-                height: 0px; 
-            }}
-        """)
         self.threads_spin.valueChanged.connect(self.update_command)
 
-        # Timeout
         timeout_label = QLabel("Timeout:")
-        timeout_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        timeout_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
+        timeout_label.setFixedWidth(70)
+        
         self.timeout_input = QLineEdit()
         self.timeout_input.setPlaceholderText("10s")
-        self.timeout_input.setFixedWidth(60)
+        self.timeout_input.setFixedWidth(80)
         self.timeout_input.setStyleSheet(self.dict_input.styleSheet())
         self.timeout_input.textChanged.connect(self.update_command)
 
-        global_layout.addWidget(QLabel("Wordlist:", styleSheet=f"color: {COLOR_TEXT_PRIMARY};"))
-        global_layout.addWidget(self.dict_input)
-        global_layout.addWidget(self.dict_browse_btn)
-        global_layout.addWidget(thread_label)
-        global_layout.addWidget(self.threads_spin)
-        global_layout.addWidget(timeout_label)
-        global_layout.addWidget(self.timeout_input)
-        
-        config_layout.addLayout(global_layout)
+        perf_row.addWidget(thread_label)
+        perf_row.addWidget(self.threads_spin)
+        perf_row.addSpacing(20)
+        perf_row.addWidget(timeout_label)
+        perf_row.addWidget(self.timeout_input)
+        perf_row.addStretch()
+        wordlist_layout.addLayout(perf_row)
+
+        control_layout.insertWidget(insertion_index, wordlist_group)
+        insertion_index += 1
+
+        # ==================== CONFIGURATION TABS ====================
+        config_group = QGroupBox("⚙️ Scan Configuration")
+        config_group.setStyleSheet(wordlist_group.styleSheet())
+        config_layout = QVBoxLayout(config_group)
+        config_layout.setContentsMargins(5, 15, 5, 5)
+        config_layout.setSpacing(0)
 
         # --- Tabs for Modes ---
         self.mode_tabs = QTabWidget()
         self.mode_tabs.setStyleSheet(f"""
             QTabWidget::pane {{
                 border: 1px solid {COLOR_BORDER};
-                background: {COLOR_BACKGROUND_INPUT};
                 border-radius: 4px;
+                background-color: {COLOR_BACKGROUND_INPUT};
             }}
             QTabBar::tab {{
-                background: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BACKGROUND_INPUT};
                 color: {COLOR_TEXT_PRIMARY};
                 border: 1px solid {COLOR_BORDER};
-                padding: 6px 10px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
+                padding: 8px 16px;
+                font-size: 13px;
+                font-weight: 500;
             }}
             QTabBar::tab:selected {{
-                background: #007ACC;
+                background-color: #1777d1;
+                color: white;
                 font-weight: bold;
-                border-bottom-color: #007ACC;
+            }}
+            QTabBar::tab:hover {{
+                background-color: #4A4A4A;
             }}
         """)
+        
+        config_layout.addWidget(self.mode_tabs)
+        control_layout.insertWidget(insertion_index, config_group)
         
         # 1. Directory Tab
         dir_tab = QWidget()

@@ -70,6 +70,7 @@ class MainWindow(QMainWindow):
                                 tool_name = tool_instance.name
                                 
                                 tools[tool_name] = tool_instance
+                                print(f"✅ Loaded tool: {tool_name} (Category: {tool_instance.category.name})")
 
                                     
                     except ImportError as e:

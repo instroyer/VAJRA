@@ -11,6 +11,7 @@ class ToolCategory(Enum):
     PORT_SCANNING = "Port Scanning"
     WEB_SCREENSHOTS = "Web Screenshots"
     WEB_SCANNING = "Web Scanning"
+    VULNERABILITY_SCANNER = "Vulnerability Scanner"
     CRACKER = "Cracker"
     FILE_ANALYSIS = "File Analysis"
 

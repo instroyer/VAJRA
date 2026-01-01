@@ -104,7 +104,7 @@ class StringsToolView(QWidget):
         """)
         file_layout.addWidget(self.file_path_display, 1)
 
-        self.browse_button = QPushButton("📁 Browse...")
+        self.browse_button = QPushButton("Browse")
         self.browse_button.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_BACKGROUND_INPUT};
@@ -124,7 +124,7 @@ class StringsToolView(QWidget):
         file_layout.addWidget(self.browse_button)
 
         # Action buttons in the same row
-        self.extract_button = QPushButton("🚀 Extract")
+        self.extract_button = QPushButton("Extract")
         self.extract_button.setStyleSheet(f"""
             QPushButton {{
                 background-color: #FF6B35;
@@ -150,7 +150,7 @@ class StringsToolView(QWidget):
         self.extract_button.setEnabled(False)
         file_layout.addWidget(self.extract_button)
 
-        self.clear_button = QPushButton("🗑️ Clear")
+        self.clear_button = QPushButton("Clear")
         self.clear_button.setStyleSheet(f"""
             QPushButton {{
                 background-color: #DC3545;
@@ -171,7 +171,7 @@ class StringsToolView(QWidget):
         self.clear_button.clicked.connect(self._clear_output)
         file_layout.addWidget(self.clear_button)
 
-        self.save_button = QPushButton("💾 Save")
+        self.save_button = QPushButton("Save")
         self.save_button.setStyleSheet(f"""
             QPushButton {{
                 background-color: #28A745;

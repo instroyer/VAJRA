@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from ui.widgets import BaseToolView
+from ui.styles import BaseToolView, CopyButton
 from ui.worker import ProcessWorker
 from core.fileops import create_target_dirs
 from ui.styles import (
@@ -46,6 +46,11 @@ class GobusterTool(ToolBase):
 
 
 class GobusterToolView(BaseToolView):
+    def _build_base_ui(self):
+        super()._build_base_ui()
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+
     def __init__(self, name, category, main_window):
         # Initialize attributes
         self.mode_tabs = None
@@ -113,11 +118,9 @@ class GobusterToolView(BaseToolView):
         return "dir"
 
     def _build_custom_ui(self):
-        splitter = self.findChild(QSplitter)
-        control_panel = splitter.widget(0)
-        control_layout = control_panel.layout()
+        # Use centralized options container
         
-        insertion_index = 3
+        # ==================== WORDLIST & GLOBAL OPTIONS ====================
 
         # ==================== WORDLIST & GLOBAL OPTIONS ====================
         wordlist_group = QGroupBox("🔤 Wordlist & Performance")
@@ -222,8 +225,7 @@ class GobusterToolView(BaseToolView):
         perf_row.addStretch()
         wordlist_layout.addLayout(perf_row)
 
-        control_layout.insertWidget(insertion_index, wordlist_group)
-        insertion_index += 1
+        self.options_container.addWidget(wordlist_group)
 
         # ==================== CONFIGURATION TABS ====================
         config_group = QGroupBox("⚙️ Scan Configuration")
@@ -259,7 +261,7 @@ class GobusterToolView(BaseToolView):
         """)
         
         config_layout.addWidget(self.mode_tabs)
-        control_layout.insertWidget(insertion_index, config_group)
+        self.options_container.addWidget(config_group)
         
         # 1. Directory Tab
         dir_tab = QWidget()
@@ -598,8 +600,7 @@ class GobusterToolView(BaseToolView):
         # Connect Tab Change
         self.mode_tabs.currentChanged.connect(self.update_command)
 
-        config_layout.addWidget(self.mode_tabs)
-        control_layout.insertWidget(insertion_index, config_group)
+
 
 
     def _browse_dict(self):

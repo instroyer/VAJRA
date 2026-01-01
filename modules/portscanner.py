@@ -15,9 +15,10 @@ from PySide6.QtWidgets import (
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.widgets import BaseToolView
+from ui.styles import BaseToolView, CopyButton
 from ui.styles import StyledComboBox
 from ui.worker import ProcessWorker
+from PySide6.QtCore import Qt
 from core.tgtinput import parse_targets
 from core.fileops import create_target_dirs
 from ui.styles import (
@@ -349,6 +350,11 @@ class PortScanner(ToolBase):
         return PortScannerView(main_window=main_window)
 
 class PortScannerView(BaseToolView):
+    def _build_base_ui(self):
+        super()._build_base_ui()
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+
     def __init__(self, main_window):
         super().__init__("Port Scanner", ToolCategory.PORT_SCANNING, main_window)
         self.worker = None
@@ -368,11 +374,12 @@ class PortScannerView(BaseToolView):
         control_layout = control_panel.layout()
         
         # Disconnect default copy button and connect custom handler
+        # Disconnect default copy button and connect custom handler
         try:
-            self.output.copy_button.clicked.disconnect()
+            self.copy_button.clicked.disconnect()
         except:
             pass
-        self.output.copy_button.clicked.connect(self.copy_results_to_clipboard)
+        self.copy_button.clicked.connect(self.copy_results_to_clipboard)
         
         # Port input
         port_layout = QHBoxLayout()

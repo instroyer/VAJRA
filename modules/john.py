@@ -24,10 +24,10 @@ from PySide6.QtWidgets import (
 from modules.bases import ToolBase, ToolCategory
 from ui.worker import ProcessWorker
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
+    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
     COLOR_BORDER_INPUT_FOCUSED, StyledComboBox,
     RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE
+    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, CommandDisplay
 )
 
 
@@ -678,26 +678,10 @@ class JohnToolView(QWidget):
         section_layout.setContentsMargins(0, 0, 0, 0)
         section_layout.setSpacing(5)
         
-        label = QLabel("Command")
-        label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        section_layout.addWidget(label)
-        
-        self.command_display = QLineEdit()
-        self.command_display.setReadOnly(False)  # Editable
-        self.command_display.setStyleSheet(f"""
-            QLineEdit {{
-                padding: 6px;
-                font-size: 14px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-        """)
-        section_layout.addWidget(self.command_display)
+        # Command display (Centralized)
+        self.command_display_widget = CommandDisplay()
+        self.command_display = self.command_display_widget.input
+        section_layout.addWidget(self.command_display_widget)
         
         # Initialize command
         self._update_command()
@@ -713,13 +697,12 @@ class JohnToolView(QWidget):
         self.output.setReadOnly(True)
         self.output.setStyleSheet(f"""
             QTextEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BACKGROUND_PRIMARY};
                 color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 5px;
+                border: none;
+                padding: 12px;
                 font-family: 'Courier New', monospace;
-                font-size: 12px;
+                font-size: 13px;
             }}
         """)
         

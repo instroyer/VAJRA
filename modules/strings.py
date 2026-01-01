@@ -18,8 +18,8 @@ from PySide6.QtGui import QTextCursor
 
 from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
-    COLOR_BORDER_INPUT_FOCUSED, StyledSpinBox, LABEL_STYLE_15PX
+    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
+    COLOR_BORDER_INPUT_FOCUSED, StyledSpinBox, LABEL_STYLE_15PX, CopyButton
 )
 
 
@@ -447,45 +447,19 @@ class StringsToolView(QWidget):
         self.output_text = QTextEdit()
         self.output_text.setStyleSheet(f"""
             QTextEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BACKGROUND_PRIMARY};
                 color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
+                border: none;
+                padding: 12px;
                 font-family: Consolas, 'Courier New', monospace;
-                font-size: 12px;
-            }}
-            QTextEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+                font-size: 13px;
             }}
         """)
         self.output_text.setReadOnly(True)
         self.output_text.setPlaceholderText("Extracted strings will appear here with color-coded patterns...")
 
-        # Professional icon-only copy button at top-right
-        self.copy_button = QPushButton("📋")
-        self.copy_button.setFixedSize(36, 36)
-        self.copy_button.setStyleSheet(f'''
-            QPushButton {{
-                font-size: 18px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 18px;
-                padding: 0px;
-                margin: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLOR_BORDER_INPUT_FOCUSED};
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-                transform: scale(1.05);
-            }}
-            QPushButton:pressed {{
-                background-color: #CC8A00;
-            }}
-        ''')
-        self.copy_button.setCursor(Qt.PointingHandCursor)
-        self.copy_button.setToolTip("Copy all results to clipboard")
-        self.copy_button.clicked.connect(self._copy_to_clipboard)
+        # Use centralized CopyButton
+        self.copy_button = CopyButton(self.output_text, self.main_window)
 
         output_grid.addWidget(self.output_text, 0, 0)
         output_grid.addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
@@ -905,15 +879,6 @@ class StringsToolView(QWidget):
         self.stat_registry[1].setText("0")
         self.stat_base64[1].setText("0")
         self.stat_crypto[1].setText("0")
-
-    def _copy_to_clipboard(self):
-        """Copy output to clipboard."""
-        text = self.output_text.toPlainText()
-        if text:
-            QApplication.clipboard().setText(text)
-            self._notify("Results copied to clipboard.")
-        else:
-            self._show_error("Nothing to copy.")
 
     def _save_results(self):
         """Save extracted strings to a file."""

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from ui.widgets import BaseToolView
+from ui.styles import BaseToolView, CopyButton
 from ui.worker import ProcessWorker
 from core.fileops import create_target_dirs
 from ui.styles import (
@@ -45,6 +45,11 @@ class DigTool(ToolBase):
 
 
 class DigToolView(BaseToolView):
+    def _build_base_ui(self):
+        super()._build_base_ui()
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+
     def __init__(self, name, category, main_window):
         # Initialize state attributes BEFORE super().__init__ calls update_command
         self.type_checks = {}  # Changed from type_buttons for CheckBoxes
@@ -64,16 +69,9 @@ class DigToolView(BaseToolView):
 
     def _build_custom_ui(self):
         """Inject Dig specific widgets into the BaseToolView layout."""
-        # Access the control panel layout from BaseToolView
-        splitter = self.findChild(QSplitter)
-        control_panel = splitter.widget(0)
-        control_layout = control_panel.layout()
+        # Use centralized options container
         
-        # We want to insert our custom widgets BEFORE the Command label (which is at index -2)
-        # Base layout: [Header, TargetLabel, TargetRow, CommandLabel, CommandInput, Stretch]
-        # We want to insert at index 3 (after TargetRow)
-        
-        insertion_index = 3
+        # Configuration Grid (Query Types & Options)
 
         # Configuration Grid (Query Types & Options)
         config_group = QGroupBox("Query Configuration")
@@ -235,8 +233,8 @@ class DigToolView(BaseToolView):
 
         config_layout_inner.addLayout(options_layout, stretch=1)
 
-        # Insert into main layout
-        control_layout.insertWidget(insertion_index, config_group)
+        # Add to centralized container
+        self.options_container.addWidget(config_group)
 
     def update_command(self):
         """Rebuild the Dig command based on UI state."""

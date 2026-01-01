@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from ui.widgets import BaseToolView
+from ui.styles import BaseToolView, CopyButton
 from ui.worker import ProcessWorker
 from core.fileops import create_target_dirs
 from ui.styles import (
@@ -46,6 +46,11 @@ class DnsReconTool(ToolBase):
 
 
 class DnsReconToolView(BaseToolView):
+    def _build_base_ui(self):
+        super()._build_base_ui()
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+
     def __init__(self, name, category, main_window):
         # Initialize attributes
         self.scan_mode_group = None
@@ -64,12 +69,9 @@ class DnsReconToolView(BaseToolView):
         self.update_command()
 
     def _build_custom_ui(self):
-        splitter = self.findChild(QSplitter)
-        control_panel = splitter.widget(0)
-        control_layout = control_panel.layout()
+        # Use centralized options container
         
-        # Insert after Target row (index 3)
-        insertion_index = 3
+        # --- Configuration Group ---
 
         # --- Configuration Group ---
         config_group = QGroupBox("Scan Configuration")
@@ -187,7 +189,7 @@ class DnsReconToolView(BaseToolView):
         self.dict_container.setVisible(False) # Hidden by default
         config_layout.addWidget(self.dict_container)
 
-        control_layout.insertWidget(insertion_index, config_group)
+        self.options_container.addWidget(config_group)
 
     def _on_mode_changed(self):
         # Show dictionary input only if Brute Force (BRT) is selected

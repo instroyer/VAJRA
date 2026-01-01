@@ -217,6 +217,10 @@ class NotificationManager:
         self.notifications.insert(0, message)
         self.panel.add_notification(message)
 
+        self.show_toast(message)
+
+    def show_toast(self, message: str):
+        """Show a temporary toast notification without adding to history."""
         toast = ToastNotification(message, parent=self.main_window)
         toast.show_at_bottom_right()
 

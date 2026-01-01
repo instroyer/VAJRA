@@ -16,9 +16,9 @@ from ui.worker import ProcessWorker
 from core.fileops import create_target_dirs
 from ui.styles import (
     TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
-    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
+    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
     StyledComboBox, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE
+    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, CommandDisplay
 )
 
 
@@ -116,27 +116,12 @@ class HydraToolView(QWidget):
         advanced_group = self._create_advanced_section()
         control_layout.addWidget(advanced_group)
 
-        # Command display
-        command_label = QLabel("Command")
-        command_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
-        self.command_display = QLineEdit()
-        self.command_display.setReadOnly(False)  # Editable
+        # Command display (Centralized)
+        self.command_display_widget = CommandDisplay()
+        self.command_display = self.command_display_widget.input
         self.command_display.setPlaceholderText("Configure options to generate command...")
-        self.command_display.setStyleSheet(f"""
-            QLineEdit {{
-                padding: 6px;
-                font-size: 14px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-        """)
-        control_layout.addWidget(command_label)
-        control_layout.addWidget(self.command_display)
+        
+        control_layout.addWidget(self.command_display_widget)
 
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -163,13 +148,12 @@ class HydraToolView(QWidget):
         self.output.setReadOnly(True)
         self.output.setStyleSheet(f"""
             QTextEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BACKGROUND_PRIMARY};
                 color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 5px;
+                border: none;
+                padding: 12px;
                 font-family: 'Courier New', monospace;
-                font-size: 12px;
+                font-size: 13px;
             }}
         """)
 

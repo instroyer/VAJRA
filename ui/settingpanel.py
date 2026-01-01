@@ -294,16 +294,12 @@ class SettingsPanel(QWidget):
         if self.enable_sudo_check.isChecked():
             privilege_manager.set_mode("sudo")
             password = self.sudo_password_input.text()
+            password = self.sudo_password_input.text()
             if password:
                 privilege_manager.set_sudo_password(password)
             else:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(
-                    self,
-                    "Password Required",
-                    "Please enter your sudo password or disable sudo mode."
-                )
-                return
+                # Password cleared/empty - will prompt at runtime
+                privilege_manager.clear_password()
         else:
             privilege_manager.set_mode("none")
             privilege_manager.clear_password()

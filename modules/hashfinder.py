@@ -15,9 +15,10 @@ from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER,
+    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER,
     COLOR_BORDER_INPUT_FOCUSED, LABEL_STYLE,
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE
+    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
+    CopyButton
 )
 
 
@@ -474,33 +475,18 @@ class HashFinderToolView(QWidget):
         self.output.setPlaceholderText("Hash identification results will appear here...")
         self.output.setStyleSheet(f"""
             QTextEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BACKGROUND_PRIMARY};
                 color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
+                border: none;
+                padding: 12px;
                 font-family: 'Courier New', monospace;
                 font-size: 13px;
             }}
         """)
         output_layout.addWidget(self.output)
 
-        # Copy button (floating, top-right)
-        self.copy_button = QPushButton("📋")
-        self.copy_button.setStyleSheet('''
-            QPushButton {
-                font-size: 24px;
-                background-color: transparent;
-                border: none;
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background-color: rgba(23, 119, 209, 0.2);
-                border-radius: 8px;
-            }
-        ''')
-        self.copy_button.setCursor(Qt.PointingHandCursor)
-        self.copy_button.clicked.connect(self._copy_results)
+        # Use centralized CopyButton
+        self.copy_button = CopyButton(self.output, self.main_window)
         self.copy_button.setParent(self.output)
         self.copy_button.raise_()
 
@@ -588,10 +574,3 @@ class HashFinderToolView(QWidget):
     def _section(self, title):
         """Add section header."""
         self.output.append(f'<br><span style="color:#FACC15;font-weight:700;">===== {title} =====</span><br>')
-
-    def _copy_results(self):
-        """Copy output to clipboard."""
-        from PySide6.QtWidgets import QApplication
-        clipboard = QApplication.clipboard()
-        clipboard.setText(self.output.toPlainText())
-        self._info("Results copied to clipboard!")

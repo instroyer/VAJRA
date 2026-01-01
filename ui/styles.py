@@ -4,7 +4,10 @@
 # Centralized stylesheet and custom styled widgets for the application.
 # =============================================================================
 
-from PySide6.QtWidgets import QPlainTextEdit, QComboBox, QSpinBox
+from PySide6.QtWidgets import (
+    QPlainTextEdit, QComboBox, QSpinBox, QPushButton, QApplication,
+    QWidget, QGridLayout, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSplitter
+)
 from PySide6.QtGui import QFont, QPainter, QPen, QBrush, QPolygon
 from PySide6.QtCore import Qt, QRect, QPoint
 
@@ -479,3 +482,237 @@ SPINBOX_STYLE = f"""
 LABEL_STYLE_15PX = f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;"
 LABEL_TITLE_STYLE_15PX = f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 600;"
 CHECKBOX_STYLE_15PX = f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};"
+
+# =============================================================================
+# COPY BUTTON - Centralized copy button style and widget
+# =============================================================================
+
+COPY_BUTTON_STYLE = '''
+    QPushButton {
+        font-size: 24px;
+        background-color: transparent;
+        border: none;
+        padding: 10px;
+    }
+    QPushButton:hover {
+        background-color: rgba(23, 119, 209, 0.2);
+        border-radius: 8px;
+    }
+'''
+
+
+class CopyButton(QPushButton):
+    """
+    Centralized copy button widget for copying text from output widgets.
+    
+    Usage:
+        self.copy_button = CopyButton(self.output, self.main_window)
+        self.copy_button.setParent(self.output)
+    """
+    
+    def __init__(self, target_widget, main_window=None):
+        super().__init__("📋")
+        self.target_widget = target_widget
+        self.main_window = main_window
+        self.setStyleSheet(COPY_BUTTON_STYLE)
+        self.setCursor(Qt.PointingHandCursor)
+        self.clicked.connect(self._copy_to_clipboard)
+    
+    def _copy_to_clipboard(self):
+        """Copy target widget text to clipboard and show toast popup."""
+        text = self.target_widget.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text)
+            if self.main_window and hasattr(self.main_window, 'notification_manager'):
+                # Show only toast popup, not in notification menu
+                self.main_window.notification_manager.show_toast("Results copied to clipboard.")
+
+
+class OutputView(QWidget):
+    """
+    A widget for displaying tool output.
+    Simple output view without copy button - tools should add CopyButton separately.
+    
+    Usage:
+        self.output = OutputView()
+    """
+
+    def __init__(self, main_window=None):
+        super().__init__()
+        self.main_window = main_window
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.output_text = QPlainTextEdit()
+        self.output_text.setReadOnly(True)
+        self.output_text.setPlaceholderText("Tool results will appear here...")
+        self.output_text.setStyleSheet(OUTPUT_TEXT_EDIT_STYLE)
+
+        layout.addWidget(self.output_text, 0, 0)
+
+    def appendPlainText(self, text):
+        self.output_text.appendPlainText(text)
+
+    def appendHtml(self, html):
+        self.output_text.appendHtml(html)
+
+    def toPlainText(self):
+        return self.output_text.toPlainText()
+
+    def clear(self):
+        self.output_text.clear()
+
+
+class CommandDisplay(QWidget):
+    """
+    Centralized command line display widget.
+    Features a label and an editable text input for command preview.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0) # Zero margins to fit in layouts
+        layout.setSpacing(5)
+
+        label = QLabel("Command")
+        label.setStyleSheet(LABEL_STYLE)
+
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Command will appear here...")
+        self.input.setStyleSheet(TARGET_INPUT_STYLE)
+        
+        # User requested editable command line
+        self.input.setReadOnly(False) 
+
+        layout.addWidget(label)
+        layout.addWidget(self.input)
+
+    def setText(self, text):
+        self.input.setText(text)
+
+    def text(self):
+        return self.input.text()
+
+
+
+class BaseToolView(QWidget):
+    """
+    A base view for tools, providing a consistent UI structure.
+    All tools inherit from this to get a uniform look.
+    
+    Usage:
+        class MyToolView(BaseToolView):
+            def __init__(self, main_window=None):
+                super().__init__("MyTool", ToolCategory.CATEGORY, main_window)
+    """
+
+    def __init__(self, name, category, main_window=None):
+        super().__init__()
+        self.name = name
+        self.category = category
+        self.main_window = main_window
+        self.worker = None
+        self._build_base_ui()
+
+    def _build_base_ui(self):
+        from core.tgtinput import TargetInput
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        splitter = QSplitter(Qt.Vertical)
+        main_layout.addWidget(splitter)
+
+        # --- Control Panel ---
+        control_panel = QWidget()
+        control_panel.setStyleSheet(TOOL_VIEW_STYLE)
+        control_layout = QVBoxLayout(control_panel)
+        control_layout.setContentsMargins(10, 10, 10, 10)
+        control_layout.setSpacing(10)
+
+        header = QLabel(f"{self.category.name.replace('_', ' ')}  ›  {self.name}")
+        header.setStyleSheet(TOOL_HEADER_STYLE)
+        control_layout.addWidget(header)
+
+        target_label = QLabel("Target")
+        target_label.setStyleSheet(LABEL_STYLE)
+        control_layout.addWidget(target_label)
+
+        # --- Target Input and Action Buttons ---
+        target_line_layout = QHBoxLayout()
+        self.target_input = TargetInput()
+        self.target_input.setStyleSheet(TARGET_INPUT_STYLE)
+        self.target_input.input_box.textChanged.connect(self.update_command)
+
+        self.run_button = QPushButton("RUN")
+        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
+        self.run_button.clicked.connect(self.run_scan)
+        self.stop_button = QPushButton("■")
+        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
+        self.stop_button.clicked.connect(self.stop_scan)
+        self.stop_button.setEnabled(False)
+
+        target_line_layout.addWidget(self.target_input)
+        target_line_layout.addWidget(self.run_button)
+        target_line_layout.addWidget(self.stop_button)
+
+        control_layout.addLayout(target_line_layout)
+
+        # --- Options Container (Placeholder for tools to add options) ---
+        # Tools should add their widgets/layouts to self.options_container
+        # instead of inserting into control_layout manually.
+        self.options_container = QVBoxLayout()
+        self.options_container.setSpacing(10)
+        control_layout.addLayout(self.options_container)
+
+        # --- Command Display ---
+        self.command_display = CommandDisplay()
+        # Create legacy alias for tools that assume self.command_input exists
+        self.command_input = self.command_display.input 
+        
+        control_layout.addWidget(self.command_display)
+        control_layout.addStretch()
+
+        # --- Output Area ---
+        self.output = OutputView(self.main_window)
+
+        splitter.addWidget(control_panel)
+        splitter.addWidget(self.output)
+        splitter.setSizes([250, 500])
+
+        self.update_command()
+
+    def update_command(self):
+        raise NotImplementedError("Subclasses must implement update_command.")
+
+    def run_scan(self):
+        raise NotImplementedError("Subclasses must implement run_scan.")
+
+    def stop_scan(self):
+        if self.worker:
+            self.worker.stop()
+
+    def _on_scan_completed(self):
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.worker = None
+        if self.main_window:
+            self.main_window.active_process = None
+
+    def _notify(self, message):
+        if self.main_window:
+            self.main_window.notification_manager.notify(message)
+
+    def _info(self, message):
+        self.output.appendHtml(f'<span style="color:#60A5FA;">[INFO]</span> {message}')
+
+    def _error(self, message):
+        self.output.appendHtml(f'<span style="color:#F87171;">[ERROR]</span> {message}')
+
+    def _section(self, title):
+        self.output.appendHtml(f'<br><span style="color:#FACC15;font-weight:700;">===== {title} =====</span><br>')

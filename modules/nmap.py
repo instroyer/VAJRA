@@ -7,14 +7,16 @@ from datetime import datetime
 from PySide6.QtCore import QObject, Signal, Qt, QRect
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QSpinBox, QLineEdit, QGroupBox, QMessageBox, QSplitter, QCompleter, QApplication, QCheckBox
+    QComboBox, QSpinBox, QLineEdit, QGroupBox, QMessageBox, QSplitter, QCompleter, QApplication, QCheckBox,
+    QInputDialog
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.widgets import BaseToolView
+from ui.styles import BaseToolView, CopyButton
 from ui.worker import ProcessWorker
 from core.tgtinput import parse_targets
 from core.fileops import create_target_dirs
+from PySide6.QtCore import Qt
 from ui.styles import (
     TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
     COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
@@ -68,6 +70,11 @@ class NmapScanner(ToolBase):
         return NmapScannerView(main_window=main_window)
 
 class NmapScannerView(BaseToolView):
+    def _build_base_ui(self):
+        super()._build_base_ui()
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+
     def __init__(self, main_window):
         super().__init__("Nmap", ToolCategory.PORT_SCANNING, main_window)
         self.nmap_scripts = self._get_nmap_scripts()
@@ -89,16 +96,14 @@ class NmapScannerView(BaseToolView):
             return []
 
     def _build_custom_ui(self):
-        splitter = self.findChild(QSplitter)
-        control_panel = splitter.widget(0)
-        control_layout = control_panel.layout()
-
+        # We can access self.options_container directly from BaseToolView
+        
         # Fix: Properly disconnect and reconnect copy button
         try:
-            self.output.copy_button.clicked.disconnect()
+            self.copy_button.clicked.disconnect()
         except:
             pass
-        self.output.copy_button.clicked.connect(self.copy_results_to_clipboard)
+        self.copy_button.clicked.connect(self.copy_results_to_clipboard)
 
         options_layout = QHBoxLayout()
         port_label = QLabel("Ports:")
@@ -235,13 +240,16 @@ class NmapScannerView(BaseToolView):
         for w in (self.delay, self.max_rps, self.timeout, self.retries):
             timing_layout.addWidget(w)
 
-        insertion_index = 5
-        control_layout.insertLayout(insertion_index, options_layout)
-        control_layout.insertLayout(insertion_index + 1, script_host_layout)
-        control_layout.insertLayout(insertion_index + 2, checkbox_layout)
-        control_layout.insertLayout(insertion_index + 3, speed_output_layout)
-        control_layout.insertWidget(insertion_index + 4, timing_title)
-        control_layout.insertWidget(insertion_index + 5, timing_controls_widget)
+        for w in (self.delay, self.max_rps, self.timeout, self.retries):
+            timing_layout.addWidget(w)
+
+        # Add all widgets to options_container (preserves order: Options -> Command)
+        self.options_container.addLayout(options_layout)
+        self.options_container.addLayout(script_host_layout)
+        self.options_container.addLayout(checkbox_layout)
+        self.options_container.addLayout(speed_output_layout)
+        self.options_container.addWidget(timing_title)
+        self.options_container.addWidget(timing_controls_widget)
 
         for widget in [self.port_input, self.scan_type, self.script_input, self.host_scan_type, self.output_format, self.speed_template, self.delay, self.max_rps, self.timeout, self.retries, self.aggressive_scan_check, self.traceroute_check, self.service_version_check, self.os_detection_check]:
             if isinstance(widget, QLineEdit): 
@@ -396,6 +404,21 @@ class NmapScannerView(BaseToolView):
                 self.aggressive_scan_check.isChecked()   # Aggressive includes OS detection
             )
             
+            if needs_root and privilege_manager.mode == "sudo":
+                # Check if we have a password
+                if not privilege_manager.sudo_password:
+                     pwd, ok = QInputDialog.getText(
+                         self, 
+                         "Sudo Password Required", 
+                         "This scan requires root privileges.\nPlease enter your sudo password:", 
+                         QLineEdit.Password
+                     )
+                     if ok and pwd:
+                         privilege_manager.set_sudo_password(pwd)
+                     else:
+                         self._notify("Scan cancelled: Root password required.")
+                         return
+
             if needs_root and privilege_manager.needs_privilege_escalation():
                 # Wrap command with sudo/pkexec
                 command = privilege_manager.wrap_command(command)

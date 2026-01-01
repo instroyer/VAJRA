@@ -17,9 +17,9 @@ from modules.bases import ToolBase, ToolCategory
 from ui.worker import ProcessWorker
 from core.fileops import create_target_dirs
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER,
+    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER,
     COLOR_BORDER_INPUT_FOCUSED, LABEL_STYLE, StyledSpinBox,
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE
+    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE, CopyButton, CommandDisplay
 )
 
 
@@ -107,15 +107,10 @@ class FFUFToolView(QWidget):
         target_row.addWidget(self.stop_button)
         control_layout.addLayout(target_row)
 
-        # Command preview
-        command_label = QLabel("Command")
-        command_label.setStyleSheet(LABEL_STYLE)
-        control_layout.addWidget(command_label)
-
-        self.command_input = QLineEdit()
-        self.command_input.setReadOnly(True)
-        self.command_input.setStyleSheet(self.target_input.styleSheet())
-        control_layout.addWidget(self.command_input)
+        # Command display (Centralized)
+        self.command_display_widget = CommandDisplay()
+        self.command_input = self.command_display_widget.input
+        control_layout.addWidget(self.command_display_widget)
 
         # ==================== WORDLIST SECTION ====================
         wordlist_group = QGroupBox("🔤 Wordlist Configuration")
@@ -539,18 +534,27 @@ class FFUFToolView(QWidget):
         self.output.setPlaceholderText("FFUF results will appear here...")
         self.output.setStyleSheet(f"""
             QTextEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BACKGROUND_PRIMARY};
                 color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
+                border: none;
+                padding: 12px;
                 font-family: 'Courier New', monospace;
-                font-size: 12px;
+                font-size: 13px;
             }}
         """)
 
+        # Output Container
+        output_widget = QWidget()
+        output_layout = QGridLayout(output_widget)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.setSpacing(0)
+        output_layout.addWidget(self.output, 0, 0)
+
+        self.copy_button = CopyButton(self.output, self.main_window)
+        output_layout.addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+
         splitter.addWidget(control_panel)
-        splitter.addWidget(self.output)
+        splitter.addWidget(output_widget)
         splitter.setSizes([400, 400])
 
         # Initialize command
@@ -756,6 +760,7 @@ class FFUFToolView(QWidget):
         if self.main_window:
             self.main_window.active_process = None
         self._info("Scan completed")
+        self._notify("FFUF scan completed.")
 
     def _on_output(self, line):
         """Handle real-time output - filter progress lines."""

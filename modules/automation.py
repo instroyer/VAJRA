@@ -2,7 +2,7 @@
 import os
 import subprocess
 import threading
-from PySide6.QtCore import Signal, QObject
+from PySide6.QtCore import Signal, QObject, Qt
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
 )
 from modules.bases import ToolBase, ToolCategory
-from ui.widgets import OutputView  # Import OutputView
+from ui.styles import OutputView  # Import OutputView from styles
 from ui.worker import ProcessWorker
 from core.tgtinput import TargetInput, parse_targets
 from core.fileops import create_target_dirs, get_group_name_from_file
@@ -24,6 +24,7 @@ from ui.styles import (
     DIVIDER_STYLE,
     COLOR_SUCCESS,
     COLOR_WARNING,
+    CopyButton,
     COLOR_ERROR,
     COLOR_INFO,
 )
@@ -273,6 +274,11 @@ class AutomationView(QWidget):
 
         # Replace QPlainTextEdit with OutputView
         self.output = OutputView()
+        
+        # Add CopyButton
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+        
         layout.addWidget(self.output)
 
     def run_pipeline(self):

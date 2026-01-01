@@ -2,11 +2,17 @@ import os
 from core.fileops import create_target_dirs, get_group_name_from_file
 from core.tgtinput import parse_targets
 from modules.bases import ToolBase, ToolCategory
-from ui.widgets import BaseToolView
+from ui.styles import BaseToolView, CopyButton
 from ui.worker import ProcessWorker
+from PySide6.QtCore import Qt
 
 
 class WhoisView(BaseToolView):
+    def _build_base_ui(self):
+        super()._build_base_ui()
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+
     def __init__(self, name, category, main_window=None):
         super().__init__(name, category, main_window)
         self.targets_queue = []

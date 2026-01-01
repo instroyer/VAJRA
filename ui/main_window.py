@@ -21,7 +21,7 @@ from ui.styles import (
     TARGET_INPUT_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
     OUTPUT_TEXT_EDIT_STYLE, TOOL_VIEW_STYLE
 )
-from ui.widgets import OutputView  # Only import OutputView
+from ui.styles import OutputView  # Import OutputView from styles
 from core.tgtinput import TargetInput
 
 class WelcomeWidget(QWidget):
@@ -70,16 +70,15 @@ class MainWindow(QMainWindow):
                                 tool_name = tool_instance.name
                                 
                                 tools[tool_name] = tool_instance
-                                print(f"✅ Loaded tool: {tool_name} (Category: {tool_instance.category.name})")
 
                                     
-                    except ImportError as e:
-                        print(f"❌ Could not import module '{name}': {e}")
-                    except Exception as e:
-                        print(f"❌ Error loading tool from '{name}': {e}")
+                    except ImportError:
+                        pass
+                    except Exception:
+                        pass
                         
-        except (ImportError, AttributeError) as e:
-            print(f"❌ Error discovering tools: {e}")
+        except (ImportError, AttributeError):
+            pass
         
         return tools
 

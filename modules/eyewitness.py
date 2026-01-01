@@ -1,19 +1,31 @@
 import os
-from PySide6.QtWidgets import QLabel, QSpinBox, QHBoxLayout, QCheckBox, QSplitter
+from PySide6.QtWidgets import QLabel, QSpinBox, QHBoxLayout, QCheckBox, QVBoxLayout, QGroupBox, QLineEdit, QGridLayout
 from core.tgtinput import parse_targets
 from core.fileops import RESULT_BASE
 from modules.bases import ToolBase, ToolCategory
-from ui.widgets import BaseToolView
+from ui.styles import (
+    BaseToolView, CopyButton, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
+    COLOR_BACKGROUND_INPUT, COLOR_BORDER_INPUT_FOCUSED
+)
 from ui.worker import ProcessWorker
+from PySide6.QtCore import Qt
 
 
 class EyewitnessView(BaseToolView):
+    def _build_base_ui(self):
+        super()._build_base_ui()
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+
     def __init__(self, name, category, main_window=None):
         # Initialize attributes before calling super().__init__()
         self.timeout_spin = None
         self.threads_spin = None
         self.prepend_https_check = None
         self.no_dns_check = None
+        self.user_agent_input = None
+        self.delay_spin = None
+        self.proxy_input = None
 
         super().__init__(name, category, main_window)
         # UI is built in super().__init__ which calls _build_ui, but we need to append our custom UI
@@ -21,103 +33,187 @@ class EyewitnessView(BaseToolView):
         self.update_command()
 
     def _build_screenshot_ui(self):
-        """Build the custom screenshot UI for eyewitness."""
-        # Get the splitter and modify the layout
-        splitter = self.findChild(QSplitter)
-        if not splitter:
-            return
+        """Build the custom screenshot UI for eyewitness using standardized layout."""
+        # Use centralized options container provided by BaseToolView
+        
+        # ==================== CONFIGURATION GROUP ====================
+        config_group = QGroupBox("⚙️ Scan Configuration")
+        config_group.setStyleSheet(f"""
+            QGroupBox {{
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+                margin-top: 10px;
+                padding-top: 10px;
+                font-weight: bold;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }}
+        """)
+        config_layout = QVBoxLayout(config_group)
+        config_layout.setSpacing(10)
 
-        control_panel = splitter.widget(0)
-        control_layout = control_panel.layout()
-
-        # Remove existing stretch from control layout
-        for i in range(control_layout.count()):
-            item = control_layout.itemAt(i)
-            if item and item.spacerItem():
-                control_layout.removeItem(item)
-                break
-
-        # Single line configuration layout
-        config_layout = QHBoxLayout()
-
-        # Timeout setting
+        # --- Row 1: Basic Options (Timeout, Threads, Delay) ---
+        row1 = QHBoxLayout()
+        
+        # Timeout
+        timeout_container = QHBoxLayout()
         timeout_label = QLabel("Timeout:")
-        timeout_label.setStyleSheet("color: #FFFFFF; font-weight: 500;")
+        timeout_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         self.timeout_spin = QSpinBox()
         self.timeout_spin.setRange(1, 300)
         self.timeout_spin.setValue(30)
         self.timeout_spin.setSuffix("s")
-        self.timeout_spin.setStyleSheet("""
-            QSpinBox {
-                background-color: #3C3C3C;
-                color: #FFFFFF;
-                border: 1px solid #333333;
+        self.timeout_spin.setStyleSheet(f"""
+            QSpinBox {{
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
-                padding: 5px;
-                min-width: 70px;
-            }
+                padding: 4px;
+            }}
         """)
+        timeout_container.addWidget(timeout_label)
+        timeout_container.addWidget(self.timeout_spin)
+        row1.addLayout(timeout_container)
+        
+        row1.addSpacing(20)
 
-        # Threads setting
+        # Threads
+        threads_container = QHBoxLayout()
         threads_label = QLabel("Threads:")
-        threads_label.setStyleSheet("color: #FFFFFF; font-weight: 500; margin-left: 10px;")
+        threads_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         self.threads_spin = QSpinBox()
         self.threads_spin.setRange(1, 1000)
-        self.threads_spin.setValue(500)
-        self.threads_spin.setStyleSheet("""
-            QSpinBox {
-                background-color: #3C3C3C;
-                color: #FFFFFF;
-                border: 1px solid #333333;
-                border-radius: 4px;
-                padding: 5px;
-                min-width: 70px;
-            }
-        """)
-
-        # Options checkboxes
-        self.prepend_https_check = QCheckBox("Prepend HTTPS")
-        self.prepend_https_check.setChecked(False)
-        self.prepend_https_check.setStyleSheet("color: #FFFFFF; margin-left: 10px;")
-
-        self.no_dns_check = QCheckBox("No DNS")
-        self.no_dns_check.setStyleSheet("color: #FFFFFF; margin-left: 10px;")
-
-        # Add all to single layout
-        config_layout.addWidget(timeout_label)
-        config_layout.addWidget(self.timeout_spin)
-        config_layout.addWidget(threads_label)
-        config_layout.addWidget(self.threads_spin)
-        config_layout.addWidget(self.prepend_https_check)
-        config_layout.addWidget(self.no_dns_check)
-        config_layout.addStretch()
+        self.threads_spin.setValue(50)  # Default 50
+        self.threads_spin.setStyleSheet(self.timeout_spin.styleSheet())
+        threads_container.addWidget(threads_label)
+        threads_container.addWidget(self.threads_spin)
+        row1.addLayout(threads_container)
         
-        control_layout.addLayout(config_layout)
+        row1.addSpacing(20)
+        
+        # Delay
+        delay_container = QHBoxLayout()
+        delay_label = QLabel("Delay:")
+        delay_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.delay_spin = QSpinBox()
+        self.delay_spin.setRange(0, 60)
+        self.delay_spin.setValue(0)
+        self.delay_spin.setSuffix("s")
+        self.delay_spin.setStyleSheet(self.timeout_spin.styleSheet())
+        delay_container.addWidget(delay_label)
+        delay_container.addWidget(self.delay_spin)
+        row1.addLayout(delay_container)
+        
+        row1.addStretch()
+        config_layout.addLayout(row1)
 
+        # --- Row 2: Advanced Options (User Agent, Proxy) ---
+        row2 = QHBoxLayout()
+        
+        # User Agent
+        ua_label = QLabel("User Agent:")
+        ua_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.user_agent_input = QLineEdit()
+        self.user_agent_input.setPlaceholderText("Default User Agent...")
+        self.user_agent_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {COLOR_BACKGROUND_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+                padding: 4px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {COLOR_BORDER_INPUT_FOCUSED}; }}
+        """)
+        self.user_agent_input.textChanged.connect(self.update_command)
+        
+        row2.addWidget(ua_label)
+        row2.addWidget(self.user_agent_input, 1) # Stretch 1
+        
+        # Proxy
+        row2.addSpacing(15)
+        proxy_label = QLabel("Proxy:")
+        proxy_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.proxy_input = QLineEdit()
+        self.proxy_input.setPlaceholderText("http://127.0.0.1:8080")
+        self.proxy_input.setStyleSheet(self.user_agent_input.styleSheet())
+        self.proxy_input.textChanged.connect(self.update_command)
+        
+        row2.addWidget(proxy_label)
+        row2.addWidget(self.proxy_input, 1) # Stretch 1
+        
+        config_layout.addLayout(row2)
+        
+        # --- Row 3: Checkboxes ---
+        row3 = QHBoxLayout()
+        self.prepend_https_check = QCheckBox("Prepend HTTPS")
+        self.prepend_https_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        
+        self.no_dns_check = QCheckBox("No DNS")
+        self.no_dns_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        
+        row3.addWidget(self.prepend_https_check)
+        row3.addSpacing(15)
+        row3.addWidget(self.no_dns_check)
+        row3.addStretch()
+        
+        config_layout.addLayout(row3)
+
+        # Add to centralized container
+        self.options_container.addWidget(config_group)
+
+        # Connect signals
         # Connect signals
         self.timeout_spin.valueChanged.connect(self.update_command)
         self.threads_spin.valueChanged.connect(self.update_command)
         self.prepend_https_check.stateChanged.connect(self.update_command)
         self.no_dns_check.stateChanged.connect(self.update_command)
+        self.delay_spin.valueChanged.connect(self.update_command)
 
     def update_command(self):
         # Handle case when UI elements haven't been created yet
-        if hasattr(self, 'timeout_spin') and self.timeout_spin:
-            # Build command with dynamic settings
-            timeout = self.timeout_spin.value()
-            threads = self.threads_spin.value()
+        if not hasattr(self, 'timeout_spin') or not self.timeout_spin:
+            return
 
-            cmd_parts = ["eyewitness", "--web", "--timeout", str(timeout), "--threads", str(threads)]
+        # Build command with dynamic settings
+        try:
+            cmd_parts = ["eyewitness", "--web"]
+            
+            # Basic Options
+            cmd_parts.extend(["--timeout", str(self.timeout_spin.value())])
+            cmd_parts.extend(["--threads", str(self.threads_spin.value())])
+            
+            if self.delay_spin.value() > 0:
+                cmd_parts.extend(["--delay", str(self.delay_spin.value())])
 
+            # Checkboxes
             if self.prepend_https_check.isChecked():
                 cmd_parts.append("--prepend-https")
 
             if self.no_dns_check.isChecked():
                 cmd_parts.append("--no-dns")
+                
+            # Advanced Options
+            if self.user_agent_input.text().strip():
+                cmd_parts.extend(["--user-agent", self.user_agent_input.text().strip()])
+                
+            proxy_val = self.proxy_input.text().strip()
+            if proxy_val and ":" in proxy_val:
+                try:
+                    ip, port = proxy_val.split(":", 1)
+                    cmd_parts.extend(["--proxy-ip", ip, "--proxy-port", port])
+                except ValueError:
+                    pass # Invalid format
 
             self.command_input.setText(" ".join(cmd_parts))
-        else:
-            self.command_input.setText("eyewitness --web --timeout 30 --threads 500")
+            
+        except AttributeError:
+             pass
 
     def run_scan(self):
         raw_input = self.target_input.get_target()

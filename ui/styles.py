@@ -604,6 +604,11 @@ class BaseToolView(QWidget):
     A base view for tools, providing a consistent UI structure.
     All tools inherit from this to get a uniform look.
     
+    Features:
+    - Automatic process cleanup on stop (via StoppableToolMixin)
+    - Graceful termination of subprocesses
+    - Cleanup on widget close
+    
     Usage:
         class MyToolView(BaseToolView):
             def __init__(self, main_window=None):
@@ -615,7 +620,9 @@ class BaseToolView(QWidget):
         self.name = name
         self.category = category
         self.main_window = main_window
+        # Initialize stop functionality from StoppableToolMixin
         self.worker = None
+        self._active_workers = []
         self._build_base_ui()
 
     def _build_base_ui(self):
@@ -693,16 +700,62 @@ class BaseToolView(QWidget):
     def run_scan(self):
         raise NotImplementedError("Subclasses must implement run_scan.")
 
+    # ==================== STOP FUNCTIONALITY (Centralized) ====================
+    # These methods use the same pattern as StoppableToolMixin
+    
     def stop_scan(self):
-        if self.worker:
-            self.worker.stop()
+        """
+        Safely stop the current scan.
+        Uses centralized stop logic from StoppableToolMixin pattern.
+        """
+        try:
+            if self.worker and self.worker.isRunning():
+                self.worker.stop()
+                self.worker.wait(1000)  # Wait up to 1 second
+        except Exception:
+            pass
+        finally:
+            self._on_scan_completed()
+
+    def register_worker(self, worker):
+        """Register a worker for automatic cleanup."""
+        self._active_workers.append(worker)
+        worker.finished.connect(lambda: self._unregister_worker(worker))
+    
+    def _unregister_worker(self, worker):
+        """Remove worker from tracking list."""
+        if worker in self._active_workers:
+            self._active_workers.remove(worker)
+
+    def stop_all_workers(self):
+        """Stop all active workers - called on widget destruction."""
+        for worker in list(self._active_workers):
+            try:
+                if worker.isRunning():
+                    worker.stop()
+                    worker.wait(1000)
+            except Exception:
+                pass
+        self._active_workers.clear()
+        self.worker = None
+
+    def closeEvent(self, event):
+        """Clean up workers when the widget is closed."""
+        self.stop_all_workers()
+        super().closeEvent(event)
 
     def _on_scan_completed(self):
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
+        """Reset UI state after scan completes or stops."""
+        try:
+            self.run_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+        except Exception:
+            pass
         self.worker = None
         if self.main_window:
             self.main_window.active_process = None
+
+    # ==================== UTILITY METHODS ====================
 
     def _notify(self, message):
         if self.main_window:
@@ -716,3 +769,4 @@ class BaseToolView(QWidget):
 
     def _section(self, title):
         self.output.appendHtml(f'<br><span style="color:#FACC15;font-weight:700;">===== {title} =====</span><br>')
+

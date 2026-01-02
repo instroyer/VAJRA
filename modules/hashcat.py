@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker
+from ui.worker import ProcessWorker, StoppableToolMixin
 from core.tgtinput import parse_targets
 from core.fileops import create_target_dirs
 from ui.styles import (
@@ -48,14 +48,16 @@ class HashcatTool(ToolBase):
     def get_widget(self, main_window: QWidget) -> QWidget:
         return HashcatToolView(main_window=main_window)
 
-class HashcatToolView(QWidget):
+class HashcatToolView(QWidget, StoppableToolMixin):
+    """Hashcat password cracker interface."""
+    
     def __init__(self, main_window):
         super().__init__()
+        self.init_stoppable()
         self.main_window = main_window
         self._is_stopping = False
         self._scan_complete_added = False
 
-        # Hashcat hash modes dictionary - Comprehensive list
         self.hash_modes = {
             # --- Raw Hashes ---
             "MD5": "0",
@@ -812,16 +814,34 @@ class HashcatToolView(QWidget):
             self._scan_complete_added = True
 
     def stop_scan(self):
-        """Stop the cracking process forcefully."""
-        if hasattr(self, 'worker') and self.worker and self.worker.is_running:
-            self._is_stopping = True
-            self.worker.stop()
-            self._info("Cracking stopped by user.")
-        
-        # Force re-enable buttons
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.progress_bar.setVisible(False)
+        """Stop the cracking process safely."""
+        try:
+            if hasattr(self, 'worker') and self.worker:
+                if self.worker.isRunning():
+                    self._is_stopping = True
+                    self.worker.stop()
+                    self.worker.wait(1000)  # Wait up to 1 second
+                    self._info("Cracking stopped by user.")
+        except Exception:
+            pass
+        finally:
+            # Force re-enable buttons
+            try:
+                self.run_button.setEnabled(True)
+                self.stop_button.setEnabled(False)
+                self.progress_bar.setVisible(False)
+            except Exception:
+                pass
+            self.worker = None
+
+    def stop_all_workers(self):
+        """Stop all workers - called when tab is closed."""
+        self.stop_scan()
+
+    def closeEvent(self, event):
+        """Clean up workers when widget is closed."""
+        self.stop_all_workers()
+        super().closeEvent(event)
 
     def copy_results_to_clipboard(self):
         """Copy cracking results to clipboard."""

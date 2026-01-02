@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker
+from ui.worker import ProcessWorker, StoppableToolMixin
 from ui.styles import (
     COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
     COLOR_BORDER_INPUT_FOCUSED, StyledComboBox,
@@ -50,17 +50,133 @@ class JohnTool(ToolBase):
         return JohnToolView(main_window=main_window)
 
 
-class JohnToolView(QWidget):
-    """
-    John the Ripper UI and functionality.
+class JohnToolView(QWidget, StoppableToolMixin):
+    """John the Ripper password cracker interface."""
     
-    This class provides a complete interface for password cracking with:
-    - Multiple attack modes (wordlist, incremental, mask, single)
-    - Comprehensive hash format support
-    - Robust password extraction using 'john --show'
-    - Results tracking with hash, username, and password
-    - Automatic file storage in organized directory structure
-    """
+    HASH_FORMATS = {
+        "Auto-Detect": "",
+        "MD5": "raw-md5",
+        "MD5 (Double)": "raw-md5u",
+        "MD4": "raw-md4",
+        "SHA1": "raw-sha1",
+        "SHA-256": "raw-sha256",
+        "SHA-384": "raw-sha384",
+        "SHA-512": "raw-sha512",
+        "SHA3-256": "dynamic_60",
+        "SHA3-512": "dynamic_61",
+        "RIPEMD-160": "ripemd-160",
+        "Whirlpool": "whirlpool",
+        "Tiger": "tiger",
+        "GOST": "gost",
+        "Haval-256": "haval-256-3",
+        "LM": "lm",
+        "NTLM": "nt",
+        "NetNTLMv2": "netntlmv2",
+        
+        # --- Unix ---
+        "DES (Unix)": "descrypt",
+        "MD5 (Unix)": "md5crypt",
+        "SHA-256 (Unix)": "sha256crypt",
+        "SHA-512 (Unix)": "sha512crypt",
+        "Blowfish (bcrypt)": "bcrypt",
+        "Sun MD5": "sunmd5",
+        
+        # --- macOS ---
+        "macOS 10.4 (SSHA)": "xsha",
+        "macOS 10.7+ (PBKDF2)": "xsha512",
+        
+        # --- Windows ---
+        "MSCASH": "mscash",
+        "MSCASH2": "mscash2",
+        "Net-LM": "netlm",
+        "Net-NTLMv1": "netntlm",
+        
+        # --- Database ---
+        "MySQL (old)": "mysql",
+        "MySQL (SHA1)": "mysql-sha1",
+        "PostgreSQL MD5": "postgres",
+        "MS SQL 2000": "mssql",
+        "MS SQL 2005": "mssql05",
+        "MS SQL 2012": "mssql12",
+        "Oracle 10": "oracle",
+        "Oracle 11": "oracle11",
+        "Oracle 12": "oracle12c",
+        "Sybase ASE": "sybasease",
+        
+        # --- Web ---
+        "Django (PBKDF2)": "django",
+        "WordPress": "phpass",
+        "PHPass (Drupal/WordPress)": "phpass",
+        "phpBB3": "phpass",
+        "Joomla": "md5crypt",
+        "vBulletin": "md5crypt",
+        "Mediawiki": "mediawiki",
+        
+        # --- LDAP ---
+        "LDAP (SSHA)": "ssha",
+        "LDAP (SHA)": "sha",
+        "LDAP (MD5)": "ldap-md5",
+        
+        # --- Archives ---
+        "ZIP": "zip",
+        "RAR": "rar",
+        "RAR5": "rar5",
+        "7-Zip": "7z",
+        "PDF": "pdf",
+        
+        # --- Documents ---
+        "MS Office": "office",
+        "MS Office 2007": "office2007",
+        "MS Office 2010": "office2010",
+        "MS Office 2013": "office2013",
+        "OpenDocument (ODF)": "odf",
+        
+        # --- Disk Encryption ---
+        "TrueCrypt": "truecrypt",
+        "VeraCrypt": "veracrypt",
+        "LUKS": "luks",
+        "BitLocker": "bitlocker",
+        
+        # --- Network ---
+        "WPA-PSK": "wpapsk",
+        "IPMI 2.0": "ipmi2",
+        "Kerberos 5": "krb5",
+        "Kerberos 5 (TGS-REP)": "krb5tgs",
+        "SSH (RSA/DSA)": "ssh",
+        "OpenSSL (PEM)": "ssh",
+        
+        # --- Password Managers ---
+        "KeePass": "keepass",
+        "1Password": "1password",
+        "LastPass": "lastpass",
+        
+        # --- Other ---
+        "HMAC-MD5": "hmac-md5",
+        "HMAC-SHA1": "hmac-sha1",
+        "HMAC-SHA256": "hmac-sha256",
+        "PBKDF2-HMAC-SHA1": "pbkdf2-hmac-sha1",
+        "PBKDF2-HMAC-SHA256": "pbkdf2-hmac-sha256",
+        "Argon2": "argon2",
+        "scrypt": "scrypt",
+        "mschapv2-naive": "mschapv2-naive",
+        "multibit": "multibit",
+        "mysqlna": "mysqlna",
+        "net-ah": "net-ah",
+        "net-md5": "net-md5",
+        "net-sha1": "net-sha1",
+        "zed": "zed"
+    }
+    
+    def __init__(self, main_window: QWidget):
+        super().__init__()
+        self.init_stoppable()
+        self.main_window = main_window
+        self._is_stopping = False
+        self._temp_hash_file: Optional[str] = None
+        self._hash_file_path: Optional[str] = None
+        self._logs_dir: Optional[str] = None
+        self._original_hashes: Dict[str, str] = {}
+        self._build_ui()
     
     FORMAT_MAPPINGS: Dict[str, str] = {
         "Automatic Detection": "auto",
@@ -1151,16 +1267,38 @@ class JohnToolView(QWidget):
             self._log_error(f"Failed to save results: {str(e)}")
             
     def _stop_crack(self):
-        """Stop the cracking process."""
-        if hasattr(self, 'worker') and self.worker and self.worker.is_running:
-            self._is_stopping = True
-            self.worker.stop()
-            self._log_info("Stopping cracking process...")
-            
-        # Reset UI
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.progress_bar.setVisible(False)
+        """Stop the cracking process safely."""
+        try:
+            if hasattr(self, 'worker') and self.worker:
+                if self.worker.isRunning():
+                    self._is_stopping = True
+                    self.worker.stop()
+                    self.worker.wait(1000)  # Wait up to 1 second
+                    self._log_info("Stopping cracking process...")
+        except Exception:
+            pass
+        finally:
+            # Reset UI
+            try:
+                self.run_button.setEnabled(True)
+                self.stop_button.setEnabled(False)
+                self.progress_bar.setVisible(False)
+            except Exception:
+                pass
+            self.worker = None
+
+    def stop_scan(self):
+        """Alias for _stop_crack for consistency with other tools."""
+        self._stop_crack()
+
+    def stop_all_workers(self):
+        """Stop all workers - called when tab is closed."""
+        self._stop_crack()
+
+    def closeEvent(self, event):
+        """Clean up workers when widget is closed."""
+        self.stop_all_workers()
+        super().closeEvent(event)
         
     # ==================== Logging Helpers ====================
     
@@ -1175,3 +1313,4 @@ class JohnToolView(QWidget):
     def _log_section(self, title: str):
         """Log section header to output."""
         self.output.append(f"\n{'=' * 5} {title} {'=' * 5}")
+

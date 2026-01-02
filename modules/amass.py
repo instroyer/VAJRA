@@ -265,31 +265,28 @@ class AmassView(BaseToolView):
         # === PRIVILEGE ESCALATION CHECK ===
         from ui.settingpanel import privilege_manager
         
-        # If Sudo is enabled in settings, we assume user wants Amass to use it 
-        # (similar to Nmap's auto-detection, but here we honor the global toggle)
-        needs_root = (privilege_manager.mode == "sudo")
+        stdin_data = None
         
-        if needs_root:
+        # If Sudo is enabled in settings, use it for Amass
+        if privilege_manager.mode == "sudo":
             # Check for password
             if not privilege_manager.sudo_password:
-                    pwd, ok = QInputDialog.getText(
-                        self, 
-                        "Sudo Password Required", 
-                        "Amass scan requires root privileges (Settings Enabled).\nPlease enter your sudo password:", 
-                        QLineEdit.Password
-                    )
-                    if ok and pwd:
-                        privilege_manager.set_sudo_password(pwd)
-                    else:
-                        self._notify("Scan cancelled: Root password required.")
-                        return
-
-        if needs_root and privilege_manager.needs_privilege_escalation():
+                pwd, ok = QInputDialog.getText(
+                    self, 
+                    "Sudo Password Required", 
+                    "Amass scan is configured to use sudo.\n\nPlease enter your sudo password:", 
+                    QLineEdit.Password
+                )
+                if ok and pwd.strip():
+                    privilege_manager.set_sudo_password(pwd.strip())
+                else:
+                    self._error("Scan cancelled: Password is required.")
+                    return
+            
+            # Wrap command with sudo
             command = privilege_manager.wrap_command(command)
             stdin_data = privilege_manager.get_stdin_data()
-            self._info(f"Using privilege escalation on Amass: {privilege_manager.mode}")
-        else:
-            stdin_data = None
+            self._info(f"Running with sudo")
             
         self.worker = ProcessWorker(command, stdin_data=stdin_data)
         self.worker.output_ready.connect(self._on_output)

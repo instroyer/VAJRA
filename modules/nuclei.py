@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker
+from ui.worker import ProcessWorker, StoppableToolMixin
 from core.fileops import create_target_dirs
 from ui.styles import (
     COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER,
@@ -41,13 +41,13 @@ class NucleiTool(ToolBase):
         return NucleiToolView(main_window=main_window)
 
 
-class NucleiToolView(QWidget):
-    """Professional GUI for Nuclei vulnerability scanner."""
+class NucleiToolView(QWidget, StoppableToolMixin):
+    """Nuclei vulnerability scanner interface."""
 
     def __init__(self, main_window=None):
         super().__init__()
+        self.init_stoppable()
         self.main_window = main_window
-        self.worker = None
         self.base_dir = None
         self._build_ui()
 

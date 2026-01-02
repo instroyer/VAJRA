@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker
+from ui.worker import ProcessWorker, StoppableToolMixin
 from core.fileops import create_target_dirs
 from ui.styles import (
     TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
@@ -38,18 +38,17 @@ class HydraTool(ToolBase):
         return HydraToolView(main_window=main_window)
 
 
-class HydraToolView(QWidget):
-    """Hydra tool interface with improved command generation and result handling."""
+class HydraToolView(QWidget, StoppableToolMixin):
+    """Hydra brute force attack interface."""
     
     def __init__(self, main_window):
         super().__init__()
+        self.init_stoppable()
         self.main_window = main_window
         self._is_stopping = False
-        self._discovered_creds: Set[Tuple[str, str, str]] = set()  # Track unique credentials
-        self.worker: Optional[ProcessWorker] = None
+        self._discovered_creds: Set[Tuple[str, str, str]] = set()
         self._logs_dir: Optional[str] = None
 
-        # Service mappings
         self.service_mappings = {
             "FTP": "ftp",
             "SSH": "ssh",
@@ -926,15 +925,36 @@ class HydraToolView(QWidget):
             self._error(f"Failed to start attack: {str(e)}")
 
     def _stop_attack(self):
-        """Stop the attack."""
-        if self.worker and self.worker.is_running:
-            self._is_stopping = True
-            self.worker.stop()
-            self._info("Attack stopped by user.")
-        
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.progress_bar.setVisible(False)
+        """Stop the attack safely."""
+        try:
+            if self.worker and self.worker.isRunning():
+                self._is_stopping = True
+                self.worker.stop()
+                self.worker.wait(1000)  # Wait up to 1 second
+                self._info("Attack stopped by user.")
+        except Exception:
+            pass
+        finally:
+            try:
+                self.run_button.setEnabled(True)
+                self.stop_button.setEnabled(False)
+                self.progress_bar.setVisible(False)
+            except Exception:
+                pass
+            self.worker = None
+
+    def stop_scan(self):
+        """Alias for _stop_attack for consistency with other tools."""
+        self._stop_attack()
+
+    def stop_all_workers(self):
+        """Stop all workers - called when tab is closed."""
+        self._stop_attack()
+
+    def closeEvent(self, event):
+        """Clean up workers when widget is closed."""
+        self.stop_all_workers()
+        super().closeEvent(event)
 
     def _on_output(self, line: str):
         """Process output line."""

@@ -343,8 +343,6 @@ class NmapScannerView(BaseToolView):
 
             if host_scan_flag not in ['-sL', '-sn']:
                 scan_type = self.scan_type.currentText()
-                if scan_type != "tcp" and not is_root():
-                    QMessageBox.warning(self, "Privilege Warning", f"'{scan_type.upper()}' scan requires root privileges.")
                 
                 # Handle port specification to avoid argument list too long errors
                 port_input = self.port_input.text().strip()
@@ -393,41 +391,33 @@ class NmapScannerView(BaseToolView):
             if self.delay.value() > 0: command.extend(["--scan-delay", f"{self.delay.value()}ms"])
             command.extend(targets)
 
-            # === PRIVILEGE ESCALATION CHECK ===
+            # === PRIVILEGE ESCALATION (Only if enabled in Settings) ===
             from ui.settingpanel import privilege_manager
             
-            # Determine if this scan requires root privileges
-            scan_flag = self._get_nmap_scan_flag()
-            needs_root = (
-                scan_flag in ['-sS', '-sU', '-sO'] or  # SYN, UDP, IP protocol scans
-                self.os_detection_check.isChecked() or   # OS detection
-                self.aggressive_scan_check.isChecked()   # Aggressive includes OS detection
-            )
+            stdin_data = None
             
-            if needs_root and privilege_manager.mode == "sudo":
-                # Check if we have a password
+            # Only use sudo if user explicitly enabled it in Settings
+            # Note: On Kali Linux, nmap has capabilities for SYN scans without root
+            if privilege_manager.mode == "sudo":
                 if not privilege_manager.sudo_password:
-                     pwd, ok = QInputDialog.getText(
-                         self, 
-                         "Sudo Password Required", 
-                         "This scan requires root privileges.\nPlease enter your sudo password:", 
-                         QLineEdit.Password
-                     )
-                     if ok and pwd:
-                         privilege_manager.set_sudo_password(pwd)
-                     else:
-                         self._notify("Scan cancelled: Root password required.")
-                         return
-
-            if needs_root and privilege_manager.needs_privilege_escalation():
-                # Wrap command with sudo/pkexec
+                    # Ask for password via popup
+                    pwd, ok = QInputDialog.getText(
+                        self, 
+                        "Sudo Password Required", 
+                        "Sudo is enabled in Settings.\n\nPlease enter your password:", 
+                        QLineEdit.Password
+                    )
+                    if ok and pwd.strip():
+                        privilege_manager.set_sudo_password(pwd.strip())
+                    else:
+                        self._error("Scan cancelled: Password is required when sudo is enabled.")
+                        self._info("Tip: Disable 'Enable sudo' in Settings if you don't need it.")
+                        return
+                
+                # Wrap command with sudo
                 command = privilege_manager.wrap_command(command)
                 stdin_data = privilege_manager.get_stdin_data()
-                self._info(f"Using privilege escalation: {privilege_manager.mode}")
-            else:
-                stdin_data = None
-                if needs_root:
-                    self._info("⚠️ Warning: This scan requires root privileges. Enable in Settings or run as root.")
+                self._info("Running with sudo")
 
             if output_flag == '-oA':
                 self._info(f"Scan started. Output will be saved to {log_path_base}.(nmap|xml|gnmap)")
@@ -466,6 +456,7 @@ class NmapScannerView(BaseToolView):
             self._scan_complete_added = True
 
     def stop_scan(self):
+        """Stop the scan safely."""
         # Clean up temporary ports file if it exists
         if hasattr(self, '_temp_ports_file') and self._temp_ports_file:
             try:
@@ -474,11 +465,16 @@ class NmapScannerView(BaseToolView):
             except (OSError, AttributeError):
                 pass
 
-        if self.worker and self.worker.is_running:
-            self._is_stopping = True
-            self.worker.stop()
-            self._info("Scan stopped.")
-        self._on_scan_completed()
+        try:
+            if self.worker and self.worker.isRunning():
+                self._is_stopping = True
+                self.worker.stop()
+                self.worker.wait(1000)  # Wait up to 1 second
+                self._info("Scan stopped.")
+        except Exception:
+            pass
+        finally:
+            self._on_scan_completed()
 
     def copy_results_to_clipboard(self):
         """Copy scan results to clipboard, not script names."""

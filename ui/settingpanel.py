@@ -192,15 +192,10 @@ class SettingsPanel(QWidget):
         
         layout.addWidget(self._divider())
 
-        # ===== PRIVILEGE ESCALATION (SIMPLIFIED) =====
+        # ===== PRIVILEGE ESCALATION =====
         privilege_section = QLabel("🔐 Privilege Escalation")
         privilege_section.setStyleSheet("font-size: 18px; font-weight: 600; color: #58A6FF;")
         layout.addWidget(privilege_section)
-
-        info_label = QLabel("Enable sudo for tools requiring root privileges (Nmap SYN scan, OS detection)")
-        info_label.setStyleSheet("color: #8B949E; font-size: 12px;")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
 
         # Checkbox and password field on one line
         sudo_layout = QHBoxLayout()
@@ -212,7 +207,7 @@ class SettingsPanel(QWidget):
         
         self.sudo_password_input = QLineEdit()
         self.sudo_password_input.setEchoMode(QLineEdit.Password)
-        self.sudo_password_input.setPlaceholderText("Enter your sudo password here")
+        self.sudo_password_input.setPlaceholderText("Enter your login password (for sudo)")
         self.sudo_password_input.setEnabled(False)
         self.sudo_password_input.setFixedWidth(300)
         sudo_layout.addWidget(self.sudo_password_input)
@@ -220,29 +215,44 @@ class SettingsPanel(QWidget):
         sudo_layout.addStretch()
         layout.addLayout(sudo_layout)
 
-        # Warning
-        warning_label = QLabel("⚠️ Password is stored in memory only and cleared when app closes")
-        warning_label.setStyleSheet("color: #F0C330; font-size: 11px; margin-top: 5px;")
-        layout.addWidget(warning_label)
-
         # Connect checkbox to enable/disable password field
         self.enable_sudo_check.toggled.connect(self._on_sudo_toggled)
         
-        # Info about output directory
         layout.addWidget(self._divider())
         
-        info_section = QLabel("ℹ️ Information")
+        # ===== CONSOLIDATED TIPS & INFO BOX =====
+        info_section = QLabel("ℹ️ Tips & Information")
         info_section.setStyleSheet("font-size: 18px; font-weight: 600; color: #58A6FF;")
         layout.addWidget(info_section)
         
-        output_info = QLabel("Output Directory: /tmp/Vajra-results")
-        output_info.setStyleSheet("color: #8B949E; font-size: 13px;")
-        layout.addWidget(output_info)
+        tips_box = QFrame()
+        tips_box.setStyleSheet("""
+            QFrame {
+                background-color: #21262D;
+                border: 1px solid #30363D;
+                border-radius: 6px;
+                padding: 12px;
+            }
+        """)
+        tips_box_layout = QVBoxLayout(tips_box)
+        tips_box_layout.setContentsMargins(14, 12, 14, 12)
+        tips_box_layout.setSpacing(10)
         
-        tools_info = QLabel("Tools requiring root: Nmap (SYN scan, UDP scan, OS detection)")
-        tools_info.setStyleSheet("color: #8B949E; font-size: 13px;")
-        tools_info.setWordWrap(True)
-        layout.addWidget(tools_info)
+        # All tips in one box
+        tips = [
+            "� <b>Output Directory:</b> /tmp/Vajra-results",
+            "💡 <b>Sudo:</b> On Kali Linux, most nmap scans work without sudo. Only enable if you get permission errors.",
+            "⚠️ <b>Password:</b> Stored in memory only. Cleared when app closes. Enter here or during scan.",
+        ]
+        
+        for tip in tips:
+            tip_label = QLabel(tip)
+            tip_label.setStyleSheet("color: #8B949E; font-size: 12px; background: transparent; border: none;")
+            tip_label.setWordWrap(True)
+            tip_label.setTextFormat(Qt.RichText)
+            tips_box_layout.addWidget(tip_label)
+        
+        layout.addWidget(tips_box)
 
         layout.addStretch()
 
@@ -290,21 +300,21 @@ class SettingsPanel(QWidget):
         """Save all settings and apply privilege escalation configuration"""
         global privilege_manager
         
-        # Apply privilege escalation settings (simplified)
+        # Apply privilege escalation settings
         if self.enable_sudo_check.isChecked():
             privilege_manager.set_mode("sudo")
             password = self.sudo_password_input.text()
-            password = self.sudo_password_input.text()
             if password:
+                # User entered a new password in settings
                 privilege_manager.set_sudo_password(password)
-            else:
-                # Password cleared/empty - will prompt at runtime
-                privilege_manager.clear_password()
+            # If password field is empty, DON'T clear any existing password
+            # (it may have been entered via popup during a scan)
         else:
+            # Only clear password when sudo is disabled
             privilege_manager.set_mode("none")
             privilege_manager.clear_password()
         
-        # Show confirmation
+        # Show confirmation with detailed status
         from PySide6.QtWidgets import QMessageBox
         status = privilege_manager.get_status_message()
         QMessageBox.information(
@@ -312,3 +322,18 @@ class SettingsPanel(QWidget):
             "Settings Saved",
             f"Settings saved successfully!\n\nPrivilege Status: {status}"
         )
+    
+    def showEvent(self, event):
+        """Update UI when settings panel is shown."""
+        super().showEvent(event)
+        # Sync checkbox with current mode
+        is_sudo_enabled = privilege_manager.mode == "sudo"
+        self.enable_sudo_check.setChecked(is_sudo_enabled)
+        self.sudo_password_input.setEnabled(is_sudo_enabled)
+        
+        # Show password status as placeholder
+        if privilege_manager.sudo_password:
+            self.sudo_password_input.setPlaceholderText("Password configured ✓ (leave blank to keep)")
+        else:
+            self.sudo_password_input.setPlaceholderText("Enter your login password (for sudo)")
+

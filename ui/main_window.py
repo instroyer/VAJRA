@@ -2,6 +2,7 @@
 import inspect
 import importlib
 import pkgutil
+import sys
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QTabWidget, QTabBar, QPushButton, QStatusBar, QSplitter,
@@ -55,31 +56,30 @@ class MainWindow(QMainWindow):
 
     def _discover_tools(self):
         tools = {}
-
-        
         module_path = "modules"
-        try:
-            package = importlib.import_module(module_path)
-            for _, name, is_pkg in pkgutil.walk_packages(package.__path__):
-                if not is_pkg:
-                    try:
-                        module = importlib.import_module(f'{module_path}.{name}')
-                        for _, obj in inspect.getmembers(module, inspect.isclass):
-                            if issubclass(obj, ToolBase) and obj is not ToolBase:
-                                tool_instance = obj()
-                                tool_name = tool_instance.name
-                                
-                                tools[tool_name] = tool_instance
-
-                                    
-                    except ImportError:
-                        pass
-                    except Exception:
-                        pass
-                        
-        except (ImportError, AttributeError):
-            pass
         
+        # Explicit list of all tool modules
+        known_modules = [
+            "amass", "automation", "dencoder", "dig", "dnsrecon", 
+            "eyewitness", "ffuf", "gobuster", "hashcat", "hashfinder", 
+            "httpx", "hydra", "john", "nikto", "nmap", "nuclei", 
+            "portscanner", "strings", "subfinder", "whois"
+        ]
+        
+        # Always use explicit loading for reliability (both frozen and dev)
+        for name in known_modules:
+            try:
+                module = importlib.import_module(f'{module_path}.{name}')
+                for _, obj in inspect.getmembers(module, inspect.isclass):
+                    if issubclass(obj, ToolBase) and obj is not ToolBase:
+                        tool_instance = obj()
+                        tools[tool_instance.name] = tool_instance
+            except ImportError as e:
+                print(f"ImportError loading {name}: {e}")
+            except Exception as e:
+                print(f"Error loading {name}: {e}")
+        
+        print(f"Discovered {len(tools)} tools: {list(tools.keys())}")
         return tools
 
     def _build_ui(self):
@@ -259,8 +259,18 @@ class MainWindow(QMainWindow):
         self.open_tool_widgets[tool.name] = tool_widget
 
     def close_tab(self, index):
+        """Close a tab and clean up its worker processes."""
         widget = self.tab_widget.widget(index)
         if widget:
+            # Stop any running processes in this tool
+            if hasattr(widget, 'stop_all_workers'):
+                widget.stop_all_workers()
+            elif hasattr(widget, 'stop_scan'):
+                try:
+                    widget.stop_scan()
+                except Exception:
+                    pass
+            
             tool_name_to_remove = None
             for name, w in self.open_tool_widgets.items():
                 if w == widget:
@@ -285,3 +295,24 @@ class MainWindow(QMainWindow):
         is_visible = self.sidepanel.isVisible()
         self.sidepanel.setVisible(not is_visible)
         self.sidepanel_toggle_btn.setText("☰" if is_visible else "✕")
+
+    def closeEvent(self, event):
+        """
+        Clean up all running processes when the application closes.
+        This ensures no zombie processes are left behind.
+        """
+        # Stop all workers in open tool widgets
+        for tool_name, widget in list(self.open_tool_widgets.items()):
+            try:
+                if hasattr(widget, 'stop_all_workers'):
+                    widget.stop_all_workers()
+                elif hasattr(widget, 'stop_scan'):
+                    widget.stop_scan()
+            except Exception:
+                pass
+        
+        # Stop active process if any
+        self.stop_active_process()
+        
+        # Accept the close event
+        event.accept()

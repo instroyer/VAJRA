@@ -1,28 +1,32 @@
+# =============================================================================
+# modules/dig.py
+#
+# Dig - DNS Information Gathering Tool
+# =============================================================================
 
 import os
 import shlex
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QCheckBox, QGroupBox,
-    QGridLayout, QSplitter, QButtonGroup, QRadioButton
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout
 )
 from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from ui.styles import BaseToolView, CopyButton
-from ui.worker import ProcessWorker
+from core.tgtinput import TargetInput
 from core.fileops import create_target_dirs
+from ui.worker import ProcessWorker
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
-    COLOR_BORDER_INPUT_FOCUSED
+    RunButton, StopButton, CopyButton,
+    StyledLineEdit, StyledCheckBox,
+    StyledLabel, HeaderLabel, CommandDisplay, OutputView,
+    StyledGroupBox, ToolSplitter,
+    SafeStop, OutputHelper,
+    TOOL_VIEW_STYLE, COLOR_BACKGROUND_SECONDARY, COLOR_BORDER
 )
 
-# ==============================
-# Dig Tool
-# ==============================
 
 class DigTool(ToolBase):
-    """DNS Information Gathering tool using Dig."""
+    """Dig DNS gathering tool plugin."""
 
     @property
     def name(self) -> str:
@@ -44,62 +48,74 @@ class DigTool(ToolBase):
         return DigToolView("Dig", ToolCategory.INFO_GATHERING, main_window)
 
 
-class DigToolView(BaseToolView):
-    def _build_base_ui(self):
-        super()._build_base_ui()
-        self.copy_button = CopyButton(self.output.output_text, self.main_window)
-        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
-
+class DigToolView(QWidget, SafeStop, OutputHelper):
+    """Dig DNS information gathering interface."""
+    
+    tool_name = "Dig"
+    tool_category = "INFO_GATHERING"
+    
     def __init__(self, name, category, main_window):
-        # Initialize state attributes BEFORE super().__init__ calls update_command
-        self.type_checks = {}  # Changed from type_buttons for CheckBoxes
-        self.trace_check = None
-        self.short_check = None
-        self.ns_input = None
+        super().__init__()
+        self.main_window = main_window
+        self.init_safe_stop()
+        
+        # State
+        self.type_checks = {}
         self.log_file = None
         self.raw_output = ""
         
-        super().__init__(name, category, main_window)
-        
-        # Build custom UI elements
-        self._build_custom_ui()
-        
-        # Initial command update now that widgets exist
+        # Build UI
+        self._build_ui()
         self.update_command()
-
-    def _build_custom_ui(self):
-        """Inject Dig specific widgets into the BaseToolView layout."""
-        # Use centralized options container
+    
+    def _build_ui(self):
+        """Build the complete UI."""
+        self.setStyleSheet(TOOL_VIEW_STYLE)
         
-        # Configuration Grid (Query Types & Options)
-
-        # Configuration Grid (Query Types & Options)
-        config_group = QGroupBox("Query Configuration")
-        config_group.setStyleSheet(f"""
-            QGroupBox {{
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                margin-top: 10px;
-                margin-bottom: 10px;
-                padding-top: 10px;
-                font-weight: bold;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 5px;
-                left: 10px;
-            }}
-        """)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        splitter = ToolSplitter()
+        
+        # ==================== CONTROL PANEL ====================
+        control_panel = QWidget()
+        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
+        control_layout = QVBoxLayout(control_panel)
+        control_layout.setContentsMargins(10, 10, 10, 10)
+        control_layout.setSpacing(10)
+        
+        # Header
+        header = HeaderLabel(self.tool_category, self.tool_name)
+        control_layout.addWidget(header)
+        
+        # Target Row
+        target_label = StyledLabel("Target")
+        control_layout.addWidget(target_label)
+        
+        target_row = QHBoxLayout()
+        self.target_input = TargetInput()
+        self.target_input.input_box.textChanged.connect(self.update_command)
+        target_row.addWidget(self.target_input, 1)
+        
+        self.run_button = RunButton()
+        self.run_button.clicked.connect(self.run_scan)
+        self.stop_button = StopButton()
+        self.stop_button.clicked.connect(self.stop_scan)
+        
+        target_row.addWidget(self.run_button)
+        target_row.addWidget(self.stop_button)
+        control_layout.addLayout(target_row)
+        
+        # ==================== QUERY CONFIGURATION ====================
+        config_group = StyledGroupBox("Query Configuration")
         config_layout_inner = QHBoxLayout(config_group)
-
-        # 1. Query Types (Checkboxes)
+        
+        # Query Types
         types_layout = QGridLayout()
         types_layout.setHorizontalSpacing(15)
         types_layout.setVerticalSpacing(8)
         
-        # Standard Types
         query_types = [
             ("A (IPv4)", "A", 0, 0),
             ("AAAA (IPv6)", "AAAA", 0, 1),
@@ -112,228 +128,163 @@ class DigToolView(BaseToolView):
             ("ANY (All)", "ANY", 2, 0),
             ("AXFR (Zone)", "AXFR", 2, 1),
         ]
-
-
-
-        # 1. Query Types (Checkboxes for Multiple Selection)
-        types_layout = QGridLayout()
-        types_layout.setHorizontalSpacing(15)
-        types_layout.setVerticalSpacing(8)
         
-        # self.type_group = QButtonGroup(self) # Removed for multiple selection
-        # self.type_group.setExclusive(False)
-        
-        self.type_checks = {} # Back to checks
-
-        # Standard Types
-        query_types = [
-            ("A (IPv4)", "A", 0, 0),
-            ("AAAA (IPv6)", "AAAA", 0, 1),
-            ("MX (Mail)", "MX", 0, 2),
-            ("NS (NameServer)", "NS", 0, 3),
-            ("TXT (Text/SPF)", "TXT", 1, 0),
-            ("CNAME (Alias)", "CNAME", 1, 1),
-            ("SOA (Auth)", "SOA", 1, 2),
-            ("PTR (Reverse)", "PTR", 1, 3),
-            ("ANY (All)", "ANY", 2, 0),
-            ("AXFR (Zone)", "AXFR", 2, 1),
-        ]
-
         for label, flag, row, col in query_types:
-            cb = QCheckBox(label)
-            cb.setStyleSheet(f"""
-                QCheckBox {{
-                    color: {COLOR_TEXT_PRIMARY};
-                    spacing: 8px;
-                }}
-                QCheckBox::indicator {{
-                    width: 16px;
-                    height: 16px;
-                    border: 1px solid {COLOR_BORDER};
-                    border-radius: 4px; /* Rectangular */
-                    background-color: {COLOR_BACKGROUND_INPUT};
-                }}
-                QCheckBox::indicator:checked {{
-                    background-color: #007ACC;
-                    border: 1px solid #007ACC;
-                }}
-            """)
+            cb = StyledCheckBox(label)
             if flag == "A":
                 cb.setChecked(True)
-            
             cb.stateChanged.connect(self.update_command)
-            
             self.type_checks[flag] = cb
             types_layout.addWidget(cb, row, col)
-
-        # Add Trace and Short options to the grid's empty spots (Row 2, Cols 2 & 3)
-        self.trace_check = QCheckBox("Trace (+trace)")
-        self.short_check = QCheckBox("Short (+short)")
         
-        extra_options = [
-            (self.trace_check, 2, 2),
-            (self.short_check, 2, 3)
-        ]
-
-        for cb, row, col in extra_options:
-            cb.setStyleSheet(f"""
-                QCheckBox {{
-                    color: {COLOR_TEXT_PRIMARY};
-                    spacing: 8px;
-                }}
-                QCheckBox::indicator {{
-                    width: 16px;
-                    height: 16px;
-                    border: 1px solid {COLOR_BORDER};
-                    border-radius: 4px; /* Rectangular */
-                    background-color: {COLOR_BACKGROUND_INPUT};
-                }}
-                QCheckBox::indicator:checked {{
-                    background-color: #007ACC;
-                    border: 1px solid #007ACC;
-                }}
-            """)
-            cb.stateChanged.connect(self.update_command)
-            types_layout.addWidget(cb, row, col)
-
+        # Extra options
+        self.trace_check = StyledCheckBox("Trace (+trace)")
+        self.trace_check.stateChanged.connect(self.update_command)
+        types_layout.addWidget(self.trace_check, 2, 2)
+        
+        self.short_check = StyledCheckBox("Short (+short)")
+        self.short_check.stateChanged.connect(self.update_command)
+        types_layout.addWidget(self.short_check, 2, 3)
+        
         config_layout_inner.addLayout(types_layout, stretch=2)
         
-        # Separator line
+        # Separator
         line = QWidget()
         line.setFixedWidth(1)
         line.setStyleSheet(f"background-color: {COLOR_BORDER};")
         config_layout_inner.addWidget(line)
-
-        # 2. Options (Right Side) - Now only Nameserver
+        
+        # Nameserver
         options_layout = QVBoxLayout()
         options_layout.setSpacing(5)
         
-        # Custom Nameserver
-        ns_label = QLabel("Nameserver (@):")
-        ns_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
-        self.ns_input = QLineEdit()
-        self.ns_input.setPlaceholderText("e.g. 8.8.8.8")
-        self.ns_input.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 4px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-        """)
+        ns_label = StyledLabel("Nameserver (@):")
+        self.ns_input = StyledLineEdit("e.g. 8.8.8.8")
         self.ns_input.textChanged.connect(self.update_command)
         
         options_layout.addWidget(ns_label)
         options_layout.addWidget(self.ns_input)
-        options_layout.addStretch() # Push input to top
-
+        options_layout.addStretch()
+        
         config_layout_inner.addLayout(options_layout, stretch=1)
-
-        # Add to centralized container
-        self.options_container.addWidget(config_group)
-
+        control_layout.addWidget(config_group)
+        
+        # Command Display
+        self.command_input = CommandDisplay()
+        control_layout.addWidget(self.command_input)
+        
+        control_layout.addStretch()
+        splitter.addWidget(control_panel)
+        
+        # ==================== OUTPUT AREA ====================
+        self.output = OutputView(self.main_window)
+        self.output.setPlaceholderText("Dig results will appear here...")
+        
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.copy_button.setParent(self.output.output_text)
+        self.copy_button.raise_()
+        self.output.output_text.installEventFilter(self)
+        
+        splitter.addWidget(self.output)
+        splitter.setSizes([350, 400])
+        
+        main_layout.addWidget(splitter)
+    
+    def eventFilter(self, obj, event):
+        """Position copy button on resize."""
+        from PySide6.QtCore import QEvent
+        if obj == self.output.output_text and event.type() == QEvent.Resize:
+            self.copy_button.move(
+                self.output.output_text.width() - self.copy_button.sizeHint().width() - 10,
+                10
+            )
+        return super().eventFilter(obj, event)
+    
     def update_command(self):
-        """Rebuild the Dig command based on UI state."""
         target = self.target_input.get_target().strip()
         if not target:
             target = "<target>"
-
-        # Start with base command
+        
         cmd_parts = ["dig"]
         
-        # Add custom nameserver
-        ns = self.ns_input.text().strip() if self.ns_input else ""
+        ns = self.ns_input.text().strip()
         if ns:
             cmd_parts.append(f"@{ns}")
-            
-        # Add target
+        
         cmd_parts.append(target)
         
-        # Add query types (Multiple Selection)
-        if self.type_checks:
-            for flag, cb in self.type_checks.items():
-                if cb.isChecked():
-                    cmd_parts.append(flag)
+        for flag, cb in self.type_checks.items():
+            if cb.isChecked():
+                cmd_parts.append(flag)
         
-        # Add valid options
-        if self.trace_check and self.trace_check.isChecked():
+        if self.trace_check.isChecked():
             cmd_parts.append("+trace")
-        if self.short_check and self.short_check.isChecked():
+        if self.short_check.isChecked():
             cmd_parts.append("+short")
-
-        # Update the command preview line
-        self.command_input.setText(" ".join(cmd_parts))
-
-    def run_scan(self):
-        """Execute the command from the command input box."""
-        # Get command from the editable text box to respect manual edits
-        cmd_text = self.command_input.text().strip()
         
+        self.command_input.setText(" ".join(cmd_parts))
+    
+    def run_scan(self):
+        cmd_text = self.command_input.text().strip()
         if not cmd_text:
             self._notify("Command is empty.")
             return
-
-        # Basic target validation
+        
         target = self.target_input.get_target().strip()
         if not target or "<target>" in cmd_text:
-             self._notify("Please enter a valid target domain.")
-             return
-
+            self._notify("Please enter a valid target domain.")
+            return
+        
         self.run_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.output.clear()
-        self.raw_output = "" # Init raw output buffer
+        self.raw_output = ""
         
-        
-        # UI Header (matching Whois style)
         self._info(f"Running Dig for: {target}")
-        self.output.appendPlainText("") # Blank line
+        self.output.appendPlainText("")
         self._section(f"DIG: {target}")
-
-        # Setup File Saving
+        
         try:
-            # We treat single manual runs as not having a specific input file group
             base_dir = create_target_dirs(target, group_name=None)
             self.log_file = os.path.join(base_dir, "Logs", "dig.txt")
         except Exception as e:
             self._error(f"Failed to create log directories: {e}")
             self.log_file = None
         
-        # Split command for subclass
-        import shlex
         try:
             cmd_list = shlex.split(cmd_text)
         except ValueError:
-            # Fallback for simple split if quotes are unbalanced
             cmd_list = cmd_text.split()
-
+        
         self.worker = ProcessWorker(cmd_list)
         self.worker.output_ready.connect(self._handle_output)
         self.worker.finished.connect(self._on_scan_completed)
         self.worker.start()
-
+        
         if self.main_window:
             self.main_window.active_process = self.worker
-
+    
     def _handle_output(self, text):
         self.output.appendPlainText(text)
-        self.raw_output += text # Accumulate only raw output
-
+        self.raw_output += text
+    
     def _on_scan_completed(self):
-        super()._on_scan_completed()
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
         
         self.output.appendPlainText("\n✨ Scan Complete.")
         
-        # Write to file if path was set (Use RAW output only)
         if self.log_file:
             try:
                 with open(self.log_file, "w", encoding="utf-8") as f:
                     f.write(self.raw_output)
                 if self.main_window:
-                    self.main_window.notification_manager.notify(f"Results saved to {os.path.basename(self.log_file)}")
+                    self.main_window.notification_manager.notify(
+                        f"Results saved to {os.path.basename(self.log_file)}"
+                    )
             except Exception as e:
                 self._error(f"Failed to write results to file: {e}")
+        
+        self.worker = None
+        if self.main_window:
+            self.main_window.active_process = None

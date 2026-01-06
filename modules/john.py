@@ -22,12 +22,11 @@ from PySide6.QtWidgets import (
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker, StoppableToolMixin
+from ui.worker import ProcessWorker
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
-    COLOR_BORDER_INPUT_FOCUSED, StyledComboBox,
-    RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, CommandDisplay
+    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_BACKGROUND_SECONDARY,
+    COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_FOCUSED, StyledComboBox,
+    CommandDisplay, RunButton, StopButton, SafeStop, OutputView, HeaderLabel
 )
 
 
@@ -50,7 +49,7 @@ class JohnTool(ToolBase):
         return JohnToolView(main_window=main_window)
 
 
-class JohnToolView(QWidget, StoppableToolMixin):
+class JohnToolView(QWidget, SafeStop):
     """John the Ripper password cracker interface."""
     
     HASH_FORMATS = {
@@ -169,7 +168,7 @@ class JohnToolView(QWidget, StoppableToolMixin):
     
     def __init__(self, main_window: QWidget):
         super().__init__()
-        self.init_stoppable()
+        self.init_safe_stop()
         self.main_window = main_window
         self._is_stopping = False
         self._temp_hash_file: Optional[str] = None
@@ -514,15 +513,14 @@ class JohnToolView(QWidget, StoppableToolMixin):
     def _create_control_panel(self) -> QWidget:
         """Create the control panel with all input widgets."""
         panel = QWidget()
-        panel.setStyleSheet(TOOL_VIEW_STYLE)
+        panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
         
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
         
         # Header
-        header = QLabel("Cracker › John The Ripper")
-        header.setStyleSheet(TOOL_HEADER_STYLE)
+        header = HeaderLabel("CRACKER", "John The Ripper")
         layout.addWidget(header)
         
         # Hash input section
@@ -588,7 +586,7 @@ class JohnToolView(QWidget, StoppableToolMixin):
                 border-radius: 4px;
             }}
             QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+                border: 1px solid {COLOR_BORDER_FOCUSED};
             }}
         """)
         self.hash_input.textChanged.connect(self._update_command)
@@ -612,18 +610,13 @@ class JohnToolView(QWidget, StoppableToolMixin):
         """)
         
         # Run button
-        self.run_button = QPushButton("RUN")
-        self.run_button.setCursor(Qt.PointingHandCursor)
+        self.run_button = RunButton()
         self.run_button.setToolTip("Start cracking")
-        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
         self.run_button.clicked.connect(self._run_crack)
         
         # Stop button
-        self.stop_button = QPushButton("■")
-        self.stop_button.setCursor(Qt.PointingHandCursor)
+        self.stop_button = StopButton()
         self.stop_button.setToolTip("Stop cracking")
-        self.stop_button.setEnabled(False)
-        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
         self.stop_button.clicked.connect(self._stop_crack)
         
         input_row.addWidget(self.hash_input)
@@ -689,7 +682,7 @@ class JohnToolView(QWidget, StoppableToolMixin):
                 border-radius: 4px;
             }}
             QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+                border: 1px solid {COLOR_BORDER_FOCUSED};
             }}
         """)
         self.wordlist_input.textChanged.connect(self._update_command)
@@ -741,7 +734,7 @@ class JohnToolView(QWidget, StoppableToolMixin):
                 border-radius: 4px;
             }}
             QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+                border: 1px solid {COLOR_BORDER_FOCUSED};
             }}
         """)
         self.mask_input.textChanged.connect(self._update_command)
@@ -809,18 +802,9 @@ class JohnToolView(QWidget, StoppableToolMixin):
         self.tab_widget = QTabWidget()
         
         # Console output tab
-        self.output = QTextEdit()
+        self.output = OutputView(show_copy_button=False)
         self.output.setReadOnly(True)
-        self.output.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {COLOR_BACKGROUND_PRIMARY};
-                color: {COLOR_TEXT_PRIMARY};
-                border: none;
-                padding: 12px;
-                font-family: 'Courier New', monospace;
-                font-size: 13px;
-            }}
-        """)
+        self.output.setPlaceholderText("John The Ripper results will appear here...")
         
         # Results table tab
         self.results_table = QTableWidget()
@@ -989,6 +973,8 @@ class JohnToolView(QWidget, StoppableToolMixin):
                 QMessageBox.critical(self, "Error", f"Failed to create temporary hash file: {str(e)}")
                 return None
                 
+
+
     def _create_output_directory(self, hash_input: str):
         """Create organized output directory structure."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1313,4 +1299,3 @@ class JohnToolView(QWidget, StoppableToolMixin):
     def _log_section(self, title: str):
         """Log section header to output."""
         self.output.append(f"\n{'=' * 5} {title} {'=' * 5}")
-

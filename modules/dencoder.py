@@ -44,11 +44,11 @@ from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
     TARGET_INPUT_STYLE, COMBO_BOX_STYLE, COLOR_BACKGROUND_INPUT,
-    COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
-    COLOR_SUCCESS, COLOR_ERROR, COLOR_BACKGROUND_BUTTON, COLOR_TEXT_BUTTON,
+    COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_FOCUSED,
+    COLOR_SUCCESS, COLOR_ERROR, COLOR_ACCENT,
     StyledComboBox,
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE
-)
+    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, GROUPBOX_STYLE, CopyButton, OutputView)
+
 
 class DencoderTool(ToolBase):
     """Decoder/Encoder tool for various encoding schemes."""
@@ -80,352 +80,88 @@ class DencoderToolView(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        self.setStyleSheet(f"background-color: #1E1E1E;")
-        
-        # Timer for debounced auto-processing (always on - Burp Suite style)
-        from PySide6.QtCore import QTimer
-        self.process_timer = QTimer()
-        self.process_timer.setSingleShot(True)
-        self.process_timer.setInterval(100)  # 100ms debounce
-        self.process_timer.timeout.connect(self._auto_process)
-        
+        self.all_results = []  # Store results
         self._build_ui()
-        
-        # Connect auto-processing signals after UI is built
-        self.input_text.textChanged.connect(self._on_input_changed)
-        self.operation_combo.activated.connect(self._on_input_changed)
-        
-        # Add keyboard shortcut for Auto-Detect (Ctrl+D) - scoped to this widget only
-        self.auto_detect_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
-        self.auto_detect_shortcut.activated.connect(self._auto_detect_encoding)
-        
-        # Set white tooltips globally for this widget
-        self.setStyleSheet("""
-            QToolTip {
-                background-color: white;
-                color: black;
-                border: 1px solid #999;
-                border-radius: 3px;
-                padding: 4px;
-                font-size: 13px;
-            }
-        """)
 
     def _build_ui(self):
-        """Build the user interface."""
+        """Build the Dencoder UI."""
+        from PySide6.QtCore import QTimer
+
+        self.setStyleSheet(TOOL_VIEW_STYLE)
+
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
 
-        # Create main panel
-        main_panel = QWidget()
-        main_panel.setStyleSheet(TOOL_VIEW_STYLE)
-        main_layout.addWidget(main_panel)
-
-        control_layout = QVBoxLayout(main_panel)
-        control_layout.setContentsMargins(10, 10, 10, 10)
-        control_layout.setSpacing(10)
-
-        # Header - Clean and simple  
-        header = QLabel("Cracker › Dencoder")
+        # Header
+        header = QLabel("CRACKER › Dencoder")
         header.setStyleSheet(TOOL_HEADER_STYLE)
-        control_layout.addWidget(header)
+        main_layout.addWidget(header)
 
-        # Operation selection with buttons all in one line
-        operation_layout = QHBoxLayout()
+        # Control panel
+        control_layout = QVBoxLayout()
 
-        # Operation label
-        operation_label = QLabel("Operation:")
-        operation_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500; font-size: 14px;")
-        operation_layout.addWidget(operation_label)
+        # Operation selection
+        op_row = QHBoxLayout()
+        op_label = QLabel("Operation:")
+        op_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: 500;")
+        op_row.addWidget(op_label)
 
-        # Single operation dropdown with custom arrow
         self.operation_combo = StyledComboBox()
-        self.operation_combo.setEditable(True)
-        self.operation_combo.setInsertPolicy(QComboBox.NoInsert)
-        self.operation_combo.setPlaceholderText("Search or select operation...")
-
         operations = [
-            "ASCII85 Decode",
-            "ASCII85 Encode",
-            "Base16 Decode",
-            "Base16 Encode",
-            "Base32 Decode",
-            "Base32 Encode",
-            "Base64 Decode",
-            "Base64 Encode",
-            "Base85 Decode",
-            "Base85 Encode",
-            "Binary to Text",
-            "Caesar Cipher (-3)",
-            "Caesar Cipher (+3)",
-            "Command Injection Encode",
-            "Decimal to Text",
-            "Double HTML Decode",
-            "Double HTML Encode",
-            "Double URL Decode",
-            "Double URL Encode",
-            "File Inclusion Encode",
-            "Hex Decode",
-            "Hex Encode",
-            "HTML Decode",
-            "HTML Encode",
-            "JWT Header Decode",
-            "JWT Payload Decode",
-            "MD5 Hash",
-            "Morse Code Decode",
-            "Morse Code Encode",
-            "Octal to Text",
-            "Path Traversal Encode",
-            "Quoted Printable Decode",
-            "Quoted Printable Encode",
-            "ROT13 Encode/Decode",
-            "SHA1 Hash",
-            "SHA256 Hash",
-            "SQL Char Encode",
-            "SQL Hex Encode",
-            "Template Injection Encode",
-            "Text to Binary",
-            "Text to Decimal",
-            "Text to Octal",
-            "Unicode Escape Decode",
-            "Unicode Escape Encode",
-            "URL Decode",
-            "URL Encode",
-            "UU Decode",
-            "UU Encode",
-            "XSS Basic Encode",
-            "XSS Double Encode"
+            "Base64 Encode", "Base64 Decode", "Base32 Encode", "Base32 Decode",
+            "Base16 Encode", "Base16 Decode", "Base85 Encode", "Base85 Decode",
+            "ASCII85 Encode", "ASCII85 Decode",
+            "URL Encode", "URL Decode", "Double URL Encode", "Double URL Decode",
+            "Hex Encode", "Hex Decode",
+            "HTML Encode", "HTML Decode", "Double HTML Encode", "Double HTML Decode",
+            "Quoted Printable Encode", "Quoted Printable Decode",
+            "UU Encode", "UU Decode",
+            "ROT13 Encode/Decode", "Caesar Cipher (+3)", "Caesar Cipher (-3)",
+            "Morse Code Encode", "Morse Code Decode",
+            "Text to Binary", "Binary to Text",
+            "Text to Decimal", "Decimal to Text",
+            "Text to Octal", "Octal to Text",
+            "Unicode Escape Encode", "Unicode Escape Decode",
+            "JWT Header Decode", "JWT Payload Decode",
+            "SQL Hex Encode", "SQL Char Encode",
+            "XSS Basic Encode", "XSS Double Encode",
+            "Command Injection Encode", "Path Traversal Encode",
+            "File Inclusion Encode", "Template Injection Encode",
+            "MD5 Hash", "SHA1 Hash", "SHA256 Hash"
         ]
-
         self.operation_combo.addItems(operations)
-        
-        # Keep insertion policy - don't allow typing new items
-        self.operation_combo.setInsertPolicy(QComboBox.NoInsert)
-        
-        # Store original items for filtering
-        self._all_operations = operations
-        self._is_filtering = False  # Flag to prevent filter during selection
-        
-        # Handle item selection - single click to select
-        def on_item_activated(index):
-            # Item was selected from dropdown
-            self._is_filtering = False
-            self.operation_combo.hidePopup()
-        
-        # Auto-show dropdown when typing and filter items
-        def on_text_changed(text):
-            # Don't filter if we're in the middle of selecting an item
-            if not self._is_filtering and text in self._all_operations:
-                # Text exactly matches an operation - user selected it
-                return
-            
-            # User is typing - enable filtering
-            self._is_filtering = True
-            
-            # Filter items based on search text
-            search_text = text.lower()
-            self.operation_combo.blockSignals(True)
-            self.operation_combo.clear()
-            
-            if search_text:
-                # Filter to matching items
-                matching = [op for op in self._all_operations if search_text in op.lower()]
-                self.operation_combo.addItems(matching)
-            else:
-                # Show all items when empty
-                self.operation_combo.addItems(self._all_operations)
-            
-            # Restore the search text (adding items clears it)
-            self.operation_combo.setEditText(text)
-            self.operation_combo.blockSignals(False)
-            
-            # Show dropdown if not already visible
-            if not self.operation_combo.view().isVisible() and text:
-                self.operation_combo.showPopup()
-        
-        # Connect signals
-        self.operation_combo.activated.connect(on_item_activated)
-        self.operation_combo.lineEdit().textChanged.connect(on_text_changed)
+        op_row.addWidget(self.operation_combo, 1)
 
-        self.operation_combo.setStyleSheet(f"""
-            QComboBox {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 6px;
-                padding: 8px 35px 8px 12px;
-                font-size: 14px;
-                font-weight: 500;
-                min-height: 18px;
-            }}
-            QComboBox:focus {{
-                border: 2px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                width: 30px;
-                background: transparent;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 6px;
-                color: {COLOR_TEXT_PRIMARY};
-                selection-background-color: {COLOR_BORDER_INPUT_FOCUSED};
-                selection-color: {COLOR_TEXT_PRIMARY};
-                padding: 8px;
-                font-size: 14px;
-                min-width: 350px;
-                outline: none;
-            }}
-            QComboBox QAbstractItemView::item {{
-                padding: 4px 14px;
-                border-radius: 4px;
-                min-height: 26px;
-                font-size: 14px;
-            }}
-            QComboBox QAbstractItemView::item:hover {{
-                background-color: #2D333B;
-            }}
-            QComboBox QAbstractItemView::item:selected {{
-                background-color: {COLOR_BORDER_INPUT_FOCUSED};
-            }}
-            QComboBox:editable {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-            }}
-            QComboBox QLineEdit {{
-                background-color: transparent;
-                color: {COLOR_TEXT_PRIMARY};
-                border: none;
-                padding: 0px;
-                font-size: 14px;
-            }}
-            /* Scrollbar styling */
-            QComboBox QAbstractItemView::verticalScrollBar {{
-                width: 14px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-                border-radius: 7px;
-            }}
-            QComboBox QAbstractItemView::verticalScrollBar::handle {{
-                background-color: #4A5568;
-                border-radius: 7px;
-                min-height: 30px;
-            }}
-            QComboBox QAbstractItemView::verticalScrollBar::handle:hover {{
-                background-color: #58A6FF;
-            }}
-            QComboBox QAbstractItemView::verticalScrollBar::add-line,
-            QComboBox QAbstractItemView::verticalScrollBar::sub-line {{
-                height: 0px;
-            }}
-            QComboBox QAbstractItemView::verticalScrollBar::add-page,
-            QComboBox QAbstractItemView::verticalScrollBar::sub-page {{
-                background: none;
-            }}
-        """)
-        self.operation_combo.setMinimumHeight(38)
-        self.operation_combo.setMinimumWidth(220)
-        self.operation_combo.setMaxVisibleItems(15)  # Show more items in dropdown
-        operation_layout.addWidget(self.operation_combo)
-
-        # Spacer
-        operation_layout.addSpacing(20)
-
-        # Auto-detect button with keyboard shortcut
-        self.auto_detect_button = QPushButton("🔍 Auto-Detect")
-        self.auto_detect_button.setStyleSheet(f"""
+        # Auto-detect button
+        detect_btn = QPushButton("🔍 Auto-Detect")
+        detect_btn.setCursor(Qt.PointingHandCursor)
+        detect_btn.clicked.connect(self._auto_detect_encoding)
+        detect_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: #6366F1;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 8px 16px;
-                min-height: 18px;
-            }}
-            QPushButton:hover {{
-                background-color: #4F46E5;
-            }}
-            QPushButton:pressed {{
-                background-color: #4338CA;
-            }}
-        """)
-        self.auto_detect_button.setToolTip("Automatically detect encoding type (Ctrl+D)")
-        self.auto_detect_button.clicked.connect(self._auto_detect_encoding)
-        operation_layout.addWidget(self.auto_detect_button)
-
-        # File Input button
-        self.file_input_button = QPushButton("📁 Load File")
-        self.file_input_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #10B981;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 8px 16px;
-                min-height: 18px;
-            }}
-            QPushButton:hover {{
-                background-color: #059669;
-            }}
-            QPushButton:pressed {{
-                background-color: #047857;
-            }}
-        """)
-        self.file_input_button.setToolTip("Load text file to decode (max 10MB)")
-        self.file_input_button.clicked.connect(self._load_file)
-        operation_layout.addWidget(self.file_input_button)
-
-        operation_layout.addSpacing(20)
-
-        # Clear button
-        self.clear_button = QPushButton("Clear")
-        self.clear_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #DC3545;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 8px 16px;
-                min-height: 18px;
-            }}
-            QPushButton:hover {{
-                background-color: #C82333;
-            }}
-            QPushButton:pressed {{
-                background-color: #BD2130;
-            }}
-        """)
-        self.clear_button.clicked.connect(self._clear_text)
-        operation_layout.addWidget(self.clear_button)
-
-        # Add stretch to push everything to the left
-        operation_layout.addStretch()
-
-        control_layout.addLayout(operation_layout)
-
-        # Input/Output areas
-        io_group = QGroupBox("Input/Output")
-        io_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
+                background-color: {COLOR_BACKGROUND_INPUT};
                 color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+                padding: 8px 14px;
             }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
+            QPushButton:hover {{ background-color: #4A4A4A; }}
         """)
+        op_row.addWidget(detect_btn)
+
+        control_layout.addLayout(op_row)
+
+        # Timer for auto-processing (always active with debouncing)
+        self.process_timer = QTimer()
+        self.process_timer.setSingleShot(True)
+        self.process_timer.setInterval(100)
+        self.process_timer.timeout.connect(self._auto_process)
+
+        main_layout.addLayout(control_layout)
+
+        # Input/Output section
+        io_group = QGroupBox("📝 Input / Output")
+        io_group.setStyleSheet(GROUPBOX_STYLE)
         io_layout = QVBoxLayout(io_group)
 
         # Input area
@@ -451,23 +187,12 @@ class DencoderToolView(QWidget):
                 font-size: 12px;
             }}
             QTextEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+                border: 1px solid {COLOR_BORDER_FOCUSED};
             }}
         """)
         self.input_text.setMinimumHeight(100)
 
-        self.input_copy_button = QPushButton("📋")
-        self.input_copy_button.setStyleSheet('''
-            QPushButton {
-                font-size: 18px;
-                background-color: transparent;
-                border: none;
-                padding: 5px;
-            }
-        ''')
-        self.input_copy_button.setCursor(Qt.PointingHandCursor)
-        self.input_copy_button.setToolTip("Copy input to clipboard")
-        self.input_copy_button.clicked.connect(self._copy_input_to_clipboard)
+        self.input_copy_button = CopyButton(self.input_text)
 
         input_layout.addWidget(self.input_text, 0, 0)
         input_layout.addWidget(self.input_copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
@@ -496,7 +221,7 @@ class DencoderToolView(QWidget):
                 font-size: 12px;
             }}
             QTextEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+                border: 1px solid {COLOR_BORDER_FOCUSED};
             }}
         """)
         self.output_text.setReadOnly(True)
@@ -504,120 +229,18 @@ class DencoderToolView(QWidget):
         
         # Store default style for border animation reset
         self.default_output_style = self.output_text.styleSheet()
-
-        self.output_copy_button = QPushButton("📋")
-        self.output_copy_button.setStyleSheet('''
-            QPushButton {
-                font-size: 18px;
-                background-color: transparent;
-                border: none;
-                padding: 5px;
-            }
-        ''')
-        self.output_copy_button.setCursor(Qt.PointingHandCursor)
-        self.output_copy_button.setToolTip("Copy output to clipboard")
-        self.output_copy_button.clicked.connect(self._copy_output_to_clipboard)
+        
+        self.output_copy_button = CopyButton(self.output_text)
 
         output_layout.addWidget(self.output_text, 0, 0)
         output_layout.addWidget(self.output_copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
         io_layout.addWidget(output_container)
 
-        control_layout.addWidget(io_group)
+        main_layout.addWidget(io_group)
 
-    def _on_live_mode_changed(self, state):
-        """Handle Live Mode toggle."""
-        from PySide6.QtCore import Qt
-        is_live = (state == Qt.Checked)
-        
-        print(f"[Dencoder] Live Mode changed: {is_live}")  # Debug
-        
-        # Update button states
-        self.process_button.setEnabled(not is_live)
-        
-        if is_live:
-            # Only disconnect if signals were previously connected
-            if self.live_mode_signals_connected:
-                try:
-                    self.input_text.textChanged.disconnect(self._on_input_changed)
-                except:
-                    pass
-                try:
-                    self.operation_combo.activated.disconnect(self._on_input_changed)
-                except:
-                    pass
-            
-            # Connect input changes to auto-process
-            self.input_text.textChanged.connect(self._on_input_changed)
-            # Use activated instead of currentTextChanged (only fires on user selection)
-            self.operation_combo.activated.connect(self._on_input_changed)
-            self.live_mode_signals_connected = True
-            
-            # Update checkbox appearance
-            self.live_mode_check.setText("⚡ Live Mode (Active)")
-            # Force style update to green
-            self.live_mode_check.setStyleSheet(f"""
-                QCheckBox {{
-                    color: {COLOR_TEXT_PRIMARY};
-                    font-size: 14px;
-                    font-weight: bold;
-                    spacing: 8px;
-                }}
-                QCheckBox::indicator {{
-                    width: 20px;
-                    height: 20px;
-                    border-radius: 4px;
-                    border: 2px solid {COLOR_BORDER};
-                    background-color: {COLOR_BACKGROUND_INPUT};
-                }}
-                QCheckBox::indicator:checked {{
-                    background-color: #10B981;
-                    border: 2px solid #10B981;
-                }}
-                QCheckBox::indicator:hover {{
-                    border: 2px solid {COLOR_BORDER_INPUT_FOCUSED};
-                }}
-            """)
-            
-            print("[Dencoder] Live Mode activated - signals connected")  # Debug
-            
-            # If there's already input and an operation, process immediately
-            if self.input_text.toPlainText().strip() and self.operation_combo.currentText():
-                print("[Dencoder] Processing existing input immediately")
-                self._process_text()
-        else:
-            # Disconnect auto-process
-            try:
-                self.input_text.textChanged.disconnect(self._on_input_changed)
-                self.operation_combo.activated.disconnect(self._on_input_changed)
-            except Exception as e:
-                print(f"[Dencoder] Error disconnecting: {e}")
-            
-            # Reset checkbox appearance
-            self.live_mode_check.setText("⚡ Live Mode")
-            self.live_mode_check.setStyleSheet(f"""
-                QCheckBox {{
-                    color: {COLOR_TEXT_PRIMARY};
-                    font-size: 14px;
-                    font-weight: bold;
-                    spacing: 8px;
-                }}
-                QCheckBox::indicator {{
-                    width: 20px;
-                    height: 20px;
-                    border-radius: 4px;
-                    border: 2px solid {COLOR_BORDER};
-                    background-color: {COLOR_BACKGROUND_INPUT};
-                }}
-                QCheckBox::indicator:checked {{
-                    background-color: #FF6B35;
-                    border: 2px solid #FF6B35;
-                }}
-                QCheckBox::indicator:hover {{
-                    border: 2px solid {COLOR_BORDER_INPUT_FOCUSED};
-                }}
-            """)
-            
-            print("[Dencoder] Live Mode deactivated - signals disconnected")  # Debug
+        # Connect signals for always-active auto-processing
+        self.input_text.textChanged.connect(self._on_input_changed)
+        self.operation_combo.activated.connect(self._on_input_changed)
     
     def _on_input_changed(self):
         """Input changed - start debounce timer for auto-processing."""
@@ -1097,103 +720,4 @@ class DencoderToolView(QWidget):
         encoded = encoded.replace('%>', '%\\>')
         return encoded
 
-    def _load_file(self):
-        """Load a file into the input area."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load File to Decode",
-            "",
-            "Text Files (*.txt *.log *.dat *.json *.xml *.bin);;All Files (*.*)"
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            # Check file size (max 10MB)
-            import os
-            file_size = os.path.getsize(file_path)
-            max_size = 10 * 1024 * 1024  # 10MB in bytes
-            
-            if file_size > max_size:
-                self._show_error(f"File too large: {file_size / (1024*1024):.1f}MB\nMaximum allowed: 10MB")
-                return
-            
-            # Read file content
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            
-            # Set file content to input
-            self.input_text.setPlainText(content)
-            
-            # Show success notification
-            if self.main_window and hasattr(self.main_window, 'notification_manager'):
-                self.main_window.notification_manager.notify(f"Loaded {os.path.basename(file_path)} ({file_size} bytes)")
-                
-        except Exception as e:
-            self._show_error(f"Failed to load file:\n{str(e)}")
 
-    def _clear_text(self):
-        """Clear all input and output fields."""
-        self.input_text.clear()
-        self.output_text.clear()
-
-    def _copy_input_to_clipboard(self):
-        """Copy input text to clipboard."""
-        input_text = self.input_text.toPlainText()
-        if input_text.strip():
-            QApplication.clipboard().setText(input_text)
-
-    def _copy_output_to_clipboard(self):
-        """Copy output text to clipboard."""
-        output_text = self.output_text.toPlainText()
-        if output_text.strip():
-            QApplication.clipboard().setText(output_text)
-
-    def _show_error(self, message):
-        """Show an error message dialog."""
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Critical)
-        msg_box.setWindowTitle("Error")
-        msg_box.setText(message)
-        msg_box.setStyleSheet(f"""
-            QMessageBox {{
-                background-color: #1E1E1E;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QMessageBox QLabel {{
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QMessageBox QPushButton {{
-                background-color: {COLOR_BACKGROUND_BUTTON};
-                color: {COLOR_TEXT_BUTTON};
-                border: none;
-                padding: 5px 10px;
-                border-radius: 3px;
-            }}
-        """)
-        msg_box.exec()
-
-    def _show_info(self, message):
-        """Show an info message dialog."""
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Information)
-        msg_box.setWindowTitle("Info")
-        msg_box.setText(message)
-        msg_box.setStyleSheet(f"""
-            QMessageBox {{
-                background-color: #1E1E1E;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QMessageBox QLabel {{
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QMessageBox QPushButton {{
-                background-color: {COLOR_BACKGROUND_BUTTON};
-                color: {COLOR_TEXT_BUTTON};
-                border: none;
-                padding: 5px 10px;
-                border-radius: 3px;
-            }}
-        """)
-        msg_box.exec()

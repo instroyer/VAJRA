@@ -13,8 +13,10 @@ class ToolCategory(Enum):
     WEB_SCANNING = "Web Scanning"
     VULNERABILITY_SCANNER = "Vulnerability Scanner"
     CRACKER = "Cracker"
+    PAYLOAD_GENERATOR = "Payload Generator"
     FILE_ANALYSIS = "File Analysis"
-
+    
+    
 class ToolBase:
     """
     Base class for a tool plugin.

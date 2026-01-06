@@ -20,7 +20,7 @@ from ui.styles import (
     COLOR_BACKGROUND_SECONDARY, COLOR_BORDER, COLOR_TEXT_SECONDARY, COLOR_TEXT_PRIMARY,
     COLOR_BACKGROUND_PRIMARY, TOOL_HEADER_STYLE, LABEL_STYLE,
     TARGET_INPUT_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
-    OUTPUT_TEXT_EDIT_STYLE, TOOL_VIEW_STYLE
+    OUTPUT_TEXT_EDIT_STYLE, TOOL_VIEW_STYLE, FONT_FAMILY_UI
 )
 from ui.styles import OutputView  # Import OutputView from styles
 from core.tgtinput import TargetInput
@@ -33,10 +33,10 @@ class WelcomeWidget(QWidget):
         layout.setSpacing(10)
 
         title = QLabel("Welcome to VAJRA - Offensive Security Platform")
-        title.setStyleSheet(f"font-size: 28px; font-weight: 300; color: {COLOR_TEXT_PRIMARY};")
+        title.setStyleSheet(f"font-size: 28px; font-weight: 300; color: {COLOR_TEXT_PRIMARY}; font-family: {FONT_FAMILY_UI};")
 
         subtitle = QLabel("Select a tool from the sidepanel to begin.")
-        subtitle.setStyleSheet(f"font-size: 16px; color: {COLOR_TEXT_SECONDARY};")
+        subtitle.setStyleSheet(f"font-size: 16px; color: {COLOR_TEXT_SECONDARY}; font-family: {FONT_FAMILY_UI};")
         
         layout.addWidget(title, alignment=Qt.AlignCenter)
         layout.addWidget(subtitle, alignment=Qt.AlignCenter)
@@ -55,18 +55,48 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
     def _discover_tools(self):
+        """
+        Hybrid tool discovery:
+        - Development mode: Auto-discovers all modules in modules/ directory
+        - Frozen mode (PyInstaller): Uses fallback list for reliability
+        - Nuitka: Works with both (use --include-package=modules)
+        """
         tools = {}
         module_path = "modules"
         
-        # Explicit list of all tool modules
-        known_modules = [
-            "amass", "automation", "dencoder", "dig", "dnsrecon", 
-            "eyewitness", "ffuf", "gobuster", "hashcat", "hashfinder", 
-            "httpx", "hydra", "john", "nikto", "nmap", "nuclei", 
-            "portscanner", "strings", "subfinder", "whois"
-        ]
+        # Check if running as frozen executable (PyInstaller)
+        is_frozen = getattr(sys, 'frozen', False)
         
-        # Always use explicit loading for reliability (both frozen and dev)
+        if is_frozen:
+            # PyInstaller: Use explicit list (dynamic discovery doesn't work)
+            print("[Discovery] Running in frozen mode - using fallback list")
+            known_modules = [
+                "amass", "automation", "dencoder", "dig", "dnsrecon", 
+                "eyewitness", "ffuf", "gobuster", "hashcat", "hashfinder", 
+                "httpx", "hydra", "john", "msfvenom", "nikto", "nmap", "nuclei", 
+                "portscanner", "searchsploit", "strings", "subfinder", "wafw00f", "whois"
+            ]
+        else:
+            # Development/Nuitka: Auto-discover all modules dynamically
+            print("[Discovery] Running in dev mode - auto-discovering modules")
+            try:
+                import modules
+                known_modules = [
+                    name for _, name, _ in pkgutil.iter_modules(modules.__path__)
+                    if name != "bases"  # Skip the base class
+                ]
+                print(f"[Discovery] Found modules: {known_modules}")
+            except Exception as e:
+                # Fallback if auto-discovery fails
+                print(f"[Discovery] Auto-discovery failed: {e}, using fallback")
+                known_modules = [
+                    "amass", "automation", "dencoder", "dig", "dnsrecon", 
+                    "eyewitness", "ffuf", "gobuster", "hashcat", "hashfinder", 
+                    "httpx", "hydra", "john", "msfvenom", "nikto", "nmap", "nuclei", 
+                    "portscanner", "searchsploit", "strings", "subfinder", "wafw00f", "whois"
+                ]
+        
+        # Load each module and find ToolBase subclasses
         for name in known_modules:
             try:
                 module = importlib.import_module(f'{module_path}.{name}')
@@ -75,11 +105,11 @@ class MainWindow(QMainWindow):
                         tool_instance = obj()
                         tools[tool_instance.name] = tool_instance
             except ImportError as e:
-                print(f"ImportError loading {name}: {e}")
+                print(f"[Discovery] ImportError loading {name}: {e}")
             except Exception as e:
-                print(f"Error loading {name}: {e}")
+                print(f"[Discovery] Error loading {name}: {e}")
         
-        print(f"Discovered {len(tools)} tools: {list(tools.keys())}")
+        print(f"[Discovery] Loaded {len(tools)} tools: {list(tools.keys())}")
         return tools
 
     def _build_ui(self):

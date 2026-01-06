@@ -24,9 +24,11 @@ from ui.styles import (
     DIVIDER_STYLE,
     COLOR_SUCCESS,
     COLOR_WARNING,
-    CopyButton,
     COLOR_ERROR,
     COLOR_INFO,
+    RunButton,
+    StopButton,
+    SafeStop,
 )
 
 
@@ -209,9 +211,12 @@ class Automation(ToolBase):
     def get_widget(self, main_window: QWidget) -> QWidget:
         return AutomationView(main_window=main_window)
 
-class AutomationView(QWidget):
+class AutomationView(QWidget, SafeStop):
+    """Automation pipeline tool view."""
+    
     def __init__(self, main_window=None):
         super().__init__()
+        self.init_safe_stop()
         self.main_window = main_window
         self.worker = None
         self.worker_thread = None
@@ -226,8 +231,7 @@ class AutomationView(QWidget):
         self.target_input = TargetInput()
         controls.addWidget(self.target_input)
 
-        self.run_button = QPushButton("RUN")
-        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
+        self.run_button = RunButton()
         self.run_button.setFixedSize(90, 36)
         self.run_button.clicked.connect(self.run_pipeline)
         controls.addWidget(self.run_button)
@@ -246,11 +250,9 @@ class AutomationView(QWidget):
         self.skip_button.clicked.connect(self.skip_step)
         controls.addWidget(self.skip_button)
 
-        self.stop_button = QPushButton("■")
-        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
+        self.stop_button = StopButton()
         self.stop_button.setFixedSize(44, 36)
         self.stop_button.clicked.connect(self.stop_pipeline)
-        self.stop_button.setEnabled(False)
         controls.addWidget(self.stop_button)
 
         layout.addLayout(controls)
@@ -272,14 +274,12 @@ class AutomationView(QWidget):
         divider = QFrame(); divider.setFrameShape(QFrame.HLine); divider.setStyleSheet(DIVIDER_STYLE)
         layout.addWidget(divider)
 
-        # Replace QPlainTextEdit with OutputView
-        self.output = OutputView()
-        
-        # Add CopyButton
-        self.copy_button = CopyButton(self.output.output_text, self.main_window)
-        self.output.layout().addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
+        # Replace QPlainTextEdit with OutputView (with copy button)
+        self.output = OutputView(main_window=self.main_window)
         
         layout.addWidget(self.output)
+
+
 
     def run_pipeline(self):
         raw_input = self.target_input.get_target()

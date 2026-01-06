@@ -11,19 +11,20 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QGroupBox, QCheckBox, QComboBox, QFileDialog,
     QTextEdit, QGridLayout, QSplitter, QTabWidget, QMessageBox,
-    QListWidget, QListWidgetItem, QAbstractItemView
+    QListWidget, QListWidgetItem, QAbstractItemView, QSpinBox
 )
 from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker, StoppableToolMixin
+from ui.worker import ProcessWorker
 from core.fileops import create_target_dirs
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER,
-    COLOR_BORDER_INPUT_FOCUSED, LABEL_STYLE, StyledSpinBox,
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
-    CopyButton
+    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_BACKGROUND_SECONDARY,
+    COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_FOCUSED, LABEL_STYLE, SPINBOX_STYLE,
+    GROUPBOX_STYLE, CopyButton, CommandDisplay, RunButton, StopButton, SafeStop, OutputView,
+    HeaderLabel, StyledLabel
 )
+
 
 
 class NucleiTool(ToolBase):
@@ -41,12 +42,12 @@ class NucleiTool(ToolBase):
         return NucleiToolView(main_window=main_window)
 
 
-class NucleiToolView(QWidget, StoppableToolMixin):
+class NucleiToolView(QWidget, SafeStop):
     """Nuclei vulnerability scanner interface."""
 
     def __init__(self, main_window=None):
         super().__init__()
-        self.init_stoppable()
+        self.init_safe_stop()
         self.main_window = main_window
         self.base_dir = None
         self._build_ui()
@@ -62,14 +63,13 @@ class NucleiToolView(QWidget, StoppableToolMixin):
 
         # ==================== CONTROL PANEL ====================
         control_panel = QWidget()
-        control_panel.setStyleSheet(TOOL_VIEW_STYLE)
+        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
 
         # Header
-        header = QLabel("VULNERABILITY_SCANNER › Nuclei")
-        header.setStyleSheet(TOOL_HEADER_STYLE)
+        header = HeaderLabel("VULNERABILITY_SCANNER", "Nuclei")
         control_layout.addWidget(header)
 
         # Target input row
@@ -88,70 +88,52 @@ class NucleiToolView(QWidget, StoppableToolMixin):
                 border-radius: 4px;
                 padding: 8px;
                 font-size: 14px;
-                min-height: 22px;
             }}
-            QLineEdit:focus {{ border: 1px solid {COLOR_BORDER_INPUT_FOCUSED}; }}
+            QLineEdit:focus {{
+                border-color: {COLOR_BORDER_FOCUSED};
+            }}
         """)
         self.target_input.textChanged.connect(self.update_command)
-
-        self.target_list_btn = QPushButton("📁")
-        self.target_list_btn.setToolTip("Load targets from file")
+        
+        self.target_list_btn = QPushButton("📄")
+        self.target_list_btn.setToolTip("Load target list file")
         self.target_list_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_BACKGROUND_INPUT};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
-                padding: 8px 12px;
-                font-size: 16px;
+                padding: 6px 10px;
+                color: {COLOR_TEXT_PRIMARY};
             }}
             QPushButton:hover {{ background-color: #4A4A4A; }}
         """)
         self.target_list_btn.clicked.connect(self._browse_target_list)
         self.target_list_btn.setCursor(Qt.PointingHandCursor)
-
-        self.run_button = QPushButton("RUN")
-        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
-        self.run_button.clicked.connect(self.run_scan)
-        self.run_button.setCursor(Qt.PointingHandCursor)
-
-        self.stop_button = QPushButton("■")
-        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
-        self.stop_button.clicked.connect(self.stop_scan)
-        self.stop_button.setEnabled(False)
-        self.stop_button.setCursor(Qt.PointingHandCursor)
-
+        
         target_row.addWidget(self.target_input)
         target_row.addWidget(self.target_list_btn)
+        
+        # Run/Stop buttons inline
+        self.run_button = RunButton()
+        self.run_button.clicked.connect(self.run_scan)
+        
+        self.stop_button = StopButton()
+        self.stop_button.clicked.connect(self.stop_scan)
+
         target_row.addWidget(self.run_button)
         target_row.addWidget(self.stop_button)
         control_layout.addLayout(target_row)
 
-        # Command preview
-        command_label = QLabel("Command")
-        command_label.setStyleSheet(LABEL_STYLE)
-        control_layout.addWidget(command_label)
+        # Command display
+        self.command_display = CommandDisplay()
+        self.command_input = self.command_display.input
+        control_layout.addWidget(self.command_display)
 
-        self.command_input = QLineEdit()
-        self.command_input.setStyleSheet(self.target_input.styleSheet())
-        control_layout.addWidget(self.command_input)
 
-        # ==================== TABBED CONFIGURATION ====================
+
+        # Configuration Group
         config_group = QGroupBox("⚙️ Scan Configuration")
-        config_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-                padding-top: 10px;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
+        config_group.setStyleSheet(GROUPBOX_STYLE)
         config_layout = QVBoxLayout(config_group)
         config_layout.setContentsMargins(5, 15, 5, 5)
         config_layout.setSpacing(0)
@@ -199,19 +181,9 @@ class NucleiToolView(QWidget, StoppableToolMixin):
         output_layout.setContentsMargins(0, 0, 0, 0)
         output_layout.setSpacing(0)
 
-        self.output = QTextEdit()
+        self.output = OutputView()
         self.output.setReadOnly(True)
-        self.output.setPlaceholderText("Nuclei scan results will appear here...")
-        self.output.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {COLOR_BACKGROUND_PRIMARY};
-                color: {COLOR_TEXT_PRIMARY};
-                border: none;
-                padding: 12px;
-                font-family: 'Courier New', monospace;
-                font-size: 13px;
-            }}
-        """)
+        self.output.setPlaceholderText("Nuclei results will appear here...")
         output_layout.addWidget(self.output)
 
         # Use centralized CopyButton
@@ -412,7 +384,8 @@ class NucleiToolView(QWidget, StoppableToolMixin):
         conc_label.setStyleSheet(LABEL_STYLE)
         conc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.concurrency_spin = StyledSpinBox()
+        self.concurrency_spin = QSpinBox()
+        self.concurrency_spin.setStyleSheet(SPINBOX_STYLE)
         self.concurrency_spin.setRange(1, 500)
         self.concurrency_spin.setValue(25)
         self.concurrency_spin.valueChanged.connect(self.update_command)
@@ -422,7 +395,8 @@ class NucleiToolView(QWidget, StoppableToolMixin):
         rate_label.setStyleSheet(LABEL_STYLE)
         rate_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.rate_limit_spin = StyledSpinBox()
+        self.rate_limit_spin = QSpinBox()
+        self.rate_limit_spin.setStyleSheet(SPINBOX_STYLE)
         self.rate_limit_spin.setRange(0, 10000)
         self.rate_limit_spin.setValue(150)
         self.rate_limit_spin.setSuffix(" req/s")
@@ -433,7 +407,8 @@ class NucleiToolView(QWidget, StoppableToolMixin):
         bulk_label.setStyleSheet(LABEL_STYLE)
         bulk_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.bulk_size_spin = StyledSpinBox()
+        self.bulk_size_spin = QSpinBox()
+        self.bulk_size_spin.setStyleSheet(SPINBOX_STYLE)
         self.bulk_size_spin.setRange(1, 500)
         self.bulk_size_spin.setValue(25)
         self.bulk_size_spin.valueChanged.connect(self.update_command)
@@ -443,7 +418,8 @@ class NucleiToolView(QWidget, StoppableToolMixin):
         retry_label.setStyleSheet(LABEL_STYLE)
         retry_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.retries_spin = StyledSpinBox()
+        self.retries_spin = QSpinBox()
+        self.retries_spin.setStyleSheet(SPINBOX_STYLE)
         self.retries_spin.setRange(0, 10)
         self.retries_spin.setValue(1)
         self.retries_spin.valueChanged.connect(self.update_command)
@@ -453,7 +429,8 @@ class NucleiToolView(QWidget, StoppableToolMixin):
         timeout_label.setStyleSheet(LABEL_STYLE)
         timeout_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.timeout_spin = StyledSpinBox()
+        self.timeout_spin = QSpinBox()
+        self.timeout_spin.setStyleSheet(SPINBOX_STYLE)
         self.timeout_spin.setRange(1, 300)
         self.timeout_spin.setValue(10)
         self.timeout_spin.setSuffix(" s")

@@ -1,32 +1,35 @@
 # =============================================================================
 # modules/nikto.py
 #
-# Professional Nikto Vulnerability Scanner GUI
-# Comprehensive web vulnerability scanning with all major Nikto features
+# Nikto - Web Server Vulnerability Scanner
 # =============================================================================
 
 import os
 import re
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QGroupBox, QCheckBox, QComboBox,
-    QTextEdit, QGridLayout, QSplitter, QTabWidget, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QPushButton, QMessageBox
 )
 from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker, StoppableToolMixin
+from ui.worker import ProcessWorker
 from core.fileops import create_target_dirs
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER,
-    COLOR_BORDER_INPUT_FOCUSED, LABEL_STYLE, StyledSpinBox,
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
-    CopyButton
+    # Widgets
+    RunButton, StopButton, CopyButton,
+    StyledLineEdit, StyledSpinBox, StyledCheckBox,
+    StyledLabel, HeaderLabel, CommandDisplay, OutputView,
+    StyledGroupBox, ToolSplitter, ConfigTabs,
+    # Behaviors
+    SafeStop, OutputHelper,
+    # Constants
+    TOOL_VIEW_STYLE, COLOR_BACKGROUND_SECONDARY, COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY
 )
 
 
 class NiktoTool(ToolBase):
-    """Professional Nikto vulnerability scanner tool."""
+    """Nikto vulnerability scanner tool plugin."""
 
     @property
     def name(self) -> str:
@@ -37,132 +40,73 @@ class NiktoTool(ToolBase):
         return ToolCategory.VULNERABILITY_SCANNER
 
     def get_widget(self, main_window):
-        return NiktoToolView(main_window=main_window)
+        return NiktoView(name=self.name, category=self.category, main_window=main_window)
 
 
-class NiktoToolView(QWidget, StoppableToolMixin):
-    """Nikto vulnerability scanner interface."""
+class NiktoView(QWidget, SafeStop, OutputHelper):
+    """Nikto web vulnerability scanner interface."""
+    
+    tool_name = "Nikto"
+    tool_category = "VULNERABILITY_SCANNER"
 
-    def __init__(self, main_window=None):
+    def __init__(self, name, category, main_window=None):
         super().__init__()
-        self.init_stoppable()
+        self.init_safe_stop()
         self.main_window = main_window
         self.base_dir = None
         self._build_ui()
 
     def _build_ui(self):
         """Build complete custom UI."""
+        self.setStyleSheet(TOOL_VIEW_STYLE)
+        
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        splitter = QSplitter(Qt.Vertical)
-        main_layout.addWidget(splitter)
+        splitter = ToolSplitter()
 
         # ==================== CONTROL PANEL ====================
         control_panel = QWidget()
-        control_panel.setStyleSheet(TOOL_VIEW_STYLE)
+        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
 
         # Header
-        header = QLabel("VULNERABILITY_SCANNER › Nikto")
-        header.setStyleSheet(TOOL_HEADER_STYLE)
+        header = HeaderLabel(self.tool_category, self.tool_name)
         control_layout.addWidget(header)
 
         # Target URL
-        target_label = QLabel("Target URL")
-        target_label.setStyleSheet(LABEL_STYLE)
+        target_label = StyledLabel("Target URL")
         control_layout.addWidget(target_label)
 
         target_row = QHBoxLayout()
-        self.target_input = QLineEdit()
-        self.target_input.setPlaceholderText("http://example.com")
-        self.target_input.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
-                font-size: 14px;
-                min-height: 22px;
-            }}
-            QLineEdit:focus {{ border: 1px solid {COLOR_BORDER_INPUT_FOCUSED}; }}
-        """)
+        self.target_input = StyledLineEdit("http://example.com")
         self.target_input.textChanged.connect(self.update_command)
-
-        self.run_button = QPushButton("RUN")
-        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
-        self.run_button.clicked.connect(self.run_scan)
-        self.run_button.setCursor(Qt.PointingHandCursor)
-
-        self.stop_button = QPushButton("■")
-        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
-        self.stop_button.clicked.connect(self.stop_scan)
-        self.stop_button.setEnabled(False)
-        self.stop_button.setCursor(Qt.PointingHandCursor)
-
         target_row.addWidget(self.target_input)
+
+        self.run_button = RunButton()
+        self.run_button.clicked.connect(self.run_scan)
+        self.stop_button = StopButton()
+        self.stop_button.clicked.connect(self.stop_scan)
+
         target_row.addWidget(self.run_button)
         target_row.addWidget(self.stop_button)
         control_layout.addLayout(target_row)
 
-        # Command preview
-        command_label = QLabel("Command")
-        command_label.setStyleSheet(LABEL_STYLE)
-        control_layout.addWidget(command_label)
+        # Command display
+        self.command_display = CommandDisplay()
+        self.command_input = self.command_display.input
+        control_layout.addWidget(self.command_display)
 
-        self.command_input = QLineEdit()
-        self.command_input.setStyleSheet(self.target_input.styleSheet())
-        control_layout.addWidget(self.command_input)
-
-        # ==================== TABBED CONFIGURATION ====================
-        config_group = QGroupBox("⚙️ Scan Configuration")
-        config_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-                padding-top: 10px;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
+        # Configuration Group
+        config_group = StyledGroupBox("⚙️ Scan Configuration")
         config_layout = QVBoxLayout(config_group)
         config_layout.setContentsMargins(5, 15, 5, 5)
         config_layout.setSpacing(0)
 
-        self.config_tabs = QTabWidget()
-        self.config_tabs.setStyleSheet(f"""
-            QTabWidget::pane {{
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-            }}
-            QTabBar::tab {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                padding: 8px 16px;
-                font-size: 13px;
-                font-weight: 500;
-            }}
-            QTabBar::tab:selected {{
-                background-color: #1777d1;
-                color: white;
-                font-weight: bold;
-            }}
-            QTabBar::tab:hover {{
-                background-color: #4A4A4A;
-            }}
-        """)
+        self.config_tabs = ConfigTabs()
 
         # ===== TAB 1: BASIC SCAN =====
         basic_tab = QWidget()
@@ -173,39 +117,27 @@ class NiktoToolView(QWidget, StoppableToolMixin):
         basic_layout.setColumnStretch(3, 1)
 
         # Port
-        port_label = QLabel("Port:")
-        port_label.setStyleSheet(LABEL_STYLE)
+        port_label = StyledLabel("Port:")
         port_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.port_input = QLineEdit()
-        self.port_input.setPlaceholderText("80 or 443")
-        self.port_input.setStyleSheet(self.target_input.styleSheet())
+        self.port_input = StyledLineEdit("80 or 443")
         self.port_input.textChanged.connect(self.update_command)
 
         # SSL/HTTPS
-        self.ssl_check = QCheckBox("Force SSL")
-        self.ssl_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 14px;")
+        self.ssl_check = StyledCheckBox("Force SSL")
         self.ssl_check.stateChanged.connect(self.update_command)
 
-        self.followredirects_check = QCheckBox("Follow Redirects")
-        self.followredirects_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 14px;")
+        self.followredirects_check = StyledCheckBox("Follow Redirects")
         self.followredirects_check.stateChanged.connect(self.update_command)
 
         # Virtual Host
-        vhost_label = QLabel("Virtual Host:")
-        vhost_label.setStyleSheet(LABEL_STYLE)
+        vhost_label = StyledLabel("Virtual Host:")
         vhost_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.vhost_input = QLineEdit()
-        self.vhost_input.setPlaceholderText("Custom Host header")
-        self.vhost_input.setStyleSheet(self.target_input.styleSheet())
+        self.vhost_input = StyledLineEdit("Custom Host header")
         self.vhost_input.textChanged.connect(self.update_command)
 
         # Timeout
-        timeout_label = QLabel("Timeout (s):")
-        timeout_label.setStyleSheet(LABEL_STYLE)
+        timeout_label = StyledLabel("Timeout (s):")
         timeout_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
         self.timeout_spin = StyledSpinBox()
         self.timeout_spin.setRange(1, 300)
         self.timeout_spin.setValue(10)
@@ -213,27 +145,19 @@ class NiktoToolView(QWidget, StoppableToolMixin):
         self.timeout_spin.valueChanged.connect(self.update_command)
 
         # Max Time
-        maxtime_label = QLabel("Max Time:")
-        maxtime_label.setStyleSheet(LABEL_STYLE)
+        maxtime_label = StyledLabel("Max Time:")
         maxtime_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.maxtime_input = QLineEdit()
-        self.maxtime_input.setPlaceholderText("e.g., 1h, 60m, 3600s")
-        self.maxtime_input.setStyleSheet(self.target_input.styleSheet())
+        self.maxtime_input = StyledLineEdit("e.g., 1h, 60m, 3600s")
         self.maxtime_input.textChanged.connect(self.update_command)
 
         # Display Options
-        display_label = QLabel("Display:")
-        display_label.setStyleSheet(LABEL_STYLE)
+        display_label = StyledLabel("Display:")
         display_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         display_layout = QHBoxLayout()
-        self.display_verbose = QCheckBox("Verbose")
-        self.display_verbose.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
+        self.display_verbose = StyledCheckBox("Verbose")
         self.display_verbose.stateChanged.connect(self.update_command)
-        
-        self.display_debug = QCheckBox("Debug")
-        self.display_debug.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
+        self.display_debug = StyledCheckBox("Debug")
         self.display_debug.stateChanged.connect(self.update_command)
 
         display_layout.addWidget(self.display_verbose)
@@ -263,12 +187,9 @@ class NiktoToolView(QWidget, StoppableToolMixin):
         scan_layout.setContentsMargins(10, 10, 10, 10)
         scan_layout.setSpacing(10)
 
-        # Tuning options (checkboxes)
-        tuning_label = QLabel("Scan Tuning (select tests to run):")
-        tuning_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: bold; font-size: 14px;")
+        tuning_label = StyledLabel("Scan Tuning (select tests to run):")
         scan_layout.addWidget(tuning_label)
 
-        # Create tuning checkboxes in grid
         tuning_grid = QGridLayout()
         tuning_grid.setSpacing(8)
 
@@ -293,8 +214,7 @@ class NiktoToolView(QWidget, StoppableToolMixin):
 
         row, col = 0, 0
         for code, label in tuning_options:
-            check = QCheckBox(f"{code} - {label}")
-            check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
+            check = StyledCheckBox(f"{code} - {label}")
             check.stateChanged.connect(self.update_command)
             self.tuning_checks[code] = check
             tuning_grid.addWidget(check, row, col)
@@ -305,21 +225,16 @@ class NiktoToolView(QWidget, StoppableToolMixin):
 
         scan_layout.addLayout(tuning_grid)
 
-        # Additional scan options
         scan_options_grid = QGridLayout()
         scan_options_grid.setSpacing(10)
 
-        self.no404_check = QCheckBox("No 404 Detection")
-        self.no404_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 14px;")
+        self.no404_check = StyledCheckBox("No 404 Detection")
         self.no404_check.stateChanged.connect(self.update_command)
 
-        self.usecookies_check = QCheckBox("Use Cookies")
-        self.usecookies_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 14px;")
+        self.usecookies_check = StyledCheckBox("Use Cookies")
         self.usecookies_check.stateChanged.connect(self.update_command)
 
-        pause_label = QLabel("Pause (s):")
-        pause_label.setStyleSheet(LABEL_STYLE)
-
+        pause_label = StyledLabel("Pause (s):")
         self.pause_spin = StyledSpinBox()
         self.pause_spin.setRange(0, 60)
         self.pause_spin.setValue(0)
@@ -346,72 +261,46 @@ class NiktoToolView(QWidget, StoppableToolMixin):
         advanced_layout.setColumnStretch(3, 1)
 
         # User-Agent
-        ua_label = QLabel("User-Agent:")
-        ua_label.setStyleSheet(LABEL_STYLE)
+        ua_label = StyledLabel("User-Agent:")
         ua_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.ua_input = QLineEdit()
-        self.ua_input.setPlaceholderText("Custom User-Agent")
-        self.ua_input.setStyleSheet(self.target_input.styleSheet())
+        self.ua_input = StyledLineEdit("Custom User-Agent")
         self.ua_input.textChanged.connect(self.update_command)
 
         # Proxy
-        proxy_label = QLabel("Proxy:")
-        proxy_label.setStyleSheet(LABEL_STYLE)
+        proxy_label = StyledLabel("Proxy:")
         proxy_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.proxy_input = QLineEdit()
-        self.proxy_input.setPlaceholderText("http://proxy:port")
-        self.proxy_input.setStyleSheet(self.target_input.styleSheet())
+        self.proxy_input = StyledLineEdit("http://proxy:port")
         self.proxy_input.textChanged.connect(self.update_command)
 
         # Authentication
-        auth_label = QLabel("Auth (id:pass):")
-        auth_label.setStyleSheet(LABEL_STYLE)
+        auth_label = StyledLabel("Auth (id:pass):")
         auth_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.auth_input = QLineEdit()
-        self.auth_input.setPlaceholderText("username:password")
-        self.auth_input.setStyleSheet(self.target_input.styleSheet())
+        self.auth_input = StyledLineEdit("username:password")
         self.auth_input.textChanged.connect(self.update_command)
 
         # Evasion
-        evasion_label = QLabel("Evasion:")
-        evasion_label.setStyleSheet(LABEL_STYLE)
+        evasion_label = StyledLabel("Evasion:")
         evasion_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.evasion_input = QLineEdit()
-        self.evasion_input.setPlaceholderText("e.g., 1234AB")
-        self.evasion_input.setStyleSheet(self.target_input.styleSheet())
+        self.evasion_input = StyledLineEdit("e.g., 1234AB")
         self.evasion_input.textChanged.connect(self.update_command)
 
         # CGI Dirs
-        cgidirs_label = QLabel("CGI Dirs:")
-        cgidirs_label.setStyleSheet(LABEL_STYLE)
+        cgidirs_label = StyledLabel("CGI Dirs:")
         cgidirs_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.cgidirs_input = QLineEdit()
-        self.cgidirs_input.setPlaceholderText("/cgi-bin/ /scripts/")
-        self.cgidirs_input.setStyleSheet(self.target_input.styleSheet())
+        self.cgidirs_input = StyledLineEdit("/cgi-bin/ /scripts/")
         self.cgidirs_input.textChanged.connect(self.update_command)
 
         # Root prepend
-        root_label = QLabel("Root Prepend:")
-        root_label.setStyleSheet(LABEL_STYLE)
+        root_label = StyledLabel("Root Prepend:")
         root_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.root_input = QLineEdit()
-        self.root_input.setPlaceholderText("/directory")
-        self.root_input.setStyleSheet(self.target_input.styleSheet())
+        self.root_input = StyledLineEdit("/directory")
         self.root_input.textChanged.connect(self.update_command)
 
         # Checkboxes
-        self.nolookup_check = QCheckBox("No DNS Lookup")
-        self.nolookup_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 14px;")
+        self.nolookup_check = StyledCheckBox("No DNS Lookup")
         self.nolookup_check.stateChanged.connect(self.update_command)
 
-        self.nossl_check = QCheckBox("Disable SSL")
-        self.nossl_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 14px;")
+        self.nossl_check = StyledCheckBox("Disable SSL")
         self.nossl_check.stateChanged.connect(self.update_command)
 
         # Add to grid
@@ -437,32 +326,17 @@ class NiktoToolView(QWidget, StoppableToolMixin):
         control_layout.addWidget(config_group)
         control_layout.addStretch()
 
+        splitter.addWidget(control_panel)
+
         # ==================== OUTPUT AREA ====================
-        output_container = QWidget()
-        output_layout = QVBoxLayout(output_container)
-        output_layout.setContentsMargins(0, 0, 0, 0)
-        output_layout.setSpacing(0)
+        self.output = OutputView(self.main_window)
+        self.output.setPlaceholderText("Nikto results will appear here...")
 
-        self.output = QTextEdit()
-        self.output.setReadOnly(True)
-        self.output.setPlaceholderText("Nikto scan results will appear here...")
-        self.output.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {COLOR_BACKGROUND_PRIMARY};
-                color: {COLOR_TEXT_PRIMARY};
-                border: none;
-                padding: 12px;
-                font-family: 'Courier New', monospace;
-                font-size: 13px;
-            }}
-        """)
-        output_layout.addWidget(self.output)
-
-        # Use centralized CopyButton
-        self.copy_button = CopyButton(self.output, self.main_window)
-        self.copy_button.setParent(self.output)
+        # Copy button
+        self.copy_button = CopyButton(self.output.output_text, self.main_window)
+        self.copy_button.setParent(self.output.output_text)
         self.copy_button.raise_()
-        
+
         # Severity legend button
         self.legend_button = QPushButton("⚠️")
         self.legend_button.setStyleSheet('''
@@ -478,54 +352,44 @@ class NiktoToolView(QWidget, StoppableToolMixin):
             }
         ''')
         self.legend_button.setCursor(Qt.PointingHandCursor)
-        
-        # Create rich HTML tooltip for severity legend
-        legend_tooltip = (
-            '<div style="font-family: Arial; font-size: 12px; line-height: 1.5; color: #FFFFFF;">'
-            '<b style="font-size: 14px; color: #FFFFFF;">⚠️ Color Severity Legend</b><br><br>'
-            '<span style="color: #F87171; font-weight: bold;">🔴 RED (Bold)</span> - <span style="color: #FFFFFF;">Critical Vulnerabilities</span><br>'
-            '&nbsp;&nbsp;&nbsp;<span style="color: #E5E7EB;">SQL Injection, RCE, File Upload, Auth Bypass</span><br><br>'
-            '<span style="color: #FB923C; font-weight: bold;">🟠 ORANGE</span> - <span style="color: #FFFFFF;">High Severity</span><br>'
-            '&nbsp;&nbsp;&nbsp;<span style="color: #E5E7EB;">XSS, Info Disclosure, Misconfiguration</span><br><br>'
-            '<span style="color: #FACC15; font-weight: bold;">🟡 YELLOW</span> - <span style="color: #FFFFFF;">Medium Severity</span><br>'
-            '&nbsp;&nbsp;&nbsp;<span style="color: #E5E7EB;">Warnings, Deprecated, Missing Headers</span><br><br>'
-            '<span style="color: #60A5FA; font-weight: bold;">🔵 BLUE</span> - <span style="color: #FFFFFF;">Information</span><br>'
-            '&nbsp;&nbsp;&nbsp;<span style="color: #E5E7EB;">Target Info, Server Details, Timestamps</span><br><br>'
-            '<span style="color: #10B981; font-weight: bold;">🟢 GREEN</span> - <span style="color: #FFFFFF;">Low/Informational</span><br>'
-            '&nbsp;&nbsp;&nbsp;<span style="color: #E5E7EB;">General Findings</span>'
-            '</div>'
-        )
-        self.legend_button.setToolTip(legend_tooltip)
+        self.legend_button.setToolTip(self._get_legend_tooltip())
         self.legend_button.clicked.connect(self._show_severity_legend)
-        self.legend_button.setParent(self.output)
+        self.legend_button.setParent(self.output.output_text)
         self.legend_button.raise_()
-        
-        # Position buttons at top-right
-        self.output.installEventFilter(self)
 
-        splitter.addWidget(control_panel)
-        splitter.addWidget(output_container)
+        self.output.output_text.installEventFilter(self)
+
+        splitter.addWidget(self.output)
         splitter.setSizes([400, 400])
+
+        main_layout.addWidget(splitter)
 
         # Initialize command
         self.update_command()
 
+    def _get_legend_tooltip(self):
+        return (
+            '<div style="font-family: Arial; font-size: 12px; line-height: 1.5; color: #FFFFFF;">'
+            '<b style="font-size: 14px; color: #FFFFFF;">⚠️ Color Severity Legend</b><br><br>'
+            '<span style="color: #F87171; font-weight: bold;">🔴 RED (Bold)</span> - Critical Vulnerabilities<br>'
+            '<span style="color: #FB923C; font-weight: bold;">🟠 ORANGE</span> - High Severity<br>'
+            '<span style="color: #FACC15; font-weight: bold;">🟡 YELLOW</span> - Medium Severity<br>'
+            '<span style="color: #60A5FA; font-weight: bold;">🔵 BLUE</span> - Information<br>'
+            '<span style="color: #10B981; font-weight: bold;">🟢 GREEN</span> - Low/Informational'
+            '</div>'
+        )
+
     def eventFilter(self, obj, event):
         """Handle events to position floating buttons."""
         from PySide6.QtCore import QEvent
-        if obj == self.output and event.type() == QEvent.Resize:
-            # Position buttons at top-right corner with 10px margin and spacing
+        if obj == self.output.output_text and event.type() == QEvent.Resize:
             button_spacing = 5
-            
-            # Copy button (rightmost)
             self.copy_button.move(
-                self.output.width() - self.copy_button.sizeHint().width() - 10,
+                self.output.output_text.width() - self.copy_button.sizeHint().width() - 10,
                 10
             )
-            
-            # Legend button (to the left of copy button)
             self.legend_button.move(
-                self.output.width() - self.copy_button.sizeHint().width() - 
+                self.output.output_text.width() - self.copy_button.sizeHint().width() -
                 self.legend_button.sizeHint().width() - 10 - button_spacing,
                 10
             )
@@ -645,7 +509,7 @@ class NiktoToolView(QWidget, StoppableToolMixin):
         self._info(f"Starting Nikto scan on: {target}")
         self._section("NIKTO SCAN OUTPUT")
 
-        # Extract target name from URL - remove protocol and path
+        # Extract target name from URL
         try:
             temp = target
             if "://" in temp:
@@ -674,17 +538,11 @@ class NiktoToolView(QWidget, StoppableToolMixin):
 
         self.worker.start()
 
-    def stop_scan(self):
-        """Stop the running scan."""
-        if self.worker:
-            self.worker.stop()
-
     def _on_scan_completed(self):
         """Handle scan completion."""
         self.run_button.setEnabled(True)
         self.stop_button.setEnabled(False)
 
-        # Save the GUI output to text file
         if self.base_dir:
             output_file = os.path.join(self.base_dir, "Logs", "nikto.txt")
             self._info(f"Results saved to: {output_file}")
@@ -696,149 +554,89 @@ class NiktoToolView(QWidget, StoppableToolMixin):
         self._notify("Nikto scan completed.")
 
     def _on_output(self, line):
-        """
-        Handle real-time output with intelligent severity-based color coding.
-        
-        🎨 INTELLIGENT SEVERITY-BASED COLORING SYSTEM:
-        
-        🔴 RED (Bold) - Critical Vulnerabilities:
-           - SQL injection, Command execution, Remote shell
-           - File upload, Authentication bypass
-           - "Allows attackers", Credentials, Exploits, RCE
-           - Keywords: sql injection, command execution, remote shell, file upload,
-                       allows attackers, arbitrary code, authentication bypass,
-                       credentials, password, exploit, vulnerable version, rce, backdoor
-        
-        🟠 ORANGE - High Severity:
-           - XSS, Cross-site scripting, Information disclosure
-           - Directory listing, Misconfigurations, CGI issues, Path traversal
-           - Keywords: xss, cross-site, script, injection, information disclosure,
-                       directory listing, indexing, misconfigur, default file,
-                       sensitive data, allows remote, cgi, traversal, path disclosure
-        
-        🟡 YELLOW - Medium Severity:
-           - Warnings, Deprecated features
-           - Missing headers, Cookie issues, Clickjacking
-           - Keywords: warning, deprecated, outdated, missing header,
-                       clickjacking, iframe, cookie, header not set
-        
-        🔵 BLUE - Information:
-           - Target IP, Hostname, Server info
-           - Scan start/end times, Nikto version
-           - Keywords: + target ip:, + target hostname:, + start time:, + server:,
-                       + end time:, nikto v, scanning
-        
-        🟢 GREEN - Low/Informational:
-           - General findings that don't match above categories
-           - Any line starting with "+ " not categorized as critical/high/medium
-        """
+        """Handle real-time output with severity-based color coding."""
         # Strip ANSI codes
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         line = ansi_escape.sub('', line)
 
-        # Skip empty lines
         if not line.strip():
             return
 
         line_lower = line.lower()
-        
-        # High severity (RED) - critical vulnerabilities
+
+        # Critical (RED)
         if any(keyword in line_lower for keyword in [
             "sql injection", "command execution", "remote shell", "file upload",
             "allows attackers", "arbitrary code", "authentication bypass",
             "credentials", "password", "exploit", "vulnerable version",
             "remote code execution", "rce", "shell", "backdoor"
         ]):
-            self.output.append(f'<span style="color:#F87171;font-weight:bold;">{line}</span>')  # Red Bold
-        
-        # Medium-High severity (ORANGE) - XSS, information disclosure, misconfigurations
+            self.output.append(f'<span style="color:#F87171;font-weight:bold;">{line}</span>')
+
+        # High (ORANGE)
         elif any(keyword in line_lower for keyword in [
             "xss", "cross-site", "script", "injection",
             "information disclosure", "directory listing", "indexing",
-            "misconfigur", "default file", "sensitivem   data",
+            "misconfigur", "default file", "sensitive data",
             "allows remote", "cgi", "traversal", "path disclosure"
         ]):
-            self.output.append(f'<span style="color:#FB923C;">{line}</span>')  # Orange
-        
-        # Medium severity (YELLOW) - warnings and less critical issues
+            self.output.append(f'<span style="color:#FB923C;">{line}</span>')
+
+        # Medium (YELLOW)
         elif any(keyword in line_lower for keyword in [
             "warning", "deprecated", "outdated", "missing header",
             "clickjacking", "iframe", "cookie", "header not set"
         ]):
-            self.output.append(f'<span style="color:#FACC15;">{line}</span>')  # Yellow
-        
-        # Info headers (BLUE)
+            self.output.append(f'<span style="color:#FACC15;">{line}</span>')
+
+        # Info (BLUE)
         elif any(keyword in line_lower for keyword in [
             "+ target ip:", "+ target hostname:", "+ start time:", "+ server:",
             "+ end time:", "nikto v", "scanning"
         ]):
-            self.output.append(f'<span style="color:#60A5FA;">{line}</span>')  # Blue
-        
-        # Low severity / informational findings (GREEN) - anything else starting with +
+            self.output.append(f'<span style="color:#60A5FA;">{line}</span>')
+
+        # Low (GREEN)
         elif line.startswith("+ "):
-            self.output.append(f'<span style="color:#10B981;">{line}</span>')  # Green
-        
-        # Everything else (default color)
+            self.output.append(f'<span style="color:#10B981;">{line}</span>')
+
+        # Default
         else:
             self.output.append(line)
-
-    def _notify(self, message):
-        """Show notification."""
-        if self.main_window and hasattr(self.main_window, 'notification_manager'):
-            self.main_window.notification_manager.notify(message)
-
-    def _info(self, message):
-        """Add info message."""
-        self.output.append(f'<span style="color:#60A5FA;">[INFO]</span> {message}')
-
-    def _error(self, message):
-        """Add error message."""
-        self.output.append(f'<span style="color:#F87171;">[ERROR]</span> {message}')
-
-    def _section(self, title):
-        """Add section header."""
-        self.output.append(f'<br><span style="color:#FACC15;font-weight:700;">===== {title} =====</span><br>')
 
     def _show_severity_legend(self):
         """Show severity legend in a message box."""
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("⚠️ Nikto Color Severity Legend")
-        
-        # Build the message with rich text formatting
+
         legend_text = (
             '<div style="font-family: Arial; font-size: 13px; line-height: 1.8;">'
             '<b style="font-size: 15px;">⚠️ Color Severity Legend</b><br><br>'
-            
             '<span style="color: #F87171; font-weight: bold; font-size: 14px;">🔴 RED (Bold)</span> - '
             '<span style="font-weight: bold;">Critical Vulnerabilities</span><br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;SQL Injection, Remote Code Execution (RCE)<br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;File Upload, Authentication Bypass<br><br>'
-            
             '<span style="color: #FB923C; font-weight: bold; font-size: 14px;">🟠 ORANGE</span> - '
             '<span style="font-weight: bold;">High Severity</span><br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;XSS, Information Disclosure<br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;Misconfiguration, CGI Issues<br><br>'
-            
             '<span style="color: #FACC15; font-weight: bold; font-size: 14px;">🟡 YELLOW</span> - '
             '<span style="font-weight: bold;">Medium Severity</span><br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;Warnings, Deprecated Features<br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;Missing Headers, Cookie Issues<br><br>'
-            
             '<span style="color: #60A5FA; font-weight: bold; font-size: 14px;">🔵 BLUE</span> - '
             '<span style="font-weight: bold;">Information</span><br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;Target Info, Server Details, Timestamps<br><br>'
-            
             '<span style="color: #10B981; font-weight: bold; font-size: 14px;">🟢 GREEN</span> - '
             '<span style="font-weight: bold;">Low/Informational</span><br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;General Findings<br>'
             '</div>'
         )
-        
+
         msg_box.setText(legend_text)
         msg_box.setTextFormat(Qt.RichText)
         msg_box.setIcon(QMessageBox.Information)
-        
-        # Style the message box with dark theme
+
         msg_box.setStyleSheet(f"""
             QMessageBox {{
                 background-color: {COLOR_BACKGROUND_INPUT};
@@ -861,5 +659,5 @@ class NiktoToolView(QWidget, StoppableToolMixin):
                 background-color: #1565c0;
             }}
         """)
-        
+
         msg_box.exec()

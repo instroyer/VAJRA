@@ -9,18 +9,16 @@
 import os
 import re
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFileDialog, QSpinBox, QCheckBox, QGroupBox, 
     QApplication, QMessageBox, QLineEdit, QGridLayout
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCursor
 
 from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
     COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
-    COLOR_BORDER_INPUT_FOCUSED, StyledSpinBox, LABEL_STYLE_15PX, CopyButton
-)
+    COLOR_BORDER_FOCUSED, SPINBOX_STYLE, LABEL_STYLE, GROUPBOX_STYLE, RunButton, OutputView)
 
 
 class StringsTool(ToolBase):
@@ -53,173 +51,72 @@ class StringsToolView(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        self.setStyleSheet(f"background-color: #1E1E1E;")
         self.selected_file = None
-        self.all_results = []  # Store all extracted strings with metadata
+        self.all_results = []
         self._build_ui()
 
     def _build_ui(self):
-        """Build the user interface."""
+        """Build the Strings tool UI."""
+        from ui.styles import TOOL_VIEW_STYLE, HeaderLabel
+
+        self.setStyleSheet(TOOL_VIEW_STYLE)
+
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        # Create main panel
-        main_panel = QWidget()
-        main_panel.setStyleSheet(f"""
-            QWidget {{
-                background-color: #1C1C1C;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-        """)
-        main_layout.addWidget(main_panel)
-
-        control_layout = QVBoxLayout(main_panel)
-        control_layout.setContentsMargins(10, 10, 10, 10)
-        control_layout.setSpacing(10)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
 
         # Header
-        header = QLabel("File Analysis › Strings Extractor Pro")
-        header.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 16px; font-weight: bold;")
-        control_layout.addWidget(header)
+        header = HeaderLabel("FILE_ANALYSIS", "Strings")
+        main_layout.addWidget(header)
 
-        # File selection and action buttons in one row
-        file_layout = QHBoxLayout()
-        
-        file_label = QLabel("File:")
-        file_label.setStyleSheet(LABEL_STYLE_15PX)
-        file_layout.addWidget(file_label)
+        control_layout = QVBoxLayout()
+
+        # File Selection
+        file_group = QGroupBox("📂 File Selection")
+        file_group.setStyleSheet(GROUPBOX_STYLE)
+        file_layout = QHBoxLayout(file_group)
 
         self.file_path_display = QLabel("No file selected")
-        self.file_path_display.setStyleSheet(f"""
-            QLabel {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
-                font-size: 14px;
-            }}
-        """)
+        self.file_path_display.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px;")
         file_layout.addWidget(self.file_path_display, 1)
 
-        self.browse_button = QPushButton("Browse")
-        self.browse_button.setStyleSheet(f"""
+        browse_btn = QPushButton("📁 Browse")
+        browse_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn.clicked.connect(self._browse_file)
+        browse_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_BACKGROUND_INPUT};
                 color: {COLOR_TEXT_PRIMARY};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 8px 16px;
+                padding: 8px 14px;
             }}
-            QPushButton:hover {{
-                background-color: #4A4A4A;
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
-            }}
+            QPushButton:hover {{ background-color: #4A4A4A; }}
         """)
-        self.browse_button.clicked.connect(self._browse_file)
-        file_layout.addWidget(self.browse_button)
+        file_layout.addWidget(browse_btn)
 
-        # Action buttons in the same row
-        self.extract_button = QPushButton("Extract")
-        self.extract_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #FF6B35;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 8px 16px;
-            }}
-            QPushButton:hover {{
-                background-color: #E55A2B;
-            }}
-            QPushButton:pressed {{
-                background-color: #CC4F26;
-            }}
-            QPushButton:disabled {{
-                background-color: #555;
-                color: #999;
-            }}
-        """)
-        self.extract_button.clicked.connect(self._extract_strings)
+        self.extract_button = RunButton()
+        self.extract_button.setText("Extract") # Keep custom text but use class foundation
         self.extract_button.setEnabled(False)
+        self.extract_button.clicked.connect(self._extract_strings)
         file_layout.addWidget(self.extract_button)
 
-        self.clear_button = QPushButton("Clear")
-        self.clear_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #DC3545;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 8px 16px;
-            }}
-            QPushButton:hover {{
-                background-color: #C82333;
-            }}
-            QPushButton:pressed {{
-                background-color: #BD2130;
-            }}
-        """)
-        self.clear_button.clicked.connect(self._clear_output)
-        file_layout.addWidget(self.clear_button)
+        control_layout.addWidget(file_group)
 
-        self.save_button = QPushButton("Save")
-        self.save_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #28A745;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 8px 16px;
-            }}
-            QPushButton:hover {{
-                background-color: #218838;
-            }}
-            QPushButton:pressed {{
-                background-color: #1E7E34;
-            }}
-        """)
-        self.save_button.clicked.connect(self._save_results)
-        file_layout.addWidget(self.save_button)
-
-        control_layout.addLayout(file_layout)
-
-        # Options group
-        options_group = QGroupBox("Extraction Options")
-        options_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
+        # Options Group
+        options_group = QGroupBox("⚙️ Extraction Options")
+        options_group.setStyleSheet(GROUPBOX_STYLE)
         options_layout = QVBoxLayout(options_group)
 
         # First row: Length and encodings
         row1 = QHBoxLayout()
-        
+
         min_len_label = QLabel("Min Length:")
-        min_len_label.setStyleSheet(LABEL_STYLE_15PX)
+        min_len_label.setStyleSheet(LABEL_STYLE)
         row1.addWidget(min_len_label)
 
-        self.min_length_spin = StyledSpinBox()
+        self.min_length_spin = QSpinBox()
+        self.min_length_spin.setStyleSheet(SPINBOX_STYLE)
         self.min_length_spin.setRange(1, 100)
         self.min_length_spin.setValue(4)
         self.min_length_spin.setToolTip("Minimum string length to extract")
@@ -229,163 +126,120 @@ class StringsToolView(QWidget):
 
         # Encoding checkboxes
         self.ascii_check = QCheckBox("ASCII")
-        self.ascii_check.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
+        self.ascii_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         self.ascii_check.setChecked(True)
         row1.addWidget(self.ascii_check)
 
-        self.unicode_le_check = QCheckBox("Unicode (UTF-16LE)")
-        self.unicode_le_check.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
+        self.unicode_le_check = QCheckBox("UTF-16LE")
+        self.unicode_le_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         self.unicode_le_check.setChecked(True)
         row1.addWidget(self.unicode_le_check)
 
         self.unicode_be_check = QCheckBox("UTF-16BE")
-        self.unicode_be_check.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
+        self.unicode_be_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         row1.addWidget(self.unicode_be_check)
 
         self.utf8_check = QCheckBox("UTF-8")
-        self.utf8_check.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
+        self.utf8_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         row1.addWidget(self.utf8_check)
 
         row1.addStretch()
         options_layout.addLayout(row1)
 
-        # Second row: Context view option
+        # Display options
         row2 = QHBoxLayout()
-        
-        self.show_offset_check = QCheckBox("Show Hex Offsets")
-        self.show_offset_check.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
+        self.show_offset_check = QCheckBox("Show Offset")
+        self.show_offset_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         self.show_offset_check.setChecked(True)
-        self.show_offset_check.setToolTip("Display file offset where each string was found")
         row2.addWidget(self.show_offset_check)
 
-        self.show_context_check = QCheckBox("Show Hex Context")
-        self.show_context_check.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
-        self.show_context_check.setToolTip("Show hex bytes before/after each string")
+        self.show_context_check = QCheckBox("Show Context")
+        self.show_context_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         row2.addWidget(self.show_context_check)
 
         row2.addStretch()
         options_layout.addLayout(row2)
-
         control_layout.addWidget(options_group)
 
-        # Pattern Filters Group
-        filters_group = QGroupBox("Pattern Filters (Smart Detection)")
-        filters_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
+        # Filters Group
+        filters_group = QGroupBox("🔍 Filters")
+        filters_group.setStyleSheet(GROUPBOX_STYLE)
         filters_layout = QVBoxLayout(filters_group)
 
-        # Filter checkboxes in two rows
+        # Filter checkboxes
         filter_row1 = QHBoxLayout()
-        
+
+        self.filter_all = QCheckBox("Show All")
+        self.filter_all.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.filter_all.setChecked(True)
+        self.filter_all.stateChanged.connect(self._on_filter_all_changed)
+        filter_row1.addWidget(self.filter_all)
+
         self.filter_urls = QCheckBox("🌐 URLs")
-        self.filter_urls.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
+        self.filter_urls.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         filter_row1.addWidget(self.filter_urls)
 
-        self.filter_ips = QCheckBox("🔴 IP Addresses")
-        self.filter_ips.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
+        self.filter_ips = QCheckBox("🔴 IPs")
+        self.filter_ips.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         filter_row1.addWidget(self.filter_ips)
 
         self.filter_emails = QCheckBox("📧 Emails")
-        self.filter_emails.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
+        self.filter_emails.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         filter_row1.addWidget(self.filter_emails)
 
-        self.filter_paths = QCheckBox("📁 File Paths")
-        self.filter_paths.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
+        self.filter_paths = QCheckBox("📁 Paths")
+        self.filter_paths.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
         filter_row1.addWidget(self.filter_paths)
+
+        self.filter_registry = QCheckBox("🔑 Registry")
+        self.filter_registry.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        filter_row1.addWidget(self.filter_registry)
+
+        self.filter_base64 = QCheckBox("🔐 Base64")
+        self.filter_base64.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        filter_row1.addWidget(self.filter_base64)
+
+        self.filter_crypto = QCheckBox("🔒 Crypto")
+        self.filter_crypto.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        filter_row1.addWidget(self.filter_crypto)
 
         filter_row1.addStretch()
         filters_layout.addLayout(filter_row1)
 
-        filter_row2 = QHBoxLayout()
-
-        self.filter_registry = QCheckBox("🔑 Registry Keys")
-        self.filter_registry.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
-        filter_row2.addWidget(self.filter_registry)
-
-        self.filter_base64 = QCheckBox("🔐 Base64")
-        self.filter_base64.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
-        filter_row2.addWidget(self.filter_base64)
-
-        self.filter_crypto = QCheckBox("🔒 Crypto Keywords")
-        self.filter_crypto.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
-        filter_row2.addWidget(self.filter_crypto)
-
-        self.filter_all = QCheckBox("Show All (No Filter)")
-        self.filter_all.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY}; font-weight: bold;")
-        self.filter_all.setChecked(True)
-        self.filter_all.stateChanged.connect(self._on_filter_all_changed)
-        filter_row2.addWidget(self.filter_all)
-
-        filter_row2.addStretch()
-        filters_layout.addLayout(filter_row2)
-
-        control_layout.addWidget(filters_group)
-
-        # Search/Filter box
-        search_layout = QHBoxLayout()
-        
-        search_label = QLabel("🔍 Search:")
-        search_label.setStyleSheet(LABEL_STYLE_15PX)
-        search_layout.addWidget(search_label)
+        # Search box
+        search_row = QHBoxLayout()
+        search_label = QLabel("Search:")
+        search_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        search_row.addWidget(search_label)
 
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Filter results by keyword (regex supported)...")
+        self.search_box.setPlaceholderText("Filter by text...")
         self.search_box.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {COLOR_BACKGROUND_INPUT};
                 color: {COLOR_TEXT_PRIMARY};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
-                padding: 8px;
-                font-size: 14px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+                padding: 6px;
             }}
         """)
         self.search_box.textChanged.connect(self._apply_filters)
-        search_layout.addWidget(self.search_box, 1)
+        search_row.addWidget(self.search_box, 1)
 
         self.case_sensitive_check = QCheckBox("Case Sensitive")
-        self.case_sensitive_check.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
-        self.case_sensitive_check.stateChanged.connect(self._apply_filters)
-        search_layout.addWidget(self.case_sensitive_check)
+        self.case_sensitive_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        search_row.addWidget(self.case_sensitive_check)
 
         self.regex_check = QCheckBox("Regex")
-        self.regex_check.setStyleSheet(f"font-size: 15px; color: {COLOR_TEXT_PRIMARY};")
-        self.regex_check.stateChanged.connect(self._apply_filters)
-        search_layout.addWidget(self.regex_check)
+        self.regex_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        search_row.addWidget(self.regex_check)
 
-        control_layout.addLayout(search_layout)
+        filters_layout.addLayout(search_row)
+        control_layout.addWidget(filters_group)
 
-        # Statistics Dashboard with all pattern counts
-        stats_group = QGroupBox("📊 Statistics Dashboard")
-        stats_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
+        # Statistics Group
+        stats_group = QGroupBox("📊 Statistics")
+        stats_group.setStyleSheet(GROUPBOX_STYLE)
         stats_layout = QGridLayout(stats_group)
         stats_layout.setSpacing(10)
 
@@ -408,7 +262,7 @@ class StringsToolView(QWidget):
         stats_layout.addWidget(self.stat_ips[1], 0, 5)
         stats_layout.addWidget(self.stat_emails[0], 0, 6)
         stats_layout.addWidget(self.stat_emails[1], 0, 7)
-        
+
         stats_layout.addWidget(self.stat_paths[0], 1, 0)
         stats_layout.addWidget(self.stat_paths[1], 1, 1)
         stats_layout.addWidget(self.stat_registry[0], 1, 2)
@@ -419,61 +273,28 @@ class StringsToolView(QWidget):
         stats_layout.addWidget(self.stat_crypto[1], 1, 7)
 
         control_layout.addWidget(stats_group)
+        main_layout.addLayout(control_layout)
 
         # Output area
         output_group = QGroupBox("Extracted Strings")
-        output_group.setStyleSheet(f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 2px solid {COLOR_BORDER};
-                border-radius: 5px;
-                margin-top: 1ex;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }}
-        """)
+        output_group.setStyleSheet(GROUPBOX_STYLE)
         output_layout = QVBoxLayout(output_group)
 
-        # Output text area with copy button
-        output_container = QWidget()
-        output_grid = QGridLayout(output_container)
-        output_grid.setContentsMargins(0, 0, 0, 0)
-        output_grid.setSpacing(0)
-
-        self.output_text = QTextEdit()
-        self.output_text.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {COLOR_BACKGROUND_PRIMARY};
-                color: {COLOR_TEXT_PRIMARY};
-                border: none;
-                padding: 12px;
-                font-family: Consolas, 'Courier New', monospace;
-                font-size: 13px;
-            }}
-        """)
+        # Output text area
+        self.output_text = OutputView(show_copy_button=False)
         self.output_text.setReadOnly(True)
-        self.output_text.setPlaceholderText("Extracted strings will appear here with color-coded patterns...")
+        self.output_text.setPlaceholderText("Strings results will appear here...")
+        output_layout.addWidget(self.output_text)
 
-        # Use centralized CopyButton
-        self.copy_button = CopyButton(self.output_text, self.main_window)
-
-        output_grid.addWidget(self.output_text, 0, 0)
-        output_grid.addWidget(self.copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
-        output_layout.addWidget(output_container)
-
-        control_layout.addWidget(output_group)
+        main_layout.addWidget(output_group)
 
     def _create_stat_label(self, title, value, color="#FFFFFF"):
         """Create a pair of labels for statistics display."""
         title_label = QLabel(title)
-        title_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px; font-weight: 500;")
+        title_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
         
         value_label = QLabel(value)
-        value_label.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: bold;")
+        value_label.setStyleSheet(f"color: {color}; font-size: 15px; font-weight: bold;")
         
         return (title_label, value_label)
 
@@ -799,7 +620,7 @@ class StringsToolView(QWidget):
             displayed_count += 1
 
         # Scroll to top
-        self.output_text.moveCursor(QTextCursor.Start)
+        self.output_text.scrollToTop()
         
         # Update total displayed
         if search_text or (not show_all and active_filters):

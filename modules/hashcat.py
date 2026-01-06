@@ -20,15 +20,13 @@ from PySide6.QtWidgets import (
 )
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker, StoppableToolMixin
+from ui.worker import ProcessWorker
 from core.tgtinput import parse_targets
 from core.fileops import create_target_dirs
 from ui.styles import (
-    TARGET_INPUT_STYLE, COMBO_BOX_STYLE,
-    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_INPUT_FOCUSED,
-    StyledComboBox,  # Import from centralized styles
-    RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,  # Centralized button styles
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, CommandDisplay
+    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_BACKGROUND_SECONDARY,
+    COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_FOCUSED, StyledComboBox,
+    CommandDisplay, GROUPBOX_STYLE, RunButton, StopButton, SafeStop, OutputView, HeaderLabel
 )
 
 
@@ -48,12 +46,12 @@ class HashcatTool(ToolBase):
     def get_widget(self, main_window: QWidget) -> QWidget:
         return HashcatToolView(main_window=main_window)
 
-class HashcatToolView(QWidget, StoppableToolMixin):
+class HashcatToolView(QWidget, SafeStop):
     """Hashcat password cracker interface."""
     
-    def __init__(self, main_window):
+    def __init__(self, main_window=None):
         super().__init__()
-        self.init_stoppable()
+        self.init_safe_stop()
         self.main_window = main_window
         self._is_stopping = False
         self._scan_complete_added = False
@@ -254,14 +252,13 @@ class HashcatToolView(QWidget, StoppableToolMixin):
 
         # Create control panel
         control_panel = QWidget()
-        control_panel.setStyleSheet(TOOL_VIEW_STYLE)
+        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
 
         # Header
-        header = QLabel("Cracker › Hashcat")
-        header.setStyleSheet(TOOL_HEADER_STYLE)
+        header = HeaderLabel("CRACKER", "Hashcat")
         control_layout.addWidget(header)
 
         # Hash file selection with Start/Stop buttons on same line
@@ -284,7 +281,7 @@ class HashcatToolView(QWidget, StoppableToolMixin):
                 border-radius: 4px;
             }}
             QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+                border: 1px solid {COLOR_BORDER_FOCUSED};
             }}
         """)
 
@@ -310,18 +307,13 @@ class HashcatToolView(QWidget, StoppableToolMixin):
         """)
 
         # Start button (text style like nmap)
-        self.run_button = QPushButton("RUN")
-        self.run_button.setCursor(Qt.PointingHandCursor)
+        self.run_button = RunButton()
         self.run_button.setToolTip("Start Cracking")
-        self.run_button.setStyleSheet(RUN_BUTTON_STYLE)
         self.run_button.clicked.connect(self.run_scan)
 
         # Stop button (square icon like nmap)
-        self.stop_button = QPushButton("■")
-        self.stop_button.setCursor(Qt.PointingHandCursor)
+        self.stop_button = StopButton()
         self.stop_button.setToolTip("Stop Cracking")
-        self.stop_button.setEnabled(False)
-        self.stop_button.setStyleSheet(STOP_BUTTON_STYLE)
         self.stop_button.clicked.connect(self.stop_scan)
 
         hash_layout.addWidget(self.hash_input)
@@ -366,7 +358,7 @@ class HashcatToolView(QWidget, StoppableToolMixin):
                 border-radius: 4px;
             }}
             QLineEdit:focus {{
-                border: 1px solid {COLOR_BORDER_INPUT_FOCUSED};
+                border: 1px solid {COLOR_BORDER_FOCUSED};
             }}
         """)
 
@@ -484,18 +476,9 @@ class HashcatToolView(QWidget, StoppableToolMixin):
         self.tab_widget = QTabWidget()
 
         # Main output tab
-        self.output = QTextEdit()
+        self.output = OutputView(show_copy_button=False)
         self.output.setReadOnly(True)
-        self.output.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {COLOR_BACKGROUND_PRIMARY};
-                color: {COLOR_TEXT_PRIMARY};
-                border: none;
-                padding: 12px;
-                font-family: 'Courier New', monospace;
-                font-size: 13px;
-            }}
-        """)
+        self.output.setPlaceholderText("Hashcat results will appear here...")
 
         # Results table tab
         self.results_table = QTableWidget()
@@ -521,6 +504,8 @@ class HashcatToolView(QWidget, StoppableToolMixin):
 
         self.tab_widget.addTab(self.output, "Output")
         self.tab_widget.addTab(self.results_table, "Cracked Hashes")
+
+        # Copy button removed
 
         splitter.addWidget(control_panel)
         splitter.addWidget(self.tab_widget)
@@ -556,6 +541,8 @@ class HashcatToolView(QWidget, StoppableToolMixin):
         if file_path:
             self.wordlist_input.setText(file_path)
             self.update_command()
+
+
 
     def update_command(self):
         try:
@@ -720,6 +707,32 @@ class HashcatToolView(QWidget, StoppableToolMixin):
 
     def _on_output(self, line):
         """Process hashcat output - detect cracked hashes in format: hash:password OR hash:password:hashcat"""
+        
+        # Filter out verbose progress/status messages
+        skip_keywords = [
+            "Status........:",
+            "Speed.........:",
+            "Progress......:",
+            "Candidates....",
+            "Hardware.Monitor",
+            "Time.Started..:",
+            "Time.Estimated:",
+            "Guess.Base....:",
+            "Guess.Queue...:",
+            "Kernel........:",
+            "Optimizers....:",
+            "Watchdog......:",
+            "[s]tatus",
+            "[p]ause",
+            "[r]esume",
+            "[q]uit",
+        ]
+        
+        # Skip verbose lines
+        if any(keyword in line for keyword in skip_keywords):
+            return
+        
+        # Append the line to output (important messages will be shown)
         self.output.append(line)
 
         # Hashcat outputs cracked hashes in format: hash:password:hashcat OR just hash:password

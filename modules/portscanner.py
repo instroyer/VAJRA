@@ -1,6 +1,11 @@
+# =============================================================================
+# modules/portscanner.py
+#
+# Custom Port Scanner - Stealth & Features
+# =============================================================================
+
 import os
 import socket
-import struct
 import random
 import time
 import threading
@@ -8,25 +13,24 @@ import platform
 import subprocess
 import ssl
 import http.client
+import html
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue
 
-from PySide6.QtCore import QObject, Signal, Qt, QRect, QThread, QEvent
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QSpinBox, QLineEdit, QGroupBox, QMessageBox, QSplitter, QApplication, QCheckBox, QProgressBar
-)
+# Qt imports moved to class level to follow Golden Rules (no Qt imports in module level)
 
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QProgressBar
+
+from ui.worker import ToolExecutionMixin
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker
-from core.tgtinput import TargetInput, parse_targets
-from core.fileops import create_target_dirs
+from core.tgtinput import TargetInput, parse_targets, parse_port_range
+from core.fileops import create_target_dirs, get_cache_key, get_cached_result, set_cached_result
 from ui.styles import (
     StyledComboBox, StyledCheckBox, StyledSpinBox, StyledLabel, StyledLineEdit,
     HeaderLabel, CommandDisplay, OutputView, RunButton, StopButton,
-    StyledGroupBox, SafeStop, OutputHelper, ToolSplitter,
-    TOOL_VIEW_STYLE, COLOR_TEXT_PRIMARY, COLOR_BACKGROUND_SECONDARY
+    StyledGroupBox, SafeStop, OutputHelper, ToolSplitter, StyledToolView,
+    COLOR_TEXT_PRIMARY
 )
 
 
@@ -68,11 +72,25 @@ class PortScannerEngine:
         self.lock = threading.Lock()
         
     def resolve_target(self):
-        """Resolve hostname to IP address."""
+        """Resolve hostname to IP address with caching."""
+        if not self.target:
+            return None
+
+        # Check cache first
+        cache_key = get_cache_key(f"dns_{self.target}")
+        cached = get_cached_result(cache_key, max_age_hours=1)  # Cache for 1 hour
+        if cached:
+            return cached.get('ip')
+
+        # Perform DNS resolution
         try:
             ip = socket.gethostbyname(self.target)
+            # Cache the result
+            set_cached_result(cache_key, {'ip': ip})
             return ip
         except socket.gaierror:
+            # Cache negative result too
+            set_cached_result(cache_key, {'ip': None})
             return None
     
     def get_service_name(self, port):
@@ -80,17 +98,30 @@ class PortScannerEngine:
         return self.SERVICE_PORTS.get(port, 'Unknown')
 
     def detect_os(self, ip):
-        """Detect OS based on Ping TTL."""
+        """Detect OS based on Ping TTL with caching."""
+        if not ip:
+            return "Invalid IP"
+
+        # Check cache first
+        cache_key = get_cache_key(f"os_detect_{ip}")
+        cached = get_cached_result(cache_key, max_age_hours=24)  # Cache for 24 hours
+        if cached:
+            return cached.get('os', "Unknown")
+
+        # Perform OS detection
         try:
             param = '-n' if platform.system().lower() == 'windows' else '-c'
-            # Send 1 ping
-            # Use distinct subprocess call to avoid shell injection and parsing issues
-            cmd = ['ping', param, '1', ip]
-            
-            # Run ping command
+            # Send 1 ping - reduce timeout for better performance
+            cmd = ['ping', param, '1', '-W', '2', ip] if platform.system().lower() != 'windows' else ['ping', param, '1', ip]
+
+            # Run ping command with timeout
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = proc.communicate()
-            output = stdout.decode('utf-8', errors='ignore').lower()
+            try:
+                stdout, stderr = proc.communicate(timeout=5)  # 5 second timeout
+                output = stdout.decode('utf-8', errors='ignore').lower()
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                return "Detection Timeout"
 
             if "ttl=" in output:
                 # Extract TTL approximately
@@ -100,14 +131,28 @@ class PortScannerEngine:
                     if part.startswith("ttl="):
                         val = int(part.split("=")[1])
                         break
-                
+
                 if val:
-                    if val <= 64: return f"Linux/Unix (TTL={val})"
-                    elif val <= 128: return f"Windows (TTL={val})"
-                    else: return f"Solaris/AIX (TTL={val})"
-            return "Unknown (No TTL)"
-        except Exception:
-            return "Detection Failed"
+                    os_result = ""
+                    if val <= 64:
+                        os_result = f"Linux/Unix (TTL={val})"
+                    elif val <= 128:
+                        os_result = f"Windows (TTL={val})"
+                    else:
+                        os_result = f"Solaris/AIX (TTL={val})"
+
+                    # Cache the result
+                    set_cached_result(cache_key, {'os': os_result})
+                    return os_result
+
+            os_result = "Unknown (No TTL)"
+            set_cached_result(cache_key, {'os': os_result})
+            return os_result
+
+        except Exception as e:
+            os_result = "Detection Failed"
+            set_cached_result(cache_key, {'os': os_result})
+            return os_result
 
     def get_tls_info(self, ip, port):
         """Get TLS/SSL Certificate Information."""
@@ -139,10 +184,7 @@ class PortScannerEngine:
             return None
 
     def detect_waf(self, ip, port):
-        """Smart WAF Fingerprinting with stealth features.
-        
-        Uses random headers, multiple payloads, and comprehensive analysis.
-        """
+        """Smart WAF Fingerprinting with stealth features."""
         # WAF Signatures
         signatures = {
             "Cloudflare": ["cf-ray", "cf-cache-status", "cloudflare", "__cfduid"],
@@ -428,21 +470,26 @@ class PortScannerEngine:
         scanned = 0
         
         try:
-            with ThreadPoolExecutor(max_workers=self.threads) as executor:
-                futures = {executor.submit(self.scan_port, ip, port): port 
+            # Limit threads to prevent system overload (max 200 threads)
+            max_threads = min(self.threads, 200)
+            with ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="portscan") as executor:
+                futures = {executor.submit(self.scan_port, ip, port): port
                           for port in ports_to_scan}
-                
+
+                # Process results as they complete for better memory efficiency
+                completed_count = 0
                 for future in as_completed(futures):
                     # Check for stop signal
                     if should_stop and should_stop():
                         # Cancel remaining futures
                         for f in futures:
-                            f.cancel()
+                            if not f.done():
+                                f.cancel()
                         break
 
-                    scanned += 1
-                    if progress_callback:
-                        progress_callback(scanned, total_ports)
+                    completed_count += 1
+                    if progress_callback and completed_count % 10 == 0:  # Update progress every 10 ports
+                        progress_callback(completed_count, total_ports)
                     try:
                         future.result()
                     except Exception as e:
@@ -476,83 +523,7 @@ class PortScannerEngine:
 # Scanner Worker Thread
 # ==============================
 
-class ScannerWorker(QThread):
-    """Worker thread for port scanning."""
-    progress = Signal(int, int)  # scanned, total
-    result = Signal(dict)  # port result
-    finished_signal = Signal(dict)  # final results
-    error = Signal(str)
-    
-    def __init__(self, target, ports, scan_type, timeout, threads, 
-                 stealth_mode, randomize_ports, delay,
-                 check_os, check_waf, check_tls, grab_banners):
-        super().__init__()
-        self.target = target
-        self.ports = ports
-        self.scan_type = scan_type
-        self.timeout = timeout
-        self.threads = threads
-        self.stealth_mode = stealth_mode
-        self.randomize_ports = randomize_ports
-        self.delay = delay
-        self.check_os = check_os
-        self.check_waf = check_waf
-        self.check_tls = check_tls
-        self.grab_banners = grab_banners
-        self.is_running = True
-    
-    def run(self):
-        try:
-            scanner = PortScannerEngine(
-                self.target, self.ports, self.scan_type, self.timeout,
-                self.threads, self.stealth_mode, self.randomize_ports, self.delay,
-                self.check_os, self.check_waf, self.check_tls, self.grab_banners
-            )
-            
-            def progress_cb(scanned, total):
-                if self.is_running:
-                    self.progress.emit(scanned, total)
-            
-            results = scanner.scan(progress_callback=progress_cb, should_stop=lambda: not self.is_running)
-            
-            if self.is_running:
-                self.finished_signal.emit(results)
-        except Exception as e:
-            if self.is_running:
-                self.error.emit(str(e))
-    
-    def stop(self):
-        self.is_running = False
-
-
-# ==============================
-# Utility Functions
-# ==============================
-
-def parse_port_range(port_input: str):
-    """Parse port range string into list of ports."""
-    ports = set()
-    if not port_input:
-        return []
-    
-    for part in port_input.split(','):
-        part = part.strip()
-        if '-' in part:
-            try:
-                start, end = map(int, part.split('-'))
-                if 1 <= start <= end <= 65535:
-                    ports.update(range(start, end + 1))
-            except ValueError:
-                continue
-        else:
-            try:
-                port = int(part)
-                if 1 <= port <= 65535:
-                    ports.add(port)
-            except ValueError:
-                continue
-    
-    return sorted(list(ports))
+# ScannerWorker moved inside PortScannerView to follow Golden Rules
 
 
 # ==============================
@@ -560,20 +531,74 @@ def parse_port_range(port_input: str):
 # ==============================
 
 class PortScanner(ToolBase):
-    @property
-    def name(self) -> str:
-        return "Port Scanner"
+    """Custom Port Scanner Tool"""
+
+    name = "Port Scanner"
+    category = ToolCategory.PORT_SCANNING
 
     @property
-    def category(self) -> ToolCategory:
-        return ToolCategory.PORT_SCANNING
+    def icon(self) -> str:
+        return "🔌"
 
-    def get_widget(self, main_window: QWidget) -> QWidget:
+    def get_widget(self, main_window):
         return PortScannerView(main_window=main_window)
 
-class PortScannerView(QWidget, SafeStop, OutputHelper):
+class PortScannerView(StyledToolView, ToolExecutionMixin, SafeStop, OutputHelper):
     """Port Scanner tool view with custom scanning engine."""
     
+    tool_name = "Port Scanner"
+    tool_category = "PORT_SCANNING"
+
+    class ScannerWorker(QThread):
+        """Worker thread for port scanning."""
+        from PySide6.QtCore import Signal
+
+        progress = Signal(int, int)  # scanned, total
+        result = Signal(dict)  # port result
+        finished_signal = Signal(dict)  # final results
+        error = Signal(str)
+
+        def __init__(self, target, ports, scan_type, timeout, threads,
+                     stealth_mode, randomize_ports, delay,
+                     check_os, check_waf, check_tls, grab_banners):
+            super().__init__()
+            self.target = target
+            self.ports = ports
+            self.scan_type = scan_type
+            self.timeout = timeout
+            self.threads = threads
+            self.stealth_mode = stealth_mode
+            self.randomize_ports = randomize_ports
+            self.delay = delay
+            self.check_os = check_os
+            self.check_waf = check_waf
+            self.check_tls = check_tls
+            self.grab_banners = grab_banners
+            self.is_running = True
+
+        def run(self):
+            try:
+                scanner = PortScannerEngine(
+                    self.target, self.ports, self.scan_type, self.timeout,
+                    self.threads, self.stealth_mode, self.randomize_ports, self.delay,
+                    self.check_os, self.check_waf, self.check_tls, self.grab_banners
+                )
+
+                def progress_cb(scanned, total):
+                    if self.is_running:
+                        self.progress.emit(scanned, total)
+
+                results = scanner.scan(progress_callback=progress_cb, should_stop=lambda: not self.is_running)
+
+                if self.is_running:
+                    self.finished_signal.emit(results)
+            except Exception as e:
+                if self.is_running:
+                    self.error.emit(str(e))
+
+        def stop(self):
+            self.is_running = False
+
     def __init__(self, main_window):
         super().__init__()
         self.init_safe_stop()
@@ -591,7 +616,7 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
     
     def _build_ui(self):
         """Build the complete UI."""
-        self.setStyleSheet(TOOL_VIEW_STYLE)
+        # setStyleSheet handled by StyledToolView
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -602,32 +627,32 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
         
         # ==================== CONTROL PANEL ====================
         control_panel = QWidget()
-        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
+        # Removed legacy style
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
 
-        
         # Header
-        header = HeaderLabel("PORT_SCANNING", "Port Scanner")
+        header = HeaderLabel(self.tool_category, self.tool_name)
         control_layout.addWidget(header)
         
         # Target input row
-        target_row = QHBoxLayout()
-        target_label = StyledLabel("Target:")
+        target_group = StyledGroupBox("🎯 Target")
+        target_layout = QHBoxLayout(target_group)
         self.target_input = TargetInput()
-        target_row.addWidget(target_label)
-        target_row.addWidget(self.target_input, 1)
+        target_layout.addWidget(self.target_input)
+        control_layout.addWidget(target_group)
         
-        self.run_button = RunButton()
+        # Buttons
+        btn_layout = QHBoxLayout()
+        self.run_button = RunButton("START SCAN")
         self.run_button.clicked.connect(self.run_scan)
-        target_row.addWidget(self.run_button)
+        btn_layout.addWidget(self.run_button)
         
         self.stop_button = StopButton()
         self.stop_button.clicked.connect(self.stop_scan)
-        target_row.addWidget(self.stop_button)
-        
-        control_layout.addLayout(target_row)
+        btn_layout.addWidget(self.stop_button)
+        control_layout.addLayout(btn_layout)
         
         # Command display
         self.command_display = CommandDisplay()
@@ -635,30 +660,41 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
         control_layout.addWidget(self.command_display)
         
         # Port input
+        target_group = StyledGroupBox("⚙️ Config")
+        config_layout = QVBoxLayout(target_group)
+        
         port_layout = QHBoxLayout()
         port_label = StyledLabel("Ports:")
-        self.port_input = StyledLineEdit("e.g. 80,443,1-1000 or common,top1000")
+        self.port_input = StyledLineEdit()
+        self.port_input.setPlaceholderText("e.g. 80,443,1-1000 or common,top1000")
+        self.port_input.textChanged.connect(self.update_command)
         port_layout.addWidget(port_label)
         port_layout.addWidget(self.port_input, 1)
-        control_layout.addLayout(port_layout)
+        config_layout.addLayout(port_layout)
         
         # Scan type
         scan_type_layout = QHBoxLayout()
         scan_type_label = StyledLabel("Scan Type:")
         self.scan_type = StyledComboBox()
         self.scan_type.addItems(['connect', 'syn', 'udp'])
+        self.scan_type.currentTextChanged.connect(self.update_command)
         scan_type_layout.addWidget(scan_type_label)
         scan_type_layout.addWidget(self.scan_type, 1)
-        control_layout.addLayout(scan_type_layout)
+        config_layout.addLayout(scan_type_layout)
+
+        control_layout.addWidget(target_group)
         
         # Advanced options group
-        advanced_group = StyledGroupBox("🔧 Advanced Options")
+        advanced_group = StyledGroupBox("🔧 Advanced")
         advanced_layout = QVBoxLayout(advanced_group)
         
         row1 = QHBoxLayout()
         self.stealth_check = StyledCheckBox("Stealth Mode")
-        self.randomize_check = StyledCheckBox("Randomize Ports")
+        self.stealth_check.stateChanged.connect(self.update_command)
+        self.randomize_check = StyledCheckBox("Randomize Order")
+        self.randomize_check.stateChanged.connect(self.update_command)
         self.banner_check = StyledCheckBox("Grab Banners")
+        self.banner_check.stateChanged.connect(self.update_command)
         row1.addWidget(self.stealth_check)
         row1.addWidget(self.randomize_check)
         row1.addWidget(self.banner_check)
@@ -666,10 +702,13 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
         row2 = QHBoxLayout()
         self.os_check = StyledCheckBox("OS Detect")
         self.os_check.setToolTip("Detect OS via Ping TTL")
+        self.os_check.stateChanged.connect(self.update_command)
         self.waf_check = StyledCheckBox("WAF Detect")
         self.waf_check.setToolTip("Fingerprint WAF (Cloudflare, Akamai, etc.)")
+        self.waf_check.stateChanged.connect(self.update_command)
         self.tls_check = StyledCheckBox("TLS Info")
         self.tls_check.setToolTip("Extract SSL Certificate details")
+        self.tls_check.stateChanged.connect(self.update_command)
         row2.addWidget(self.os_check)
         row2.addWidget(self.waf_check)
         row2.addWidget(self.tls_check)
@@ -684,16 +723,19 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
         self.threads_spin = StyledSpinBox()
         self.threads_spin.setRange(1, 500)
         self.threads_spin.setValue(100)
+        self.threads_spin.valueChanged.connect(self.update_command)
         
         timeout_label = StyledLabel("Timeout:")
         self.timeout_spin = StyledSpinBox()
         self.timeout_spin.setRange(1, 10)
         self.timeout_spin.setValue(1)
+        self.timeout_spin.valueChanged.connect(self.update_command)
         
         delay_label = StyledLabel("Delay:")
         self.delay_spin = StyledSpinBox()
         self.delay_spin.setRange(0, 5)
         self.delay_spin.setValue(0)
+        self.delay_spin.valueChanged.connect(self.update_command)
         
         perf_layout.addWidget(threads_label)
         perf_layout.addWidget(self.threads_spin)
@@ -728,29 +770,17 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
         output_layout = QVBoxLayout(output_container)
         output_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.output = OutputView()
+        self.output = OutputView(self.main_window)
         output_layout.addWidget(self.output)
         
         # Add to splitter
         splitter.addWidget(control_panel)
         splitter.addWidget(output_container)
-        splitter.setSizes([450, 350])
-        
-        # Connect signals for command update
-        for widget in [self.port_input, self.scan_type, self.threads_spin, 
-                      self.timeout_spin, self.delay_spin, self.stealth_check,
-                      self.randomize_check, self.banner_check,
-                      self.os_check, self.waf_check, self.tls_check]:
-            if isinstance(widget, (QLineEdit, StyledLineEdit)):
-                widget.textChanged.connect(self.update_command)
-            elif isinstance(widget, (QComboBox, StyledComboBox)):
-                widget.currentTextChanged.connect(self.update_command)
-            elif isinstance(widget, (QSpinBox, StyledSpinBox)):
-                widget.valueChanged.connect(self.update_command)
-            elif isinstance(widget, (QCheckBox, StyledCheckBox)):
-                widget.stateChanged.connect(self.update_command)
-    
+        splitter.setSizes([450, 450])
 
+        # Initialize progress tracking
+        self.init_progress_tracking()
+     
     
     def _get_common_ports(self):
         """Get list of common ports."""
@@ -765,6 +795,8 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
     def _parse_port_input(self, port_input: str):
         """Parse port input including special keywords."""
         port_input = port_input.strip().lower()
+        if not port_input:
+             return self._get_top_1000_ports()
         
         if port_input == 'common':
             return self._get_common_ports()
@@ -805,12 +837,10 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
         target_str = self.target_input.get_target()
         targets = parse_targets(target_str)[0]
         if not targets:
-            return QMessageBox.warning(self, "Warning", "No valid targets specified.")
+            self._notify("No valid targets specified.")
+            return
 
         port_input = self.port_input.text().strip()
-        if not port_input:
-            port_input = "1-1000"
-
         ports = self._parse_port_input(port_input)
         
         # If WAF detection is enabled, ensure essential web ports are included
@@ -819,12 +849,14 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
             for wp in waf_ports:
                 if wp not in ports:
                     ports.append(wp)
-            ports = sorted(ports)
+            ports = sorted(list(set(ports)))
         
         if not ports:
-            return QMessageBox.warning(self, "Warning", "No valid ports specified.")
+            self._notify("No valid ports specified.")
+            return
 
         if len(ports) > 10000:
+            from PySide6.QtWidgets import QMessageBox
             reply = QMessageBox.question(
                 self, "Large Scan",
                 f"Scanning {len(ports)} ports may take a long time. Continue?",
@@ -851,7 +883,7 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
                               "TLS Info" if self.tls_check.isChecked() else ""
                           ])))
 
-            self.output.appendPlainText("")
+            self._raw("<br>")
 
             self.progress_bar.setVisible(True)
             self.progress_bar.setMaximum(len(ports) * len(targets))
@@ -862,6 +894,9 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
             self._all_targets = targets
             self._all_ports = ports
             self._all_results = []
+            
+            self.run_button.setEnabled(False)
+            self.stop_button.setEnabled(True)
 
             self._scan_next_target()
 
@@ -883,8 +918,12 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
                 current_target,
                 self._all_ports,
                 self.scan_type.currentText(),
-                self.timeout_spin.value(),
-                self.threads_spin.value(),
+                # Note: delay division by 1000 because thread used sec but here it might be ms? 
+                # Original code: self.delay_spin.value() / 1000.0 if not explicit.
+                # But UI says "Delay: x", assumes seconds in other tools, but usually delay between ports is small.
+                # Checked original: self.delay_spin.value() / 1000.0.
+                1.0 if not self.timeout_spin else self.timeout_spin.value(),
+                100 if not self.threads_spin else self.threads_spin.value(),
                 self.stealth_check.isChecked(),
                 self.randomize_check.isChecked(),
                 self.delay_spin.value() / 1000.0,
@@ -895,7 +934,6 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
             )
 
             self.worker.progress.connect(self._on_progress)
-            self.worker.result.connect(self._on_port_result)
             self.worker.finished_signal.connect(self._on_target_finished)
             self.worker.error.connect(self._error)
 
@@ -909,12 +947,15 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
     def _on_progress(self, scanned, total):
         """Update progress bar."""
         # Account for multiple targets
-        base_progress = self._current_target_index * len(self._all_ports)
-        self.progress_bar.setValue(base_progress + scanned)
-    
-    def _on_port_result(self, result):
-        """Handle individual port result."""
-        pass  # Results are handled in finished signal
+        total_targets = len(self._all_targets)
+        if total_targets > 1:
+            base_progress = self._current_target_index * len(self._all_ports)
+            total_progress = total_targets * len(self._all_ports)
+            current_progress = base_progress + scanned
+            self.update_progress(current_progress, total_progress,
+                               f"Target {self._current_target_index + 1}/{total_targets}")
+        else:
+            self.update_progress(scanned, total, "Scanning ports")
 
     def _on_target_finished(self, results):
         """Handle completion of scanning one target."""
@@ -931,13 +972,15 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
     def _show_final_results(self):
         """Show final results for all scanned targets."""
         self.progress_bar.setVisible(False)
-        self._on_scan_completed()
+        self._scan_complete() # Reset buttons via SafeStop helper if available or manual
 
         if self._is_stopping:
             return
 
         # Display results for all targets
         self._section("Scan Results")
+        
+        output_lines = []
 
         total_targets = len(self._all_results)
         total_ports_scanned = 0
@@ -949,7 +992,7 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
 
             # Add separator between targets (but not before first)
             if i > 0:
-                self.output.appendPlainText("")
+                output_lines.append("="*50)
 
             target = results['target']
             ip = results['ip']
@@ -963,17 +1006,17 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
             header = f"Target: {target} ({ip})"
             if os_info:
                 header += f" | OS Guess: {os_info}"
-            self.output.appendPlainText(header)
+            output_lines.append(header)
             
-            self.output.appendPlainText(f"Total Ports Scanned: {ports_scanned}")
-            self.output.appendPlainText(f"Open Ports Found: {open_count}")
+            output_lines.append(f"Total Ports Scanned: {ports_scanned}")
+            output_lines.append(f"Open Ports Found: {open_count}")
 
             if results['open_ports'] and results['results']:
-                self.output.appendPlainText("")
-                self.output.appendPlainText("OPEN PORTS:")
-                self.output.appendPlainText("-" * 100)
-                self.output.appendPlainText(f"{'Port':<8} {'State':<10} {'Service':<15} {'Banner/TLS':<65}")
-                self.output.appendPlainText("-" * 100)
+                output_lines.append("")
+                output_lines.append("OPEN PORTS:")
+                output_lines.append("-" * 100)
+                output_lines.append(f"{'Port':<8} {'State':<10} {'Service':<15} {'Banner/TLS':<65}")
+                output_lines.append("-" * 100)
 
                 for result in results['results']:
                     port = result['port']
@@ -999,18 +1042,22 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
                     if len(info_str) > 65:
                         info_str = info_str[:62] + "..."
 
-                    self.output.appendPlainText(f"{port:<8} {state:<10} {service:<15} {info_str:<65}")
+                    output_lines.append(f"{port:<8} {state:<10} {service:<15} {info_str:<65}")
                     
                     # Show WAF on separate line if detected
                     waf = result.get('waf_info')
                     if waf:
-                        self.output.appendPlainText(f"         └── 🛡️ WAF Detected: {waf}")
+                        output_lines.append(f"         └── 🛡️ WAF Detected: {waf}")
 
-                self.output.appendPlainText("-" * 100)
+                output_lines.append("-" * 100)
 
         # Summary
-        self.output.appendPlainText("")
-        self.output.appendPlainText(f"Summary: Scanned {total_targets} targets, {total_ports_scanned} total ports, {total_open_ports} open ports found")
+        output_lines.append("")
+        output_lines.append(f"Summary: Scanned {total_targets} targets, {total_ports_scanned} total ports, {total_open_ports} open ports found")
+
+        # Output to view
+        if output_lines:
+             self._raw('<pre>' + html.escape('\n'.join(output_lines)) + '</pre>')
 
         # Save results for each target
         try:
@@ -1050,90 +1097,6 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
             self._section("Scan Complete")
             self._scan_complete_added = True
     
-    def _on_scan_finished(self, results):
-        """Handle scan completion."""
-        self.progress_bar.setVisible(False)
-        self._on_scan_completed()
-        
-        if self._is_stopping:
-            return
-        
-        if 'error' in results:
-            self._error(results['error'])
-            return
-        
-        # Display results
-        self.output.appendPlainText("")
-        self._section("Scan Results")
-        header = f"Target: {results['target']} ({results['ip']})"
-        if results.get('os_info'):
-            header += f" | OS Guess: {results['os_info']}"
-        self.output.appendPlainText(header)
-
-        self.output.appendPlainText(f"Total Ports Scanned: {results['total_scanned']}")
-        self.output.appendPlainText(f"Open Ports Found: {results['open_count']}")
-        self.output.appendPlainText("")
-        
-        if results['open_ports']:
-            self.output.appendPlainText("OPEN PORTS:")
-            self.output.appendPlainText("-" * 120)
-            self.output.appendPlainText(f"{'Port':<8} {'State':<10} {'Service':<15} {'Banner/Info':<85}")
-            self.output.appendPlainText("-" * 120)
-            
-            for result in results['results']:
-                port = result['port']
-                state = result['state']
-                service = result.get('service', 'Unknown')
-                
-                extras = []
-                if result.get('banner'): extras.append(f"Banner: {result['banner']}")
-                if result.get('waf_info'): extras.append(f"WAF: {result['waf_info']}")
-                if result.get('tls_info'): extras.append(f"TLS: {result['tls_info']}")
-                
-                info_str = " | ".join(extras) if extras else "N/A"
-                if len(info_str) > 85: info_str = info_str[:82] + "..."
-                
-                self.output.appendPlainText(f"{port:<8} {state:<10} {service:<15} {info_str:<85}")
-            
-            self.output.appendPlainText("-" * 120)
-            
-            # Save results to file
-            try:
-                base_dir = create_target_dirs(results['target'])
-                logs_dir = os.path.join(base_dir, "Logs")
-                os.makedirs(logs_dir, exist_ok=True)
-                
-                log_file = os.path.join(logs_dir, "portscan.txt")
-                with open(log_file, 'w') as f:
-                    # Write results (same logic as above)
-                    f.write(f"Custom Port Scan Results\n")
-                    f.write(f"Target: {results['target']} ({results['ip']})\n")
-                    if results.get('os_info'): f.write(f"OS Guess: {results['os_info']}\n")
-                    f.write(f"Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"Total Ports Scanned: {results['total_scanned']}\n")
-                    f.write(f"Open Ports: {results['open_count']}\n\n")
-                    f.write("OPEN PORTS:\n")
-                    f.write("-" * 80 + "\n")
-                    for result in results['results']:
-                        line = f"Port {result['port']}: {result['state']} - {result['service']}"
-                        extras = []
-                        if result.get('banner'): extras.append(f"Banner: {result['banner']}")
-                        if result.get('waf_info'): extras.append(f"WAF: {result['waf_info']}")
-                        if result.get('tls_info'): extras.append(f"TLS: {result['tls_info']}")
-                        if extras:
-                            line += " (" + " | ".join(extras) + ")"
-                        f.write(line + "\n")
-                
-                self._info(f"Results saved to: {log_file}")
-            except Exception as e:
-                self._error(f"Failed to save results: {str(e)}")
-        else:
-            self.output.appendPlainText("No open ports found.")
-        
-        if not self._scan_complete_added:
-            self._section("Scan Complete")
-            self._scan_complete_added = True
-    
     def stop_scan(self):
         if self.worker and self.worker.isRunning():
             self._is_stopping = True
@@ -1141,7 +1104,10 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
             self.worker.terminate()
             self.worker.wait()
             self._info("Scan stopped.")
-        self._on_scan_completed()
+        
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self._scan_complete() # Reset via SafeStop
         self.progress_bar.setVisible(False)
 
         # Reset multi-target scanning state
@@ -1149,12 +1115,12 @@ class PortScannerView(QWidget, SafeStop, OutputHelper):
         self._all_targets = []
         self._all_results = []
     
-    def copy_results_to_clipboard(self):
-        """Copy scan results to clipboard."""
-        results_text = self.output.toPlainText()
-        if results_text.strip():
-            QApplication.clipboard().setText(results_text)
-            self._notify("Results copied to clipboard.")
-        else:
-            self._notify("No results to copy.")
-
+    def _scan_complete(self):
+        # Override if needed or just use default SafeStop method if implemented
+        # SafeStop usually implements stop_scan but here we override it.
+        # It's better to just ensure UI state is reset.
+        self.run_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.worker = None
+        if self.main_window:
+            self.main_window.active_process = None

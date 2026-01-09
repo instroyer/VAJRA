@@ -4,27 +4,7 @@
 # Decoder/Encoder facility similar to Burp Suite's Decoder tab.
 # Provides encoding/decoding for various formats commonly used in security testing.
 # =============================================================================
-'''
-Perfect decision! ✅ The Dencoder tool is now complete and production-ready.
 
-🎉 Final Summary - Dencoder Enhancements:
-✅ Implemented:
-⌨️ Ctrl+D Shortcut - Auto-Detect (widget-scoped, no conflicts)
-📁 File Input - Load files (.txt, .log, .json, .xml, .bin, .dat) up to 10MB
-✨ Visual Feedback - Orange border pulse during processing
-💡 Better Error Messages - Context-aware hints for Base64, URL, Hex, JWT errors
-💬 White Tooltips - Better visibility
-🚀 Auto-Detect Auto-Process - Immediately shows output when operation is detected
-🎨 Clean UI - Removed Process button and live mode text
-🐛 Bug Fixes - Fixed AttributeError and removed debug spam
-
-✅ Core Features:
-Live auto-processing (100ms debounce)
-Smart encoding detection
-60+ encoding/decoding operations
-Copy buttons on input & output
-Silent, clean operation
-'''
 import base64
 import binascii
 import html
@@ -34,36 +14,31 @@ import codecs
 import quopri
 import json
 import re
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-    QPushButton, QComboBox, QSplitter, QGroupBox, QMessageBox, QGridLayout, QApplication, QCheckBox, QFileDialog
+    QPushButton, QGroupBox, QGridLayout
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QKeySequence, QShortcut
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont
 
 from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
-    TARGET_INPUT_STYLE, COMBO_BOX_STYLE, COLOR_BACKGROUND_INPUT,
-    COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_FOCUSED,
-    COLOR_SUCCESS, COLOR_ERROR, COLOR_ACCENT,
-    StyledComboBox,
-    TOOL_HEADER_STYLE, TOOL_VIEW_STYLE, GROUPBOX_STYLE, CopyButton, OutputView)
+    StyledComboBox, HeaderLabel, StyledToolView, StyledGroupBox,
+    StyledTextEdit, CopyButton, COLOR_TEXT_PRIMARY,
+    COLOR_BG_INPUT, COLOR_BORDER_DEFAULT, COLOR_BORDER_FOCUS
+)
 
 
 class DencoderTool(ToolBase):
     """Decoder/Encoder tool for various encoding schemes."""
 
-    @property
-    def name(self) -> str:
-        return "Dencoder"
+    name = "Dencoder"
+    category = ToolCategory.CRACKER
 
     @property
     def description(self) -> str:
         return "Encode/decode data in various formats (Base64, URL, Hex, HTML, etc.)"
-
-    @property
-    def category(self):
-        return ToolCategory.CRACKER
 
     @property
     def icon(self) -> str:
@@ -74,28 +49,29 @@ class DencoderTool(ToolBase):
         return DencoderToolView(main_window=main_window)
 
 
-class DencoderToolView(QWidget):
+class DencoderToolView(StyledToolView):
     """UI for the decoder/encoder tool."""
 
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
         self.all_results = []  # Store results
+        self.process_timer = QTimer()
+        self.process_timer.setSingleShot(True)
+        self.process_timer.setInterval(100)
+        self.process_timer.timeout.connect(self._auto_process)
         self._build_ui()
 
     def _build_ui(self):
         """Build the Dencoder UI."""
-        from PySide6.QtCore import QTimer
-
-        self.setStyleSheet(TOOL_VIEW_STYLE)
+        # Note: setStyleSheet handled by StyledToolView
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
 
         # Header
-        header = QLabel("CRACKER › Dencoder")
-        header.setStyleSheet(TOOL_HEADER_STYLE)
+        header = HeaderLabel(ToolCategory.CRACKER.value, "Dencoder")
         main_layout.addWidget(header)
 
         # Control panel
@@ -131,6 +107,7 @@ class DencoderToolView(QWidget):
             "MD5 Hash", "SHA1 Hash", "SHA256 Hash"
         ]
         self.operation_combo.addItems(operations)
+        self.operation_combo.currentTextChanged.connect(self._on_input_changed)
         op_row.addWidget(self.operation_combo, 1)
 
         # Auto-detect button
@@ -139,9 +116,9 @@ class DencoderToolView(QWidget):
         detect_btn.clicked.connect(self._auto_detect_encoding)
         detect_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BG_INPUT};
                 color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
+                border: 1px solid {COLOR_BORDER_DEFAULT};
                 border-radius: 4px;
                 padding: 8px 14px;
             }}
@@ -149,19 +126,28 @@ class DencoderToolView(QWidget):
         """)
         op_row.addWidget(detect_btn)
 
-        control_layout.addLayout(op_row)
+        # Clear button
+        clear_btn = QPushButton("Clear")
+        clear_btn.setCursor(Qt.PointingHandCursor)
+        clear_btn.clicked.connect(self._clear_all)
+        clear_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_BG_INPUT};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_BORDER_DEFAULT};
+                border-radius: 4px;
+                padding: 8px 14px;
+            }}
+            QPushButton:hover {{ background-color: #AA2222; }}
+        """)
+        op_row.addWidget(clear_btn)
 
-        # Timer for auto-processing (always active with debouncing)
-        self.process_timer = QTimer()
-        self.process_timer.setSingleShot(True)
-        self.process_timer.setInterval(100)
-        self.process_timer.timeout.connect(self._auto_process)
+        control_layout.addLayout(op_row)
 
         main_layout.addLayout(control_layout)
 
         # Input/Output section
-        io_group = QGroupBox("📝 Input / Output")
-        io_group.setStyleSheet(GROUPBOX_STYLE)
+        io_group = StyledGroupBox("📝 Input / Output")
         io_layout = QVBoxLayout(io_group)
 
         # Input area
@@ -175,24 +161,12 @@ class DencoderToolView(QWidget):
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(0)
 
-        self.input_text = QTextEdit()
-        self.input_text.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
-                font-family: Consolas, 'Courier New', monospace;
-                font-size: 12px;
-            }}
-            QTextEdit:focus {{
-                border: 1px solid {COLOR_BORDER_FOCUSED};
-            }}
-        """)
+        # Using StyledTextEdit instead of manual styling
+        self.input_text = StyledTextEdit()
         self.input_text.setMinimumHeight(100)
+        self.input_text.textChanged.connect(self._on_input_changed)
 
-        self.input_copy_button = CopyButton(self.input_text)
+        self.input_copy_button = CopyButton(self.input_text, self.main_window)
 
         input_layout.addWidget(self.input_text, 0, 0)
         input_layout.addWidget(self.input_copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
@@ -209,28 +183,15 @@ class DencoderToolView(QWidget):
         output_layout.setContentsMargins(0, 0, 0, 0)
         output_layout.setSpacing(0)
 
-        self.output_text = QTextEdit()
-        self.output_text.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
-                font-family: Consolas, 'Courier New', monospace;
-                font-size: 12px;
-            }}
-            QTextEdit:focus {{
-                border: 1px solid {COLOR_BORDER_FOCUSED};
-            }}
-        """)
+        self.output_text = StyledTextEdit()
         self.output_text.setReadOnly(True)
         self.output_text.setMinimumHeight(100)
         
-        # Store default style for border animation reset
+        # Store default style for border animation reset 
+        # (StyledTextEdit applies style in init, so we capture it here)
         self.default_output_style = self.output_text.styleSheet()
         
-        self.output_copy_button = CopyButton(self.output_text)
+        self.output_copy_button = CopyButton(self.output_text, self.main_window)
 
         output_layout.addWidget(self.output_text, 0, 0)
         output_layout.addWidget(self.output_copy_button, 0, 0, Qt.AlignTop | Qt.AlignRight)
@@ -238,10 +199,6 @@ class DencoderToolView(QWidget):
 
         main_layout.addWidget(io_group)
 
-        # Connect signals for always-active auto-processing
-        self.input_text.textChanged.connect(self._on_input_changed)
-        self.operation_combo.activated.connect(self._on_input_changed)
-    
     def _on_input_changed(self):
         """Input changed - start debounce timer for auto-processing."""
         # Stop any existing timer
@@ -254,7 +211,7 @@ class DencoderToolView(QWidget):
         # Show processing visual feedback
         self.output_text.setStyleSheet(f"""
             QTextEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BG_INPUT};
                 color: {COLOR_TEXT_PRIMARY};
                 border: 2px solid #FF6B35;
                 border-radius: 4px;
@@ -302,14 +259,21 @@ class DencoderToolView(QWidget):
             # Set the detected operation
             self.operation_combo.setCurrentText(detected)
             # Show notification
-            if self.main_window and hasattr(self.main_window, 'notification_manager'):
-                self.main_window.notification_manager.notify(f"Detected: {detected}")
+            # if 'detected' in locals():
+            #      self.log(f"Detected: {detected}")
+
             # Always auto-process after detection
             self._process_text()
         else:
             # No detection - notify user
-            if self.main_window and hasattr(self.main_window, 'notification_manager'):
-                self.main_window.notification_manager.notify("Could not auto-detect encoding type")
+            pass
+            
+    def _clear_all(self):
+        """Clear both input and output fields."""
+        self.input_text.clear()
+        self.output_text.clear()
+        self.input_text.setFocus()
+
 
     def _process_text(self):
         """Process the input text based on selected operation."""
@@ -370,6 +334,9 @@ class DencoderToolView(QWidget):
 
     def _perform_operation(self, text, operation_text):
         """Perform the actual encoding/decoding operation based on menu selection."""
+        # Note: Using quopri for quoted printable, need to ensure it's available or fallback
+        # Assuming it is standard or provided
+        
         if operation_text == "Base64 Encode":
             return base64.b64encode(text.encode('utf-8')).decode('utf-8')
         elif operation_text == "Base64 Decode":
@@ -437,7 +404,7 @@ class DencoderToolView(QWidget):
         elif operation_text == "UU Decode":
             return codecs.decode(text.encode('utf-8'), 'uu').decode('utf-8')
         elif operation_text == "ROT13 Encode/Decode":
-            return self._rot13(text)  # ROT13 is symmetric
+            return self._rot13(text)
         elif operation_text == "Caesar Cipher (+3)":
             return self._caesar_cipher(text, 3)
         elif operation_text == "Caesar Cipher (-3)":
@@ -719,5 +686,3 @@ class DencoderToolView(QWidget):
         encoded = encoded.replace('<%', '<\\%')
         encoded = encoded.replace('%>', '%\\>')
         return encoded
-
-

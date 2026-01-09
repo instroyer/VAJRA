@@ -54,6 +54,30 @@ def parse_targets(input_value: str):
     return [normalize_target(input_value)], "single"
 
 
+def parse_port_range(port_str: str) -> list[int]:
+    """
+    Parse a port range string (e.g. "80,443,1000-1010") into a list of integers.
+    """
+    ports = set()
+    parts = port_str.split(',')
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if '-' in part:
+            try:
+                start, end = map(int, part.split('-'))
+                ports.update(range(start, end + 1))
+            except ValueError:
+                continue
+        else:
+            try:
+                ports.add(int(part))
+            except ValueError:
+                continue
+    return sorted(list(ports))
+
+
 class TargetInput(QWidget):
     """
     Common target input widget used across all modules.
@@ -119,4 +143,3 @@ class TargetInput(QWidget):
         Returns the current value of the target input.
         """
         return self.input_box.text().strip()
-

@@ -6,968 +6,409 @@
 # =============================================================================
 
 import os
-import re
+import shlex
+import html
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QGroupBox, QCheckBox, QComboBox, QFileDialog,
-    QTextEdit, QGridLayout, QSplitter, QTabWidget, QMessageBox,
-    QListWidget, QListWidgetItem, QAbstractItemView, QSpinBox
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog, QMessageBox
 )
-from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker
-from core.fileops import create_target_dirs
+from ui.worker import ToolExecutionMixin
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_BACKGROUND_SECONDARY,
-    COLOR_TEXT_PRIMARY, COLOR_BORDER, COLOR_BORDER_FOCUSED, LABEL_STYLE, SPINBOX_STYLE,
-    GROUPBOX_STYLE, CopyButton, CommandDisplay, RunButton, StopButton, SafeStop, OutputView,
-    HeaderLabel, StyledLabel
+    # Widgets
+    RunButton, StopButton, BrowseButton,
+    StyledLineEdit, StyledSpinBox, StyledCheckBox, StyledComboBox,
+    StyledLabel, HeaderLabel, StyledGroupBox, OutputView,
+    ToolSplitter, ConfigTabs, StyledToolView
 )
-
 
 
 class NucleiTool(ToolBase):
     """Professional Nuclei vulnerability scanner tool."""
 
-    @property
-    def name(self) -> str:
-        return "Nuclei"
+    name = "Nuclei"
+    category = ToolCategory.VULNERABILITY_SCANNER
 
     @property
-    def category(self) -> ToolCategory:
-        return ToolCategory.VULNERABILITY_SCANNER
+    def icon(self) -> str:
+        return "⚛️"
 
     def get_widget(self, main_window):
         return NucleiToolView(main_window=main_window)
 
 
-class NucleiToolView(QWidget, SafeStop):
+class NucleiToolView(StyledToolView, ToolExecutionMixin):
     """Nuclei vulnerability scanner interface."""
+    
+    tool_name = "Nuclei"
+    tool_category = "VULNERABILITY_SCANNER"
 
     def __init__(self, main_window=None):
         super().__init__()
-        self.init_safe_stop()
         self.main_window = main_window
-        self.base_dir = None
+        self.output_file = None
         self._build_ui()
+        self.update_command()
 
     def _build_ui(self):
-        """Build complete custom UI."""
+        """Build UI."""
+        # setStyleSheet handled by StyledToolView
+        
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-
-        splitter = QSplitter(Qt.Vertical)
-        main_layout.addWidget(splitter)
-
+        
+        splitter = ToolSplitter()
+        
         # ==================== CONTROL PANEL ====================
         control_panel = QWidget()
-        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
+        # Removed legacy style
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
-
+        
         # Header
-        header = HeaderLabel("VULNERABILITY_SCANNER", "Nuclei")
+        header = HeaderLabel(self.tool_category, self.tool_name)
         control_layout.addWidget(header)
-
-        # Target input row
-        target_label = QLabel("Target")
-        target_label.setStyleSheet(LABEL_STYLE)
-        control_layout.addWidget(target_label)
-
-        target_row = QHBoxLayout()
-        self.target_input = QLineEdit()
-        self.target_input.setPlaceholderText("http://example.com or IP address")
-        self.target_input.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
-                font-size: 14px;
-            }}
-            QLineEdit:focus {{
-                border-color: {COLOR_BORDER_FOCUSED};
-            }}
-        """)
+        
+        # Target
+        target_group = StyledGroupBox("🎯 Target")
+        target_layout = QHBoxLayout(target_group)
+        
+        self.target_input = StyledLineEdit()
+        self.target_input.setPlaceholderText("http://example.com or list.txt")
         self.target_input.textChanged.connect(self.update_command)
         
-        self.target_list_btn = QPushButton("📄")
-        self.target_list_btn.setToolTip("Load target list file")
-        self.target_list_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 6px 10px;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QPushButton:hover {{ background-color: #4A4A4A; }}
-        """)
-        self.target_list_btn.clicked.connect(self._browse_target_list)
-        self.target_list_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn = BrowseButton()
+        browse_btn.clicked.connect(self._browse_target)
         
-        target_row.addWidget(self.target_input)
-        target_row.addWidget(self.target_list_btn)
+        target_layout.addWidget(self.target_input)
+        target_layout.addWidget(browse_btn)
         
-        # Run/Stop buttons inline
-        self.run_button = RunButton()
+        control_layout.addWidget(target_group)
+        
+        # Configuration
+        self.config_tabs = ConfigTabs()
+        
+        # Tab 1: Templates
+        t_tab = QWidget()
+        t_layout = QGridLayout(t_tab)
+        
+        self.template_input = StyledLineEdit()
+        self.template_input.setPlaceholderText("Template path/folder or file(s) - comma separated (optional)")
+        self.template_input.textChanged.connect(self.update_command)
+        
+        t_browse = BrowseButton()
+        t_browse.clicked.connect(self._browse_template)
+        
+        self.auto_scan_check = StyledCheckBox("Auto-Scan (-as)")
+        self.auto_scan_check.stateChanged.connect(self.update_command)
+        
+        self.new_tmpl_check = StyledCheckBox("New Templates (-nt)")
+        self.new_tmpl_check.stateChanged.connect(self.update_command)
+        
+        t_layout.addWidget(StyledLabel("Templates:\n(Directory or Files)"), 0, 0)
+        t_layout.addWidget(self.template_input, 0, 1)
+        t_layout.addWidget(t_browse, 0, 2)
+        t_layout.addWidget(self.auto_scan_check, 1, 0, 1, 2)
+        t_layout.addWidget(self.new_tmpl_check, 1, 2)
+        
+        self.config_tabs.addTab(t_tab, "Templates")
+        
+        # Tab 2: Filters
+        f_tab = QWidget()
+        f_layout = QVBoxLayout(f_tab)
+        
+        sev_layout = QHBoxLayout()
+        self.sev_checks = {}
+        for sev in ["info", "low", "medium", "high", "critical"]:
+            c = StyledCheckBox(sev.title())
+            c.stateChanged.connect(self.update_command)
+            self.sev_checks[sev] = c
+            sev_layout.addWidget(c)
+        f_layout.addLayout(sev_layout)
+        
+        tags_layout = QGridLayout()
+        self.tags_input = StyledLineEdit()
+        self.tags_input.setPlaceholderText("cve,rce,xss")
+        self.tags_input.textChanged.connect(self.update_command)
+        
+        self.exclude_tags = StyledLineEdit()
+        self.exclude_tags.setPlaceholderText("dos,fuzz")
+        self.exclude_tags.textChanged.connect(self.update_command)
+        
+        tags_layout.addWidget(StyledLabel("Tags:"), 0, 0)
+        tags_layout.addWidget(self.tags_input, 0, 1)
+        tags_layout.addWidget(StyledLabel("Exclude Tags:"), 1, 0)
+        tags_layout.addWidget(self.exclude_tags, 1, 1)
+        
+        f_layout.addLayout(tags_layout)
+        self.config_tabs.addTab(f_tab, "Filters")
+        
+        # Tab 3: Performance
+        p_tab = QWidget()
+        p_layout = QGridLayout(p_tab)
+        
+        self.concurrency = StyledSpinBox()
+        self.concurrency.setRange(1, 1000)
+        self.concurrency.setValue(25)
+        self.concurrency.valueChanged.connect(self.update_command)
+        
+        self.rate_limit = StyledSpinBox()
+        self.rate_limit.setRange(1, 10000)
+        self.rate_limit.setValue(150)
+        self.rate_limit.valueChanged.connect(self.update_command)
+        
+        self.timeout = StyledSpinBox()
+        self.timeout.setRange(1, 300)
+        self.timeout.setValue(10)
+        self.timeout.valueChanged.connect(self.update_command)
+        
+        p_layout.addWidget(StyledLabel("Concurrency (-c):"), 0, 0)
+        p_layout.addWidget(self.concurrency, 0, 1)
+        p_layout.addWidget(StyledLabel("Rate Limit (-rl):"), 1, 0)
+        p_layout.addWidget(self.rate_limit, 1, 1)
+        p_layout.addWidget(StyledLabel("Timeout (-to):"), 2, 0)
+        p_layout.addWidget(self.timeout, 2, 1)
+        
+        self.config_tabs.addTab(p_tab, "Performance")
+        
+        # Tab 4: Advanced
+        a_tab = QWidget()
+        a_layout = QGridLayout(a_tab)
+        
+        self.proxy_input = StyledLineEdit()
+        self.proxy_input.setPlaceholderText("http://127.0.0.1:8080")
+        self.proxy_input.textChanged.connect(self.update_command)
+        
+        self.headless_check = StyledCheckBox("Headless")
+        self.headless_check.stateChanged.connect(self.update_command)
+        
+        self.verbose_check = StyledCheckBox("Verbose")
+        self.verbose_check.stateChanged.connect(self.update_command)
+        
+        a_layout.addWidget(StyledLabel("Proxy:"), 0, 0)
+        a_layout.addWidget(self.proxy_input, 0, 1)
+        a_layout.addWidget(self.headless_check, 1, 0)
+        a_layout.addWidget(self.verbose_check, 1, 1)
+        
+        self.config_tabs.addTab(a_tab, "Advanced")
+        
+        control_layout.addWidget(self.config_tabs)
+        
+        # Command Preview
+        self.command_input = StyledLineEdit()
+        self.command_input.setReadOnly(True)
+        self.command_input.setPlaceholderText("Command preview...")
+        control_layout.addWidget(self.command_input)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        self.run_button = RunButton("RUN NUCLEI")
         self.run_button.clicked.connect(self.run_scan)
-        
         self.stop_button = StopButton()
         self.stop_button.clicked.connect(self.stop_scan)
+        
+        btn_layout.addWidget(self.run_button)
+        btn_layout.addWidget(self.stop_button)
+        control_layout.addLayout(btn_layout)
 
-        target_row.addWidget(self.run_button)
-        target_row.addWidget(self.stop_button)
-        control_layout.addLayout(target_row)
-
-        # Command display
-        self.command_display = CommandDisplay()
-        self.command_input = self.command_display.input
-        control_layout.addWidget(self.command_display)
-
-
-
-        # Configuration Group
-        config_group = QGroupBox("⚙️ Scan Configuration")
-        config_group.setStyleSheet(GROUPBOX_STYLE)
-        config_layout = QVBoxLayout(config_group)
-        config_layout.setContentsMargins(5, 15, 5, 5)
-        config_layout.setSpacing(0)
-
-        self.config_tabs = QTabWidget()
-        self.config_tabs.setStyleSheet(f"""
-            QTabWidget::pane {{
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                background-color: {COLOR_BACKGROUND_INPUT};
-            }}
-            QTabBar::tab {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                padding: 8px 12px;
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            QTabBar::tab:selected {{
-                background-color: #1777d1;
-                color: white;
-                font-weight: bold;
-            }}
-            QTabBar::tab:hover {{
-                background-color: #4A4A4A;
-            }}
-        """)
-
-        # Build all tabs
-        self._build_templates_tab()
-        self._build_filters_tab()
-        self._build_rate_tab()
-        self._build_network_tab()
-        self._build_output_tab()
-        self._build_advanced_tab()
-
-        config_layout.addWidget(self.config_tabs)
-        control_layout.addWidget(config_group)
         control_layout.addStretch()
-
-        # ==================== OUTPUT AREA ====================
-        output_container = QWidget()
-        output_layout = QVBoxLayout(output_container)
-        output_layout.setContentsMargins(0, 0, 0, 0)
-        output_layout.setSpacing(0)
-
-        self.output = OutputView()
-        self.output.setReadOnly(True)
-        self.output.setPlaceholderText("Nuclei results will appear here...")
-        output_layout.addWidget(self.output)
-
-        # Use centralized CopyButton
-        self.copy_button = CopyButton(self.output, self.main_window)
-        self.copy_button.setParent(self.output)
-        self.copy_button.raise_()
-        self.output.installEventFilter(self)
-
         splitter.addWidget(control_panel)
-        splitter.addWidget(output_container)
-        splitter.setSizes([450, 350])
 
-        self.update_command()
-
-    def _build_templates_tab(self):
-        """Build Templates tab with file/folder selection."""
-        tab = QWidget()
-        layout = QGridLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
-
-        # Template file/folder selection
-        tmpl_label = QLabel("Templates:")
-        tmpl_label.setStyleSheet(LABEL_STYLE)
-        tmpl_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.template_input = QLineEdit()
-        self.template_input.setPlaceholderText("Template path or directory")
-        self.template_input.setStyleSheet(self.target_input.styleSheet())
-        self.template_input.textChanged.connect(self.update_command)
-
-        self.tmpl_file_btn = QPushButton("📄 File")
-        self.tmpl_file_btn.setToolTip("Select template file(s)")
-        self.tmpl_file_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 6px 10px;
-                color: {COLOR_TEXT_PRIMARY};
-            }}
-            QPushButton:hover {{ background-color: #4A4A4A; }}
-        """)
-        self.tmpl_file_btn.clicked.connect(self._browse_template_file)
-        self.tmpl_file_btn.setCursor(Qt.PointingHandCursor)
-
-        self.tmpl_folder_btn = QPushButton("📁 Folder")
-        self.tmpl_folder_btn.setToolTip("Select template folder")
-        self.tmpl_folder_btn.setStyleSheet(self.tmpl_file_btn.styleSheet())
-        self.tmpl_folder_btn.clicked.connect(self._browse_template_folder)
-        self.tmpl_folder_btn.setCursor(Qt.PointingHandCursor)
-
-        tmpl_btn_row = QHBoxLayout()
-        tmpl_btn_row.addWidget(self.template_input)
-        tmpl_btn_row.addWidget(self.tmpl_file_btn)
-        tmpl_btn_row.addWidget(self.tmpl_folder_btn)
-
-        # Workflow file
-        wf_label = QLabel("Workflow:")
-        wf_label.setStyleSheet(LABEL_STYLE)
-        wf_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.workflow_input = QLineEdit()
-        self.workflow_input.setPlaceholderText("Workflow file path")
-        self.workflow_input.setStyleSheet(self.target_input.styleSheet())
-        self.workflow_input.textChanged.connect(self.update_command)
-
-        self.wf_btn = QPushButton("📄")
-        self.wf_btn.setStyleSheet(self.tmpl_file_btn.styleSheet())
-        self.wf_btn.clicked.connect(self._browse_workflow)
-        self.wf_btn.setCursor(Qt.PointingHandCursor)
-
-        # Exclude templates
-        excl_label = QLabel("Exclude:")
-        excl_label.setStyleSheet(LABEL_STYLE)
-        excl_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.exclude_tmpl_input = QLineEdit()
-        self.exclude_tmpl_input.setPlaceholderText("Templates to exclude")
-        self.exclude_tmpl_input.setStyleSheet(self.target_input.styleSheet())
-        self.exclude_tmpl_input.textChanged.connect(self.update_command)
-
-        # Template list option
-        self.auto_scan_check = QCheckBox("Auto-Scan (detect tech)")
-        self.auto_scan_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.auto_scan_check.stateChanged.connect(self.update_command)
-
-        self.new_templates_check = QCheckBox("New Templates Only")
-        self.new_templates_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.new_templates_check.stateChanged.connect(self.update_command)
-
-        # Layout
-        layout.addWidget(tmpl_label, 0, 0)
-        layout.addLayout(tmpl_btn_row, 0, 1, 1, 3)
-        layout.addWidget(wf_label, 1, 0)
-        layout.addWidget(self.workflow_input, 1, 1, 1, 2)
-        layout.addWidget(self.wf_btn, 1, 3)
-        layout.addWidget(excl_label, 2, 0)
-        layout.addWidget(self.exclude_tmpl_input, 2, 1, 1, 3)
-        layout.addWidget(self.auto_scan_check, 3, 1)
-        layout.addWidget(self.new_templates_check, 3, 2)
-        layout.setRowStretch(4, 1)
-        layout.setColumnStretch(1, 1)
-
-        self.config_tabs.addTab(tab, "Templates")
-
-    def _build_filters_tab(self):
-        """Build Filters tab for severity, tags, authors."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
-
-        # Severity selection
-        sev_label = QLabel("Severity (select one or more):")
-        sev_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-weight: bold;")
-        layout.addWidget(sev_label)
-
-        sev_row = QHBoxLayout()
-        self.severity_checks = {}
-        for sev in ["info", "low", "medium", "high", "critical"]:
-            check = QCheckBox(sev.capitalize())
-            check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-            check.stateChanged.connect(self.update_command)
-            self.severity_checks[sev] = check
-            sev_row.addWidget(check)
-        sev_row.addStretch()
-        layout.addLayout(sev_row)
-
-        # Tags
-        grid = QGridLayout()
-        grid.setSpacing(10)
-
-        tags_label = QLabel("Tags:")
-        tags_label.setStyleSheet(LABEL_STYLE)
-        tags_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.tags_input = QLineEdit()
-        self.tags_input.setPlaceholderText("cve,rce,xss (comma-separated)")
-        self.tags_input.setStyleSheet(self.target_input.styleSheet())
-        self.tags_input.textChanged.connect(self.update_command)
-
-        # Exclude tags
-        excl_tags_label = QLabel("Exclude Tags:")
-        excl_tags_label.setStyleSheet(LABEL_STYLE)
-        excl_tags_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.exclude_tags_input = QLineEdit()
-        self.exclude_tags_input.setPlaceholderText("dos,fuzz")
-        self.exclude_tags_input.setStyleSheet(self.target_input.styleSheet())
-        self.exclude_tags_input.textChanged.connect(self.update_command)
-
-        # Authors
-        author_label = QLabel("Authors:")
-        author_label.setStyleSheet(LABEL_STYLE)
-        author_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.authors_input = QLineEdit()
-        self.authors_input.setPlaceholderText("pdteam,geeknik")
-        self.authors_input.setStyleSheet(self.target_input.styleSheet())
-        self.authors_input.textChanged.connect(self.update_command)
-
-        # Template condition
-        tc_label = QLabel("Condition:")
-        tc_label.setStyleSheet(LABEL_STYLE)
-        tc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.template_condition_input = QLineEdit()
-        self.template_condition_input.setPlaceholderText("contains(id,'xss')")
-        self.template_condition_input.setStyleSheet(self.target_input.styleSheet())
-        self.template_condition_input.textChanged.connect(self.update_command)
-
-        grid.addWidget(tags_label, 0, 0)
-        grid.addWidget(self.tags_input, 0, 1)
-        grid.addWidget(excl_tags_label, 0, 2)
-        grid.addWidget(self.exclude_tags_input, 0, 3)
-        grid.addWidget(author_label, 1, 0)
-        grid.addWidget(self.authors_input, 1, 1)
-        grid.addWidget(tc_label, 1, 2)
-        grid.addWidget(self.template_condition_input, 1, 3)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(3, 1)
-
-        layout.addLayout(grid)
-        layout.addStretch()
-
-        self.config_tabs.addTab(tab, "Filters")
-
-    def _build_rate_tab(self):
-        """Build Rate Limiting tab."""
-        tab = QWidget()
-        layout = QGridLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
-
-        # Concurrency
-        conc_label = QLabel("Concurrency:")
-        conc_label.setStyleSheet(LABEL_STYLE)
-        conc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.concurrency_spin = QSpinBox()
-        self.concurrency_spin.setStyleSheet(SPINBOX_STYLE)
-        self.concurrency_spin.setRange(1, 500)
-        self.concurrency_spin.setValue(25)
-        self.concurrency_spin.valueChanged.connect(self.update_command)
-
-        # Rate limit
-        rate_label = QLabel("Rate Limit:")
-        rate_label.setStyleSheet(LABEL_STYLE)
-        rate_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.rate_limit_spin = QSpinBox()
-        self.rate_limit_spin.setStyleSheet(SPINBOX_STYLE)
-        self.rate_limit_spin.setRange(0, 10000)
-        self.rate_limit_spin.setValue(150)
-        self.rate_limit_spin.setSuffix(" req/s")
-        self.rate_limit_spin.valueChanged.connect(self.update_command)
-
-        # Bulk size
-        bulk_label = QLabel("Bulk Size:")
-        bulk_label.setStyleSheet(LABEL_STYLE)
-        bulk_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.bulk_size_spin = QSpinBox()
-        self.bulk_size_spin.setStyleSheet(SPINBOX_STYLE)
-        self.bulk_size_spin.setRange(1, 500)
-        self.bulk_size_spin.setValue(25)
-        self.bulk_size_spin.valueChanged.connect(self.update_command)
-
-        # Retries
-        retry_label = QLabel("Retries:")
-        retry_label.setStyleSheet(LABEL_STYLE)
-        retry_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.retries_spin = QSpinBox()
-        self.retries_spin.setStyleSheet(SPINBOX_STYLE)
-        self.retries_spin.setRange(0, 10)
-        self.retries_spin.setValue(1)
-        self.retries_spin.valueChanged.connect(self.update_command)
-
-        # Timeout
-        timeout_label = QLabel("Timeout:")
-        timeout_label.setStyleSheet(LABEL_STYLE)
-        timeout_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.timeout_spin = QSpinBox()
-        self.timeout_spin.setStyleSheet(SPINBOX_STYLE)
-        self.timeout_spin.setRange(1, 300)
-        self.timeout_spin.setValue(10)
-        self.timeout_spin.setSuffix(" s")
-        self.timeout_spin.valueChanged.connect(self.update_command)
-
-        layout.addWidget(conc_label, 0, 0)
-        layout.addWidget(self.concurrency_spin, 0, 1)
-        layout.addWidget(rate_label, 0, 2)
-        layout.addWidget(self.rate_limit_spin, 0, 3)
-        layout.addWidget(bulk_label, 1, 0)
-        layout.addWidget(self.bulk_size_spin, 1, 1)
-        layout.addWidget(retry_label, 1, 2)
-        layout.addWidget(self.retries_spin, 1, 3)
-        layout.addWidget(timeout_label, 2, 0)
-        layout.addWidget(self.timeout_spin, 2, 1)
-        layout.setRowStretch(3, 1)
-        layout.setColumnStretch(1, 1)
-        layout.setColumnStretch(3, 1)
-
-        self.config_tabs.addTab(tab, "Rate Limit")
-
-    def _build_network_tab(self):
-        """Build Network tab for proxy, headers."""
-        tab = QWidget()
-        layout = QGridLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
-
-        # Proxy
-        proxy_label = QLabel("Proxy:")
-        proxy_label.setStyleSheet(LABEL_STYLE)
-        proxy_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.proxy_input = QLineEdit()
-        self.proxy_input.setPlaceholderText("http://127.0.0.1:8080 or socks5://...")
-        self.proxy_input.setStyleSheet(self.target_input.styleSheet())
-        self.proxy_input.textChanged.connect(self.update_command)
-
-        # Headers
-        header_label = QLabel("Headers:")
-        header_label.setStyleSheet(LABEL_STYLE)
-        header_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.headers_input = QLineEdit()
-        self.headers_input.setPlaceholderText("Authorization: Bearer token")
-        self.headers_input.setStyleSheet(self.target_input.styleSheet())
-        self.headers_input.textChanged.connect(self.update_command)
-
-        # Input mode
-        mode_label = QLabel("Input Mode:")
-        mode_label.setStyleSheet(LABEL_STYLE)
-        mode_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.input_mode_combo = QComboBox()
-        self.input_mode_combo.addItems(["list", "burp", "jsonl", "yaml", "openapi", "swagger"])
-        self.input_mode_combo.setStyleSheet(f"""
-            QComboBox {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 6px;
-            }}
-        """)
-        self.input_mode_combo.currentTextChanged.connect(self.update_command)
-
-        # System resolver
-        self.system_resolvers_check = QCheckBox("System DNS Resolvers")
-        self.system_resolvers_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.system_resolvers_check.stateChanged.connect(self.update_command)
-
-        layout.addWidget(proxy_label, 0, 0)
-        layout.addWidget(self.proxy_input, 0, 1, 1, 3)
-        layout.addWidget(header_label, 1, 0)
-        layout.addWidget(self.headers_input, 1, 1, 1, 3)
-        layout.addWidget(mode_label, 2, 0)
-        layout.addWidget(self.input_mode_combo, 2, 1)
-        layout.addWidget(self.system_resolvers_check, 2, 2, 1, 2)
-        layout.setRowStretch(3, 1)
-        layout.setColumnStretch(1, 1)
-
-        self.config_tabs.addTab(tab, "Network")
-
-    def _build_output_tab(self):
-        """Build Output tab."""
-        tab = QWidget()
-        layout = QGridLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
-
-        # Output file
-        out_label = QLabel("Output File:")
-        out_label.setStyleSheet(LABEL_STYLE)
-        out_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.output_file_input = QLineEdit()
-        self.output_file_input.setPlaceholderText("Custom output path (auto-generated if empty)")
-        self.output_file_input.setStyleSheet(self.target_input.styleSheet())
-        self.output_file_input.textChanged.connect(self.update_command)
-
-        # JSON output - enabled by default
-        self.json_output_check = QCheckBox("JSON Output")
-        self.json_output_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.json_output_check.setChecked(True)
-        self.json_output_check.stateChanged.connect(self.update_command)
-
-        self.jsonl_output_check = QCheckBox("JSONL Output")
-        self.jsonl_output_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.jsonl_output_check.stateChanged.connect(self.update_command)
-
-        self.markdown_output_check = QCheckBox("Markdown Export")
-        self.markdown_output_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.markdown_output_check.stateChanged.connect(self.update_command)
-
-        # Display options
-        self.verbose_check = QCheckBox("Verbose")
-        self.verbose_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.verbose_check.stateChanged.connect(self.update_command)
-
-        self.debug_check = QCheckBox("Debug")
-        self.debug_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.debug_check.stateChanged.connect(self.update_command)
-
-        self.silent_check = QCheckBox("Silent")
-        self.silent_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.silent_check.stateChanged.connect(self.update_command)
-
-        self.no_color_check = QCheckBox("No Color")
-        self.no_color_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.no_color_check.stateChanged.connect(self.update_command)
-
-        layout.addWidget(out_label, 0, 0)
-        layout.addWidget(self.output_file_input, 0, 1, 1, 3)
-        layout.addWidget(self.json_output_check, 1, 0)
-        layout.addWidget(self.jsonl_output_check, 1, 1)
-        layout.addWidget(self.markdown_output_check, 1, 2)
-        layout.addWidget(self.verbose_check, 2, 0)
-        layout.addWidget(self.debug_check, 2, 1)
-        layout.addWidget(self.silent_check, 2, 2)
-        layout.addWidget(self.no_color_check, 2, 3)
-        layout.setRowStretch(3, 1)
-        layout.setColumnStretch(1, 1)
-
-        self.config_tabs.addTab(tab, "Output")
-
-    def _build_advanced_tab(self):
-        """Build Advanced tab."""
-        tab = QWidget()
-        layout = QGridLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
-
-        # Config file
-        cfg_label = QLabel("Config File:")
-        cfg_label.setStyleSheet(LABEL_STYLE)
-        cfg_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.config_file_input = QLineEdit()
-        self.config_file_input.setPlaceholderText("Custom config YAML file")
-        self.config_file_input.setStyleSheet(self.target_input.styleSheet())
-        self.config_file_input.textChanged.connect(self.update_command)
-
-        self.cfg_btn = QPushButton("📄")
-        self.cfg_btn.setStyleSheet(self.tmpl_file_btn.styleSheet())
-        self.cfg_btn.clicked.connect(self._browse_config)
-        self.cfg_btn.setCursor(Qt.PointingHandCursor)
-
-        # Interactsh server
-        interact_label = QLabel("Interactsh:")
-        interact_label.setStyleSheet(LABEL_STYLE)
-        interact_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        self.interactsh_input = QLineEdit()
-        self.interactsh_input.setPlaceholderText("Custom Interactsh server URL")
-        self.interactsh_input.setStyleSheet(self.target_input.styleSheet())
-        self.interactsh_input.textChanged.connect(self.update_command)
-
-        # Checkboxes
-        self.headless_check = QCheckBox("Headless Browser")
-        self.headless_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.headless_check.stateChanged.connect(self.update_command)
-
-        self.update_templates_check = QCheckBox("Update Templates")
-        self.update_templates_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.update_templates_check.stateChanged.connect(self.update_command)
-
-        self.validate_check = QCheckBox("Validate Templates")
-        self.validate_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.validate_check.stateChanged.connect(self.update_command)
-
-        self.stop_at_first_check = QCheckBox("Stop at First Match")
-        self.stop_at_first_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.stop_at_first_check.stateChanged.connect(self.update_command)
-
-        self.no_interactsh_check = QCheckBox("Disable Interactsh")
-        self.no_interactsh_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 13px;")
-        self.no_interactsh_check.stateChanged.connect(self.update_command)
-
-        layout.addWidget(cfg_label, 0, 0)
-        layout.addWidget(self.config_file_input, 0, 1, 1, 2)
-        layout.addWidget(self.cfg_btn, 0, 3)
-        layout.addWidget(interact_label, 1, 0)
-        layout.addWidget(self.interactsh_input, 1, 1, 1, 3)
-        layout.addWidget(self.headless_check, 2, 0)
-        layout.addWidget(self.update_templates_check, 2, 1)
-        layout.addWidget(self.validate_check, 2, 2)
-        layout.addWidget(self.stop_at_first_check, 3, 0)
-        layout.addWidget(self.no_interactsh_check, 3, 1)
-        layout.setRowStretch(4, 1)
-        layout.setColumnStretch(1, 1)
-
-        self.config_tabs.addTab(tab, "Advanced")
-
-    # ==================== FILE BROWSERS ====================
-
-    def _browse_target_list(self):
-        """Browse for target list file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Target List", "",
-            "Text Files (*.txt);;All Files (*)"
-        )
-        if file_path:
-            self.target_input.setText(file_path)
-
-    def _browse_template_file(self):
-        """Browse for template file(s)."""
-        files, _ = QFileDialog.getOpenFileNames(
-            self, "Select Template Files", "",
-            "YAML Files (*.yaml *.yml);;All Files (*)"
-        )
-        if files:
-            self.template_input.setText(",".join(files))
-
-    def _browse_template_folder(self):
-        """Browse for template folder."""
-        folder = QFileDialog.getExistingDirectory(
-            self, "Select Template Folder"
-        )
-        if folder:
-            self.template_input.setText(folder)
-
-    def _browse_workflow(self):
-        """Browse for workflow file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Workflow File", "",
-            "YAML Files (*.yaml *.yml);;All Files (*)"
-        )
-        if file_path:
-            self.workflow_input.setText(file_path)
-
-    def _browse_config(self):
-        """Browse for config file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Config File", "",
-            "YAML Files (*.yaml *.yml);;All Files (*)"
-        )
-        if file_path:
-            self.config_file_input.setText(file_path)
-
-    # ==================== COMMAND BUILDER ====================
-
-    def eventFilter(self, obj, event):
-        """Handle events to position floating buttons."""
-        from PySide6.QtCore import QEvent
-        if obj == self.output and event.type() == QEvent.Resize:
-            self.copy_button.move(
-                self.output.width() - self.copy_button.sizeHint().width() - 10,
-                10
+        # Output
+        self.output = OutputView(self.main_window)
+        self.output.setPlaceholderText("Nuclei results will appear here...")
+        
+        splitter.addWidget(self.output)
+        splitter.setSizes([450, 450])
+        
+        main_layout.addWidget(splitter)
+        
+    def _browse_target(self):
+        f, _ = QFileDialog.getOpenFileName(self, "Select Target List")
+        if f: self.target_input.setText(f)
+
+    def _browse_template(self):
+        """Browse for template files or directories with user choice."""
+        # Create a message box to let user choose between file and directory selection
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Select Template Type")
+        msg_box.setText("What would you like to select?")
+        msg_box.setIcon(QMessageBox.Question)
+
+        # Add buttons for different selection types
+        dir_button = msg_box.addButton("📁 Directory", QMessageBox.AcceptRole)
+        file_button = msg_box.addButton("📄 Template File(s)", QMessageBox.AcceptRole)
+        cancel_button = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+
+        msg_box.setDefaultButton(dir_button)
+        msg_box.exec()
+
+        clicked_button = msg_box.clickedButton()
+
+        if clicked_button == dir_button:
+            # Select directory
+            directory = QFileDialog.getExistingDirectory(
+                self,
+                "Select Template Directory",
+                "",
+                QFileDialog.ShowDirsOnly
             )
-        return super().eventFilter(obj, event)
+            if directory:
+                self.template_input.setText(directory)
 
-    def update_command(self):
-        """Generate Nuclei command based on UI inputs."""
+        elif clicked_button == file_button:
+            # Select one or more template files
+            files, _ = QFileDialog.getOpenFileNames(
+                self,
+                "Select Template File(s)",
+                "",
+                "YAML files (*.yaml *.yml);;All files (*)"
+            )
+            if files:
+                # Join multiple files with commas (nuclei supports this)
+                self.template_input.setText(",".join(files))
+        
+    # -------------------------------------------------------------------------
+    # Command Builder
+    # -------------------------------------------------------------------------
+
+    def build_command(self, preview: bool = False) -> str:
+        cmd = ["nuclei"]
+        
         target = self.target_input.text().strip()
-        if not target:
-            target = "<target>"
-
-        cmd_parts = ["nuclei"]
-
-        # Target - check if file or single target
-        if os.path.isfile(target):
-            cmd_parts.extend(["-l", target])
+        if target:
+            if os.path.isfile(target):
+                cmd.extend(["-l", target])
+            else:
+                cmd.extend(["-u", target])
+        elif preview:
+             cmd.extend(["-u", "<target>"])
         else:
-            cmd_parts.extend(["-u", target])
-
+             raise ValueError("Target required")
+        
         # Templates
         tmpl = self.template_input.text().strip()
         if tmpl:
-            cmd_parts.extend(["-t", tmpl])
-
-        # Workflow
-        wf = self.workflow_input.text().strip()
-        if wf:
-            cmd_parts.extend(["-w", wf])
-
-        # Exclude templates
-        excl = self.exclude_tmpl_input.text().strip()
-        if excl:
-            cmd_parts.extend(["-exclude-templates", excl])
-
-        # Auto-scan
-        if self.auto_scan_check.isChecked():
-            cmd_parts.append("-as")
-
-        # New templates
-        if self.new_templates_check.isChecked():
-            cmd_parts.append("-nt")
-
-        # Severity
-        severities = [s for s, c in self.severity_checks.items() if c.isChecked()]
-        if severities:
-            cmd_parts.extend(["-severity", ",".join(severities)])
-
-        # Tags
+            cmd.extend(["-t", tmpl])
+            
+        if self.auto_scan_check.isChecked(): cmd.append("-as")
+        if self.new_tmpl_check.isChecked(): cmd.append("-nt")
+        
+        # Filters
+        sevs = [s for s, c in self.sev_checks.items() if c.isChecked()]
+        if sevs:
+            cmd.extend(["-s", ",".join(sevs)])
+            
         tags = self.tags_input.text().strip()
         if tags:
-            cmd_parts.extend(["-tags", tags])
-
-        # Exclude tags
-        excl_tags = self.exclude_tags_input.text().strip()
-        if excl_tags:
-            cmd_parts.extend(["-exclude-tags", excl_tags])
-
-        # Authors
-        authors = self.authors_input.text().strip()
-        if authors:
-            cmd_parts.extend(["-author", authors])
-
-        # Template condition
-        tc = self.template_condition_input.text().strip()
-        if tc:
-            cmd_parts.extend(["-tc", f'"{tc}"'])
-
-        # Rate limiting
-        if self.concurrency_spin.value() != 25:
-            cmd_parts.extend(["-c", str(self.concurrency_spin.value())])
-
-        if self.rate_limit_spin.value() != 150:
-            cmd_parts.extend(["-rl", str(self.rate_limit_spin.value())])
-
-        if self.bulk_size_spin.value() != 25:
-            cmd_parts.extend(["-bs", str(self.bulk_size_spin.value())])
-
-        if self.retries_spin.value() != 1:
-            cmd_parts.extend(["-retries", str(self.retries_spin.value())])
-
-        if self.timeout_spin.value() != 10:
-            cmd_parts.extend(["-timeout", str(self.timeout_spin.value())])
-
-        # Network
+            cmd.extend(["-tags", tags])
+            
+        ex_tags = self.exclude_tags.text().strip()
+        if ex_tags:
+            cmd.extend(["-etags", ex_tags])
+            
+        # Perf
+        if self.concurrency.value() != 25:
+            cmd.extend(["-c", str(self.concurrency.value())])
+        if self.rate_limit.value() != 150:
+            cmd.extend(["-rl", str(self.rate_limit.value())])
+        if self.timeout.value() != 10:
+            cmd.extend(["-to", str(self.timeout.value())])
+            
+        # Advanced
         proxy = self.proxy_input.text().strip()
         if proxy:
-            cmd_parts.extend(["-proxy", proxy])
+            cmd.extend(["-proxy", proxy])
+            
+        if self.headless_check.isChecked(): cmd.append("-headless")
+        if self.verbose_check.isChecked(): cmd.append("-v")
+        
+        # Output (Always use json output for processing, or standard if user wants text)
+        cmd.append("-nc") # No color
+        
+        return " ".join(shlex.quote(x) for x in cmd)
 
-        headers = self.headers_input.text().strip()
-        if headers:
-            cmd_parts.extend(["-H", f'"{headers}"'])
+    def update_command(self):
+        try:
+            cmd_str = self.build_command(preview=True)
+            self.command_input.setText(cmd_str)
+        except Exception:
+            self.command_input.setText("")
 
-        if self.input_mode_combo.currentText() != "list":
-            cmd_parts.extend(["-im", self.input_mode_combo.currentText()])
-
-        if self.system_resolvers_check.isChecked():
-            cmd_parts.append("-system-resolvers")
-
-        # Output
-        if self.json_output_check.isChecked():
-            cmd_parts.append("-json")
-
-        if self.jsonl_output_check.isChecked():
-            cmd_parts.append("-jsonl")
-
-        if self.markdown_output_check.isChecked():
-            cmd_parts.append("-me")
-
-        if self.verbose_check.isChecked():
-            cmd_parts.append("-v")
-
-        if self.debug_check.isChecked():
-            cmd_parts.append("-debug")
-
-        if self.silent_check.isChecked():
-            cmd_parts.append("-silent")
-
-        if self.no_color_check.isChecked():
-            cmd_parts.append("-nc")
-
-        # Advanced
-        cfg = self.config_file_input.text().strip()
-        if cfg:
-            cmd_parts.extend(["-config", cfg])
-
-        interact = self.interactsh_input.text().strip()
-        if interact:
-            cmd_parts.extend(["-iserver", interact])
-
-        if self.headless_check.isChecked():
-            cmd_parts.append("-headless")
-
-        if self.update_templates_check.isChecked():
-            cmd_parts.append("-update-templates")
-
-        if self.validate_check.isChecked():
-            cmd_parts.append("-validate")
-
-        if self.stop_at_first_check.isChecked():
-            cmd_parts.append("-stop-at-first-match")
-
-        if self.no_interactsh_check.isChecked():
-            cmd_parts.append("-no-interactsh")
-
-        self.command_input.setText(" ".join(cmd_parts))
-
-    # ==================== SCAN EXECUTION ====================
+    # -------------------------------------------------------------------------
+    # Execution
+    # -------------------------------------------------------------------------
 
     def run_scan(self):
-        """Execute Nuclei scan."""
-        target = self.target_input.text().strip()
-        if not target:
-            self._notify("Please enter a target URL or select a target list file")
-            return
-
-        self.output.clear()
-        self._info(f"Starting Nuclei scan on: {target}")
-        self._section("NUCLEI SCAN OUTPUT")
-
-        # Extract target name
         try:
-            temp = target
-            if os.path.isfile(temp):
-                target_name = os.path.splitext(os.path.basename(temp))[0]
-            else:
-                if "://" in temp:
-                    temp = temp.split("://", 1)[1]
-                target_name = temp.split("/")[0].split(":")[0]
-        except:
-            target_name = "target"
+            # Prepare output directory
+            target = self.target_input.text().strip()
+            if not target:
+                raise ValueError("Target required")
+                
+            from core.fileops import create_target_dirs
+            
+            # Create standard directory structure
+            base_dir = create_target_dirs(target)
+            
+            # Define output file
+            # Nuclei output is text by default with our -nc flag, or we could use .json if we switched to -json
+            # For now keeping it simple with txt as per existing logic
+            self.output_file = os.path.join(base_dir, "Logs", "nuclei_results.txt")
+            
+            cmd_str = self.build_command(preview=False)
+            
+            # Append output file arg
+            cmd_str += f" -o {shlex.quote(self.output_file)}"
+            
+            self._info(f"Starting Nuclei Scan...")
+            self._info(f"Results will be saved to: {self.output_file}")
+            
+            self._section("NUCLEI SCAN")
+            self._section("Command")
+            self._raw(html.escape(cmd_str))
+            
+            # Disable buffering for real-time results
+            self.start_execution(cmd_str, output_path=self.output_file, buffer_output=False)
+            
+        except Exception as e:
+            self._error(str(e))
 
-        self.base_dir = create_target_dirs(target_name, None)
-        output_file = os.path.join(self.base_dir, "Logs", "nuclei.txt")
+    def on_execution_finished(self):
+        super().on_execution_finished()
+        self._section("Scan Completed")
 
-        # Build command
-        cmd_text = self.command_input.text()
-        command = cmd_text.split()
-
-        # Add output file if not already specified
-        custom_out = self.output_file_input.text().strip()
-        if custom_out:
-            command.extend(["-o", custom_out])
-        else:
-            command.extend(["-o", output_file])
-
-        self.worker = ProcessWorker(command)
-        self.worker.output_ready.connect(self._on_output)
-        self.worker.finished.connect(self._on_scan_completed)
-        self.worker.error.connect(lambda err: self._error(f"Error: {err}"))
-
-        self.run_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-
-        if self.main_window:
-            self.main_window.active_process = self.worker
-
-        self.worker.start()
-
-    def stop_scan(self):
-        """Stop the running scan."""
-        if self.worker:
-            self.worker.stop()
-
-    def _on_scan_completed(self):
-        """Handle scan completion."""
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-
-        if self.base_dir:
-            output_file = os.path.join(self.base_dir, "Logs", "nuclei.txt")
-            self._info(f"Results saved to: {output_file}")
-
-        self.worker = None
-        if self.main_window:
-            self.main_window.active_process = None
-        self._info("Scan completed")
-        self._notify("Nuclei scan completed.")
-
-    def _on_output(self, line):
-        """Handle real-time output with severity-based coloring."""
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        line = ansi_escape.sub('', line)
-
-        if not line.strip():
+    def on_new_output(self, line):
+        clean = line.rstrip() # rstrip to preserve indentation
+        
+        clean = self.strip_ansi(clean)
+        safe_line = html.escape(clean)
+        
+        # Terminal look
+        base = "white-space: pre-wrap; font-family: monospace; display: block;"
+        
+        if not safe_line:
+            self._raw("<br>")
             return
-
-        line_lower = line.lower()
-
-        # Critical (RED) - critical severity findings
-        if "[critical]" in line_lower or "critical" in line_lower:
-            self.output.append(f'<span style="color:#F87171;font-weight:bold;">{line}</span>')
-
-        # High (ORANGE)
-        elif "[high]" in line_lower:
-            self.output.append(f'<span style="color:#FB923C;">{line}</span>')
-
-        # Medium (YELLOW)
-        elif "[medium]" in line_lower:
-            self.output.append(f'<span style="color:#FACC15;">{line}</span>')
-
-        # Low (GREEN)
-        elif "[low]" in line_lower:
-            self.output.append(f'<span style="color:#10B981;">{line}</span>')
-
-        # Info (BLUE)
-        elif "[info]" in line_lower or "inf]" in line_lower:
-            self.output.append(f'<span style="color:#60A5FA;">{line}</span>')
-
-        # Error messages
-        elif "error" in line_lower or "failed" in line_lower:
-            self.output.append(f'<span style="color:#F87171;">{line}</span>')
-
-        # Default
+        
+        # Colorize
+        if "[info]" in clean:
+            self._raw(f'<span style="{base} color:#60A5FA;">{safe_line}</span>') # Blue-400
+        elif "[low]" in clean:
+            self._raw(f'<span style="{base} color:#93C5FD; font-weight:bold;">{safe_line}</span>') # Blue-300
+        elif "[medium]" in clean:
+            self._raw(f'<span style="{base} color:#FACC15; font-weight:bold;">{safe_line}</span>') # Yellow-400
+        elif "[high]" in clean:
+            self._raw(f'<span style="{base} color:#F97316; font-weight:bold;">{safe_line}</span>') # Orange-500
+        elif "[critical]" in clean:
+            self._raw(f'<span style="{base} color:#EF4444; font-weight:bold;">{safe_line}</span>') # Red-500
+        elif "[INF]" in clean:
+            self._raw(f'<span style="{base} color:#34D399;">{safe_line}</span>') # Green-400
+        elif "[WRN]" in clean:
+            self._raw(f'<span style="{base} color:#FBBF24;">{safe_line}</span>') # Amber-400
+        elif "[ERR]" in clean:
+            self._raw(f'<span style="{base} color:#F87171;">{safe_line}</span>') # Red-400
         else:
-            self.output.append(line)
-
-    # ==================== HELPERS ====================
-
-    def _notify(self, message):
-        """Show notification."""
-        if self.main_window and hasattr(self.main_window, 'notification_manager'):
-            self.main_window.notification_manager.notify(message)
-
-    def _info(self, message):
-        """Add info message."""
-        self.output.append(f'<span style="color:#60A5FA;">[INFO]</span> {message}')
-
-    def _error(self, message):
-        """Add error message."""
-        self.output.append(f'<span style="color:#F87171;">[ERROR]</span> {message}')
-
-    def _section(self, title):
-        """Add section header."""
-        self.output.append(f'<br><span style="color:#FACC15;font-weight:700;">===== {title} =====</span><br>')
+            self._raw(f'<span style="{base}">{safe_line}</span>')

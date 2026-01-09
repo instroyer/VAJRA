@@ -6,6 +6,8 @@
 
 import os
 import re
+import shlex
+import html
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QMessageBox
@@ -13,52 +15,54 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from ui.worker import ProcessWorker
+from ui.worker import ToolExecutionMixin
 from core.fileops import create_target_dirs
 from ui.styles import (
     # Widgets
     RunButton, StopButton, CopyButton,
     StyledLineEdit, StyledSpinBox, StyledCheckBox,
-    StyledLabel, HeaderLabel, CommandDisplay, OutputView,
-    StyledGroupBox, ToolSplitter, ConfigTabs,
-    # Behaviors
-    SafeStop, OutputHelper,
+    StyledLabel, HeaderLabel, StyledGroupBox, OutputView,
+    ToolSplitter, ConfigTabs, StyledToolView,
     # Constants
-    TOOL_VIEW_STYLE, COLOR_BACKGROUND_SECONDARY, COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY
+    COLOR_BG_INPUT, COLOR_TEXT_PRIMARY
 )
 
 
 class NiktoTool(ToolBase):
     """Nikto vulnerability scanner tool plugin."""
 
-    @property
-    def name(self) -> str:
-        return "Nikto"
+    name = "Nikto"
+    category = ToolCategory.VULNERABILITY_SCANNER
 
     @property
-    def category(self) -> ToolCategory:
-        return ToolCategory.VULNERABILITY_SCANNER
+    def description(self) -> str:
+        return "Web server scanner which performs comprehensive tests against web servers."
+
+    @property
+    def icon(self) -> str:
+        return "🛡️"
 
     def get_widget(self, main_window):
-        return NiktoView(name=self.name, category=self.category, main_window=main_window)
+        return NiktoView(main_window=main_window)
 
 
-class NiktoView(QWidget, SafeStop, OutputHelper):
+class NiktoView(StyledToolView, ToolExecutionMixin):
     """Nikto web vulnerability scanner interface."""
     
     tool_name = "Nikto"
     tool_category = "VULNERABILITY_SCANNER"
 
-    def __init__(self, name, category, main_window=None):
+    def __init__(self, main_window=None):
         super().__init__()
         self.init_safe_stop()
         self.main_window = main_window
         self.base_dir = None
         self._build_ui()
+        self.update_command()
 
     def _build_ui(self):
         """Build complete custom UI."""
-        self.setStyleSheet(TOOL_VIEW_STYLE)
+        # setStyleSheet handled by StyledToolView
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -68,7 +72,7 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
 
         # ==================== CONTROL PANEL ====================
         control_panel = QWidget()
-        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
+        # Removed legacy style
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
@@ -82,11 +86,12 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
         control_layout.addWidget(target_label)
 
         target_row = QHBoxLayout()
-        self.target_input = StyledLineEdit("http://example.com")
+        self.target_input = StyledLineEdit()
+        self.target_input.setPlaceholderText("http://example.com")
         self.target_input.textChanged.connect(self.update_command)
         target_row.addWidget(self.target_input)
 
-        self.run_button = RunButton()
+        self.run_button = RunButton("RUN NIKTO")
         self.run_button.clicked.connect(self.run_scan)
         self.stop_button = StopButton()
         self.stop_button.clicked.connect(self.stop_scan)
@@ -94,11 +99,30 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
         target_row.addWidget(self.run_button)
         target_row.addWidget(self.stop_button)
         control_layout.addLayout(target_row)
+        
+        # Legend Button
+        self.legend_button = QPushButton("⚠️ View Severity Legend")
+        self.legend_button.setCursor(Qt.PointingHandCursor)
+        self.legend_button.setStyleSheet(f"""
+            QPushButton {{
+                color: {COLOR_TEXT_PRIMARY};
+                background-color: transparent;
+                border: 1px solid #3b82f6;
+                border-radius: 4px;
+                padding: 6px 12px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(59, 130, 246, 0.2);
+            }}
+        """)
+        self.legend_button.clicked.connect(self._show_severity_legend)
+        control_layout.addWidget(self.legend_button)
 
         # Command display
-        self.command_display = CommandDisplay()
-        self.command_input = self.command_display.input
-        control_layout.addWidget(self.command_display)
+        self.command_input = StyledLineEdit()
+        self.command_input.setReadOnly(True)
+        self.command_input.setPlaceholderText("Command preview...")
+        control_layout.addWidget(self.command_input)
 
         # Configuration Group
         config_group = StyledGroupBox("⚙️ Scan Configuration")
@@ -117,22 +141,24 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
         basic_layout.setColumnStretch(3, 1)
 
         # Port
-        port_label = StyledLabel("Port:")
+        port_label = StyledLabel("Port (-port):")
         port_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.port_input = StyledLineEdit("80 or 443")
+        self.port_input = StyledLineEdit()
+        self.port_input.setPlaceholderText("80,443")
         self.port_input.textChanged.connect(self.update_command)
 
         # SSL/HTTPS
-        self.ssl_check = StyledCheckBox("Force SSL")
+        self.ssl_check = StyledCheckBox("Force SSL (-ssl)")
         self.ssl_check.stateChanged.connect(self.update_command)
 
         self.followredirects_check = StyledCheckBox("Follow Redirects")
         self.followredirects_check.stateChanged.connect(self.update_command)
 
         # Virtual Host
-        vhost_label = StyledLabel("Virtual Host:")
+        vhost_label = StyledLabel("VHost (-vhost):")
         vhost_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.vhost_input = StyledLineEdit("Custom Host header")
+        self.vhost_input = StyledLineEdit()
+        self.vhost_input.setPlaceholderText("Custom Host header")
         self.vhost_input.textChanged.connect(self.update_command)
 
         # Timeout
@@ -147,7 +173,8 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
         # Max Time
         maxtime_label = StyledLabel("Max Time:")
         maxtime_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.maxtime_input = StyledLineEdit("e.g., 1h, 60m, 3600s")
+        self.maxtime_input = StyledLineEdit()
+        self.maxtime_input.setPlaceholderText("e.g., 1h, 60m")
         self.maxtime_input.textChanged.connect(self.update_command)
 
         # Display Options
@@ -155,9 +182,9 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
         display_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         display_layout = QHBoxLayout()
-        self.display_verbose = StyledCheckBox("Verbose")
+        self.display_verbose = StyledCheckBox("Verbose (V)")
         self.display_verbose.stateChanged.connect(self.update_command)
-        self.display_debug = StyledCheckBox("Debug")
+        self.display_debug = StyledCheckBox("Debug (D)")
         self.display_debug.stateChanged.connect(self.update_command)
 
         display_layout.addWidget(self.display_verbose)
@@ -187,7 +214,7 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
         scan_layout.setContentsMargins(10, 10, 10, 10)
         scan_layout.setSpacing(10)
 
-        tuning_label = StyledLabel("Scan Tuning (select tests to run):")
+        tuning_label = StyledLabel("Scan Tuning (-Tuning):")
         scan_layout.addWidget(tuning_label)
 
         tuning_grid = QGridLayout()
@@ -199,7 +226,7 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
             ("2", "Misconfiguration / Default File"),
             ("3", "Information Disclosure"),
             ("4", "Injection (XSS/Script/HTML)"),
-            ("5", "Remote File Retrieval - Inside Web Root"),
+            ("5", "Remote File Retrieval - Web Root"),
             ("6", "Denial of Service"),
             ("7", "Remote File Retrieval - Server Wide"),
             ("8", "Command Execution / Remote Shell"),
@@ -263,37 +290,43 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
         # User-Agent
         ua_label = StyledLabel("User-Agent:")
         ua_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.ua_input = StyledLineEdit("Custom User-Agent")
+        self.ua_input = StyledLineEdit()
+        self.ua_input.setPlaceholderText("Custom User-Agent")
         self.ua_input.textChanged.connect(self.update_command)
 
         # Proxy
         proxy_label = StyledLabel("Proxy:")
         proxy_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.proxy_input = StyledLineEdit("http://proxy:port")
+        self.proxy_input = StyledLineEdit()
+        self.proxy_input.setPlaceholderText("http://proxy:port")
         self.proxy_input.textChanged.connect(self.update_command)
 
         # Authentication
         auth_label = StyledLabel("Auth (id:pass):")
         auth_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.auth_input = StyledLineEdit("username:password")
+        self.auth_input = StyledLineEdit()
+        self.auth_input.setPlaceholderText("username:password")
         self.auth_input.textChanged.connect(self.update_command)
 
         # Evasion
         evasion_label = StyledLabel("Evasion:")
         evasion_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.evasion_input = StyledLineEdit("e.g., 1234AB")
+        self.evasion_input = StyledLineEdit()
+        self.evasion_input.setPlaceholderText("e.g., 1234AB")
         self.evasion_input.textChanged.connect(self.update_command)
 
         # CGI Dirs
         cgidirs_label = StyledLabel("CGI Dirs:")
         cgidirs_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.cgidirs_input = StyledLineEdit("/cgi-bin/ /scripts/")
+        self.cgidirs_input = StyledLineEdit()
+        self.cgidirs_input.setPlaceholderText("/cgi-bin/ /scripts/")
         self.cgidirs_input.textChanged.connect(self.update_command)
 
         # Root prepend
         root_label = StyledLabel("Root Prepend:")
         root_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.root_input = StyledLineEdit("/directory")
+        self.root_input = StyledLineEdit()
+        self.root_input.setPlaceholderText("/directory")
         self.root_input.textChanged.connect(self.update_command)
 
         # Checkboxes
@@ -331,106 +364,59 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
         # ==================== OUTPUT AREA ====================
         self.output = OutputView(self.main_window)
         self.output.setPlaceholderText("Nikto results will appear here...")
-
-        # Copy button
-        self.copy_button = CopyButton(self.output.output_text, self.main_window)
-        self.copy_button.setParent(self.output.output_text)
-        self.copy_button.raise_()
-
-        # Severity legend button
-        self.legend_button = QPushButton("⚠️")
-        self.legend_button.setStyleSheet('''
-            QPushButton {
-                font-size: 24px;
-                background-color: transparent;
-                border: none;
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background-color: rgba(23, 119, 209, 0.2);
-                border-radius: 8px;
-            }
-        ''')
-        self.legend_button.setCursor(Qt.PointingHandCursor)
-        self.legend_button.setToolTip(self._get_legend_tooltip())
-        self.legend_button.clicked.connect(self._show_severity_legend)
-        self.legend_button.setParent(self.output.output_text)
-        self.legend_button.raise_()
-
-        self.output.output_text.installEventFilter(self)
-
+        
         splitter.addWidget(self.output)
-        splitter.setSizes([400, 400])
+        splitter.setSizes([450, 350])
 
         main_layout.addWidget(splitter)
 
-        # Initialize command
-        self.update_command()
+    # -------------------------------------------------------------------------
+    # Command Builder
+    # -------------------------------------------------------------------------
 
-    def _get_legend_tooltip(self):
-        return (
-            '<div style="font-family: Arial; font-size: 12px; line-height: 1.5; color: #FFFFFF;">'
-            '<b style="font-size: 14px; color: #FFFFFF;">⚠️ Color Severity Legend</b><br><br>'
-            '<span style="color: #F87171; font-weight: bold;">🔴 RED (Bold)</span> - Critical Vulnerabilities<br>'
-            '<span style="color: #FB923C; font-weight: bold;">🟠 ORANGE</span> - High Severity<br>'
-            '<span style="color: #FACC15; font-weight: bold;">🟡 YELLOW</span> - Medium Severity<br>'
-            '<span style="color: #60A5FA; font-weight: bold;">🔵 BLUE</span> - Information<br>'
-            '<span style="color: #10B981; font-weight: bold;">🟢 GREEN</span> - Low/Informational'
-            '</div>'
-        )
-
-    def eventFilter(self, obj, event):
-        """Handle events to position floating buttons."""
-        from PySide6.QtCore import QEvent
-        if obj == self.output.output_text and event.type() == QEvent.Resize:
-            button_spacing = 5
-            self.copy_button.move(
-                self.output.output_text.width() - self.copy_button.sizeHint().width() - 10,
-                10
-            )
-            self.legend_button.move(
-                self.output.output_text.width() - self.copy_button.sizeHint().width() -
-                self.legend_button.sizeHint().width() - 10 - button_spacing,
-                10
-            )
-        return super().eventFilter(obj, event)
-
-    def update_command(self):
-        """Generate Nikto command based on UI inputs."""
+    def build_command(self, preview: bool = False) -> str:
+        """
+        Generate Nikto command string.
+        """
+        cmd = ["nikto"]
+        
         target = self.target_input.text().strip()
         if not target:
-            target = "<target>"
-        elif not target.startswith("http"):
-            target = f"http://{target}"
+            if preview:
+                target = "<target>"
+            else:
+                raise ValueError("Target required")
+        elif not target.startswith("http") and not preview:
+             target = f"http://{target}"
 
-        cmd_parts = ["nikto", "-h", target]
+        cmd.extend(["-h", target])
 
         # Port
         port = self.port_input.text().strip()
         if port:
-            cmd_parts.extend(["-port", port])
+            cmd.extend(["-port", port])
 
         # SSL
         if self.ssl_check.isChecked():
-            cmd_parts.append("-ssl")
+            cmd.append("-ssl")
 
         # Follow redirects
         if self.followredirects_check.isChecked():
-            cmd_parts.append("-followredirects")
+            cmd.append("-followredirects")
 
         # Virtual Host
         vhost = self.vhost_input.text().strip()
         if vhost:
-            cmd_parts.extend(["-vhost", vhost])
+            cmd.extend(["-vhost", vhost])
 
         # Timeout
         if self.timeout_spin.value() != 10:
-            cmd_parts.extend(["-timeout", str(self.timeout_spin.value())])
+            cmd.extend(["-timeout", str(self.timeout_spin.value())])
 
         # Max time
         maxtime = self.maxtime_input.text().strip()
         if maxtime:
-            cmd_parts.extend(["-maxtime", maxtime])
+            cmd.extend(["-maxtime", maxtime])
 
         # Display options
         display_opts = []
@@ -439,130 +425,132 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
         if self.display_debug.isChecked():
             display_opts.append("D")
         if display_opts:
-            cmd_parts.extend(["-Display", "".join(display_opts)])
+            cmd.extend(["-Display", "".join(display_opts)])
 
         # Tuning
         tuning_codes = [code for code, check in self.tuning_checks.items() if check.isChecked()]
         if tuning_codes:
-            cmd_parts.extend(["-Tuning", "".join(tuning_codes)])
+            cmd.extend(["-Tuning", "".join(tuning_codes)])
 
         # No 404
         if self.no404_check.isChecked():
-            cmd_parts.append("-no404")
+            cmd.append("-no404")
 
         # Use cookies
         if self.usecookies_check.isChecked():
-            cmd_parts.append("-usecookies")
+            cmd.append("-usecookies")
 
         # Pause
         if self.pause_spin.value() > 0:
-            cmd_parts.extend(["-Pause", str(self.pause_spin.value())])
+            cmd.extend(["-Pause", str(self.pause_spin.value())])
 
         # User-Agent
         ua = self.ua_input.text().strip()
         if ua:
-            cmd_parts.extend(["-useragent", f'"{ua}"'])
+            cmd.extend(["-useragent", ua])
 
         # Proxy
         proxy = self.proxy_input.text().strip()
         if proxy:
-            cmd_parts.extend(["-useproxy", proxy])
+            cmd.extend(["-useproxy", proxy])
 
         # Authentication
         auth = self.auth_input.text().strip()
         if auth:
-            cmd_parts.extend(["-id", auth])
+            cmd.extend(["-id", auth])
 
         # Evasion
         evasion = self.evasion_input.text().strip()
         if evasion:
-            cmd_parts.extend(["-evasion", evasion])
+            cmd.extend(["-evasion", evasion])
 
         # CGI Dirs
         cgidirs = self.cgidirs_input.text().strip()
         if cgidirs:
-            cmd_parts.extend(["-Cgidirs", f'"{cgidirs}"'])
+            cmd.extend(["-Cgidirs", cgidirs])
 
         # Root
         root = self.root_input.text().strip()
         if root:
-            cmd_parts.extend(["-root", root])
+            cmd.extend(["-root", root])
 
         # No lookup
         if self.nolookup_check.isChecked():
-            cmd_parts.append("-nolookup")
+            cmd.append("-nolookup")
 
         # No SSL
         if self.nossl_check.isChecked():
-            cmd_parts.append("-nossl")
+            cmd.append("-nossl")
 
-        self.command_input.setText(" ".join(cmd_parts))
+        # No interactive
+        cmd.extend(["-ask", "no"])
+
+        return " ".join(shlex.quote(x) for x in cmd)
+
+    def update_command(self):
+        try:
+            cmd_str = self.build_command(preview=True)
+            self.command_input.setText(cmd_str)
+        except Exception:
+            self.command_input.setText("")
+
+    # -------------------------------------------------------------------------
+    # Execution
+    # -------------------------------------------------------------------------
 
     def run_scan(self):
         """Execute Nikto scan."""
-        target = self.target_input.text().strip()
-        if not target:
-            self._notify("Please enter a target URL")
-            return
-
-        self.output.clear()
-        self._info(f"Starting Nikto scan on: {target}")
-        self._section("NIKTO SCAN OUTPUT")
-
-        # Extract target name from URL
         try:
-            temp = target
-            if "://" in temp:
-                temp = temp.split("://", 1)[1]
-            target_name = temp.split("/")[0].split(":")[0]
-        except:
-            target_name = "target"
+            target = self.target_input.text().strip()
+            # Validate via build
+            cmd_str = self.build_command(preview=False)
+            
+            # Extract target name from URL
+            try:
+                temp = target
+                if "://" in temp:
+                    temp = temp.split("://", 1)[1]
+                target_name = temp.split("/")[0].split(":")[0]
+            except:
+                target_name = "target"
 
-        self.base_dir = create_target_dirs(target_name, None)
-        output_file = os.path.join(self.base_dir, "Logs", "nikto.txt")
-
-        # Build command
-        command = self.command_input.text().split()
-        command.extend(["-output", output_file, "-Format", "txt"])
-
-        self.worker = ProcessWorker(command)
-        self.worker.output_ready.connect(self._on_output)
-        self.worker.finished.connect(self._on_scan_completed)
-        self.worker.error.connect(lambda err: self._error(f"Error: {err}"))
-
-        self.run_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-
-        if self.main_window:
-            self.main_window.active_process = self.worker
-
-        self.worker.start()
-
-    def _on_scan_completed(self):
-        """Handle scan completion."""
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-
-        if self.base_dir:
+            self.base_dir = create_target_dirs(target_name, None)
             output_file = os.path.join(self.base_dir, "Logs", "nikto.txt")
-            self._info(f"Results saved to: {output_file}")
+            
+            # Append output options to command string
+            cmd_str += f" -output {shlex.quote(output_file)} -Format txt"
 
+            # Start Execution (Mixin) - Use real-time output for formatted display
+            self.start_execution(cmd_str, output_file, buffer_output=False)
+
+            self._info(f"Starting Nikto scan on: {target}")
+            self._section("NIKTO SCAN OUTPUT")
+
+
+        
+        except Exception as e:
+            self._error(str(e))
+
+    def on_execution_finished(self):
+        """Handle scan completion."""
+        super().on_execution_finished()
         self.worker = None
         if self.main_window:
             self.main_window.active_process = None
-        self._info("Scan completed")
-        self._notify("Nikto scan completed.")
+        
+        if self.base_dir:
+             pass # Mixin handles notification
 
-    def _on_output(self, line):
+    def on_new_output(self, line):
         """Handle real-time output with severity-based color coding."""
-        # Strip ANSI codes
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        line = ansi_escape.sub('', line)
+        clean_line = ansi_escape.sub('', line)
 
-        if not line.strip():
+        if not clean_line.strip():
             return
 
-        line_lower = line.lower()
+        safe_line = html.escape(clean_line)
+        line_lower = clean_line.lower()
 
         # Critical (RED)
         if any(keyword in line_lower for keyword in [
@@ -571,7 +559,7 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
             "credentials", "password", "exploit", "vulnerable version",
             "remote code execution", "rce", "shell", "backdoor"
         ]):
-            self.output.append(f'<span style="color:#F87171;font-weight:bold;">{line}</span>')
+            self._raw(f'<span style="color:#F87171;font-weight:bold;">{safe_line}</span>')
 
         # High (ORANGE)
         elif any(keyword in line_lower for keyword in [
@@ -580,29 +568,29 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
             "misconfigur", "default file", "sensitive data",
             "allows remote", "cgi", "traversal", "path disclosure"
         ]):
-            self.output.append(f'<span style="color:#FB923C;">{line}</span>')
+            self._raw(f'<span style="color:#FB923C;">{safe_line}</span>')
 
         # Medium (YELLOW)
         elif any(keyword in line_lower for keyword in [
             "warning", "deprecated", "outdated", "missing header",
             "clickjacking", "iframe", "cookie", "header not set"
         ]):
-            self.output.append(f'<span style="color:#FACC15;">{line}</span>')
+            self._raw(f'<span style="color:#FACC15;">{safe_line}</span>')
 
         # Info (BLUE)
         elif any(keyword in line_lower for keyword in [
             "+ target ip:", "+ target hostname:", "+ start time:", "+ server:",
             "+ end time:", "nikto v", "scanning"
         ]):
-            self.output.append(f'<span style="color:#60A5FA;">{line}</span>')
+            self._raw(f'<span style="color:#60A5FA;">{safe_line}</span>')
 
         # Low (GREEN)
-        elif line.startswith("+ "):
-            self.output.append(f'<span style="color:#10B981;">{line}</span>')
+        elif clean_line.startswith("+ "):
+            self._raw(f'<span style="color:#10B981;">{safe_line}</span>')
 
         # Default
         else:
-            self.output.append(line)
+            self._raw(safe_line)
 
     def _show_severity_legend(self):
         """Show severity legend in a message box."""
@@ -639,7 +627,7 @@ class NiktoView(QWidget, SafeStop, OutputHelper):
 
         msg_box.setStyleSheet(f"""
             QMessageBox {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BG_INPUT};
                 color: {COLOR_TEXT_PRIMARY};
             }}
             QMessageBox QLabel {{

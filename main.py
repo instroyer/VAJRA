@@ -33,33 +33,42 @@ def main():
     
     app = QApplication(sys.argv)
 
-    # ===== Global Font Scaling (+2) =====
-    # Applied once for entire application
-    # Updated to Times New Roman 15px as per user request
+    # ===== Global Font Consistency =====
+    # Applied once for entire application - Consistent fonts across all UI
     app.setStyleSheet("""
         QWidget {
-            font-family: "Times New Roman";
-            font-size: 15px;
+            font-family: "Segoe UI", "Arial", sans-serif;
+            font-size: 14px;
             font-weight: normal;
         }
         QLabel {
-            font-family: "Times New Roman";
-            font-size: 15px;
+            font-family: "Segoe UI", "Arial", sans-serif;
+            font-size: 14px;
             font-weight: normal;
         }
         QLineEdit {
-            font-family: "Times New Roman";
-            font-size: 15px;
+            font-family: "Segoe UI", "Arial", sans-serif;
+            font-size: 14px;
             font-weight: normal;
         }
         QPushButton {
-            font-family: "Times New Roman";
-            font-size: 15px;
+            font-family: "Segoe UI", "Arial", sans-serif;
+            font-size: 14px;
             font-weight: normal;
         }
         QComboBox {
-            font-family: "Times New Roman";
-            font-size: 15px;
+            font-family: "Segoe UI", "Arial", sans-serif;
+            font-size: 14px;
+            font-weight: normal;
+        }
+        QTextEdit {
+            font-family: "Consolas", "Monaco", "Courier New", monospace;
+            font-size: 13px;
+            font-weight: normal;
+        }
+        QPlainTextEdit {
+            font-family: "Consolas", "Monaco", "Courier New", monospace;
+            font-size: 13px;
             font-weight: normal;
         }
     """)

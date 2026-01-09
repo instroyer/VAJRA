@@ -1,590 +1,471 @@
 # =============================================================================
 # modules/nmap.py
 #
-# Nmap - Network Mapper Port Scanner
+# Nmap - Network Mapper Port Scanner (STABLE REFACTOR)
 # =============================================================================
 
 import os
-import subprocess
+import shlex
+import tempfile
+import html
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QCompleter, QApplication,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QMessageBox, QInputDialog, QLineEdit
 )
-from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
-from core.tgtinput import parse_targets, TargetInput
+from core.tgtinput import parse_targets, TargetInput, parse_port_range
 from core.fileops import create_target_dirs
-from ui.worker import ProcessWorker
+from ui.worker import ToolExecutionMixin
 from ui.styles import (
     # Widgets
-    RunButton, StopButton, CopyButton, BrowseButton,
+    RunButton, StopButton, CopyButton,
     StyledLineEdit, StyledSpinBox, StyledCheckBox, StyledComboBox,
-    StyledLabel, HeaderLabel, CommandDisplay, OutputView,
-    StyledGroupBox, ToolSplitter,
-    # Behaviors
-    SafeStop, OutputHelper,
-    # Constants
-    TOOL_VIEW_STYLE, COLOR_BACKGROUND_SECONDARY
+    StyledLabel, HeaderLabel, OutputView,
+    StyledGroupBox, ToolSplitter, StyledToolView, ConfigTabs
 )
 
-
-# ==============================
-# Helper Functions
-# ==============================
-
-def is_root():
-    return os.geteuid() == 0 if hasattr(os, "geteuid") else False
-
-
-def parse_port_range(port_input: str):
-    ports = set()
-    if not port_input:
-        return []
-    for part in port_input.split(','):
-        part = part.strip()
-        if '-' in part:
-            try:
-                start, end = map(int, part.split('-'))
-                if 1 <= start <= end <= 65535:
-                    ports.update(range(start, end + 1))
-            except ValueError:
-                continue
-        else:
-            try:
-                port = int(part)
-                if 1 <= port <= 65535:
-                    ports.add(port)
-            except ValueError:
-                continue
-    return sorted(list(ports))
-
-
-# ==============================
-# GUI Tool
-# ==============================
+# =============================================================================
+# Tool Registration (MANDATORY FOR SIDEBAR)
+# =============================================================================
 
 class NmapScanner(ToolBase):
-    """Nmap tool plugin."""
-    
-    @property
-    def name(self) -> str:
-        return "Nmap"
 
-    @property
-    def category(self) -> ToolCategory:
-        return ToolCategory.PORT_SCANNING
+    name = "Nmap"
+    category = ToolCategory.PORT_SCANNING
 
     def get_widget(self, main_window: QWidget) -> QWidget:
-        return NmapScannerView(main_window=main_window)
+        return NmapScannerView(main_window)
 
 
-class NmapScannerView(QWidget, SafeStop, OutputHelper):
-    """Nmap port scanner interface."""
-    
+# =============================================================================
+# Tool View
+# =============================================================================
+
+class NmapScannerView(StyledToolView, ToolExecutionMixin):
+
     tool_name = "Nmap"
     tool_category = "PORT_SCANNING"
-    
+
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
         self.init_safe_stop()
-        
-        # State
-        self._is_stopping = False
-        self._scan_complete_added = False
+
         self._temp_ports_file = None
         self.nmap_scripts = self._get_nmap_scripts()
-        
-        # Build UI
+
         self._build_ui()
         self.update_command()
-    
-    def _get_nmap_scripts(self):
-        try:
-            command = r"find /usr/share/nmap/scripts -name '*.nse' -printf '%f\n' | sed 's/\.nse//' | sort"
-            process = subprocess.run(command, shell=True, capture_output=True, text=True, check=False)
-            if process.returncode == 0:
-                return process.stdout.strip().split('\n')
+
+    # -------------------------------------------------------------------------
+    # Command Builder (SINGLE SOURCE OF TRUTH)
+    # -------------------------------------------------------------------------
+
+    def build_command(self, preview: bool = False) -> str:
+        """
+        Builds the Nmap command string.
+        
+        Args:
+            preview: If True, uses placeholders for missing/dynamic values.
+                     If False, strict validation is applied.
+        
+        Returns:
+            The fully quoted command string safe for execution.
+        """
+        cmd = ["nmap"]
+
+        # Target
+        target = self.target_input.get_target().strip()
+        if not target:
+            if preview:
+                target = "<target>"
             else:
-                return []
-        except Exception:
-            return []
-    
-    def _build_ui(self):
-        """Build the complete UI."""
-        self.setStyleSheet(TOOL_VIEW_STYLE)
+                raise ValueError("Target is required")
         
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        # Splitter for control/output
-        splitter = ToolSplitter()
-        
-        # ==================== CONTROL PANEL ====================
-        control_panel = QWidget()
-        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
-        control_layout = QVBoxLayout(control_panel)
-        control_layout.setContentsMargins(10, 10, 10, 10)
-        control_layout.setSpacing(10)
-        
-        # Header
-        header = HeaderLabel(self.tool_category, self.tool_name)
-        control_layout.addWidget(header)
-        
-        # Target Row
-        target_label = StyledLabel("Target")
-        control_layout.addWidget(target_label)
-        
-        target_row = QHBoxLayout()
-        self.target_input = TargetInput()
-        self.target_input.input_box.textChanged.connect(self.update_command)
-        target_row.addWidget(self.target_input, 1)
-        
-        self.run_button = RunButton()
-        self.run_button.clicked.connect(self.run_scan)
-        self.stop_button = StopButton()
-        self.stop_button.clicked.connect(self.stop_scan)
-        
-        target_row.addWidget(self.run_button)
-        target_row.addWidget(self.stop_button)
-        control_layout.addLayout(target_row)
-        
-        # ==================== PORT & SCAN TYPE ROW ====================
-        options_layout = QHBoxLayout()
-        
-        port_label = StyledLabel("Ports:")
-        self.port_input = StyledLineEdit("e.g. 80, 443, 1-1000")
-        self.port_input.textChanged.connect(self.update_command)
-        
-        scan_type_label = StyledLabel("Scan Type:")
-        self.scan_type = StyledComboBox()
-        self.scan_type.addItems(['syn', 'tcp', 'udp', 'ack', 'fin', 'null', 'xmas', 'window', 'maimon'])
-        self.scan_type.currentTextChanged.connect(self.update_command)
-        
-        options_layout.addWidget(port_label)
-        options_layout.addWidget(self.port_input, 1)
-        options_layout.addSpacing(10)
-        options_layout.addWidget(scan_type_label)
-        options_layout.addWidget(self.scan_type, 1)
-        
-        control_layout.addLayout(options_layout)
-        
-        # ==================== SCRIPT & HOST SCAN ROW ====================
-        script_host_layout = QHBoxLayout()
-        
-        script_label = StyledLabel("Scripts:")
-        self.script_input = StyledComboBox()
-        self.script_input.setEditable(True)
-        
-        common_scripts = ['(None)', 'default', 'vuln', 'banner', 'discovery', 'safe', 'intrusive', 'auth', 'brute', 'dos', 'exploit']
-        self.script_input.addItems(common_scripts)
-        self.script_input.insertSeparator(len(common_scripts))
-        self.script_input.addItems(self.nmap_scripts)
-        self.script_input.currentTextChanged.connect(self.update_command)
-        
-        completer_list = common_scripts + self.nmap_scripts
-        completer = QCompleter(completer_list, self)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchContains)
-        self.script_input.setCompleter(completer)
-        
-        host_scan_label = StyledLabel("Host Scan:")
-        self.host_scan_type = StyledComboBox()
-        self.host_scan_type.addItems(['Default', 'List Scan (-sL)', 'Ping Scan (-sn)', 'No Ping (-Pn)'])
-        self.host_scan_type.currentTextChanged.connect(self.update_command)
-        
-        script_host_layout.addWidget(script_label)
-        script_host_layout.addWidget(self.script_input, 1)
-        script_host_layout.addSpacing(10)
-        script_host_layout.addWidget(host_scan_label)
-        script_host_layout.addWidget(self.host_scan_type, 1)
-        
-        control_layout.addLayout(script_host_layout)
-        
-        # ==================== CHECKBOXES ROW ====================
-        checkbox_layout = QHBoxLayout()
-        
-        self.aggressive_scan_check = StyledCheckBox("Aggressive Scan (-A)")
-        self.aggressive_scan_check.stateChanged.connect(self.update_command)
-        
-        self.traceroute_check = StyledCheckBox("Traceroute")
-        self.traceroute_check.stateChanged.connect(self.update_command)
-        
-        self.service_version_check = StyledCheckBox("Service Version (-sV)")
-        self.service_version_check.stateChanged.connect(self.update_command)
-        
-        self.os_detection_check = StyledCheckBox("OS Detection (-O)")
-        self.os_detection_check.stateChanged.connect(self.update_command)
-        
-        checkbox_layout.addWidget(self.aggressive_scan_check)
-        checkbox_layout.addWidget(self.traceroute_check)
-        checkbox_layout.addWidget(self.service_version_check)
-        checkbox_layout.addWidget(self.os_detection_check)
-        checkbox_layout.addStretch()
-        
-        control_layout.addLayout(checkbox_layout)
-        
-        # ==================== SPEED & OUTPUT ROW ====================
-        speed_output_layout = QHBoxLayout()
-        
-        speed_label = StyledLabel("Speed:")
-        self.speed_template = StyledComboBox()
-        self.speed_template.addItems(['T0 (Paranoid)', 'T1 (Sneaky)', 'T2 (Polite)', 'T3 (Normal)', 'T4 (Aggressive)', 'T5 (Insane)'])
-        self.speed_template.setCurrentIndex(3)
-        self.speed_template.currentTextChanged.connect(self.update_command)
-        
-        output_format_label = StyledLabel("Output Format:")
-        self.output_format = StyledComboBox()
-        self.output_format.addItems(['Normal (txt)', 'XML (.xml)', 'Grepable (.gnmap)', 'All Formats'])
-        self.output_format.currentTextChanged.connect(self.update_command)
-        
-        speed_output_layout.addWidget(speed_label)
-        speed_output_layout.addWidget(self.speed_template, 1)
-        speed_output_layout.addSpacing(10)
-        speed_output_layout.addWidget(output_format_label)
-        speed_output_layout.addWidget(self.output_format, 1)
-        
-        control_layout.addLayout(speed_output_layout)
-        
-        # ==================== TIMING CONTROLS ====================
-        timing_title = StyledLabel("Timing & Rate Control")
-        control_layout.addWidget(timing_title)
-        
-        timing_layout = QHBoxLayout()
-        
-        timeout_label = StyledLabel("Host Timeout (ms):")
-        self.host_timeout_spin = StyledSpinBox()
-        self.host_timeout_spin.setRange(0, 300000)
-        self.host_timeout_spin.setValue(0)
-        self.host_timeout_spin.setSuffix(" ms")
-        self.host_timeout_spin.setSpecialValueText("Default")
-        self.host_timeout_spin.valueChanged.connect(self.update_command)
-        
-        self.delay = StyledSpinBox()
-        self.delay.setSuffix(" ms delay")
-        self.delay.setRange(0, 5000)
-        self.delay.setValue(0)
-        self.delay.valueChanged.connect(self.update_command)
-        
-        self.max_rps = StyledSpinBox()
-        self.max_rps.setPrefix("Max RPS: ")
-        self.max_rps.setRange(0, 10000)
-        self.max_rps.setValue(0)
-        self.max_rps.valueChanged.connect(self.update_command)
-        
-        self.timeout = StyledSpinBox()
-        self.timeout.setPrefix("Timeout: ")
-        self.timeout.setSuffix(" s")
-        self.timeout.setRange(0, 300)
-        self.timeout.setValue(0)
-        self.timeout.valueChanged.connect(self.update_command)
-        
-        self.retries = StyledSpinBox()
-        self.retries.setPrefix("Retries: ")
-        self.retries.setRange(0, 10)
-        self.retries.setValue(0)
-        self.retries.valueChanged.connect(self.update_command)
-        
-        timing_layout.addWidget(timeout_label)
-        timing_layout.addWidget(self.host_timeout_spin)
-        timing_layout.addWidget(self.delay)
-        timing_layout.addWidget(self.max_rps)
-        timing_layout.addWidget(self.timeout)
-        timing_layout.addWidget(self.retries)
-        
-        control_layout.addLayout(timing_layout)
-        
-        # Command Display
-        self.command_input = CommandDisplay()
-        control_layout.addWidget(self.command_input)
-        
-        control_layout.addStretch()
-        splitter.addWidget(control_panel)
-        
-        # ==================== OUTPUT AREA ====================
-        self.output = OutputView(self.main_window)
-        self.output.setPlaceholderText("Nmap results will appear here...")
-        
-        # Copy button
-        self.copy_button = CopyButton(self.output.output_text, self.main_window)
-        self.copy_button.setParent(self.output.output_text)
-        self.copy_button.raise_()
-        self.output.output_text.installEventFilter(self)
-        
-        splitter.addWidget(self.output)
-        splitter.setSizes([400, 400])
-        
-        main_layout.addWidget(splitter)
-    
-    def eventFilter(self, obj, event):
-        """Position copy button on resize."""
-        from PySide6.QtCore import QEvent
-        if obj == self.output.output_text and event.type() == QEvent.Resize:
-            self.copy_button.move(
-                self.output.output_text.width() - self.copy_button.sizeHint().width() - 10,
-                10
-            )
-        return super().eventFilter(obj, event)
-    
+        # Speed
+        cmd.append(self._get_speed_flag())
+
+        # Host Scan
+        host_scan = self._get_host_scan_flag()
+        if host_scan:
+            cmd.append(host_scan)
+
+        # Scan Type & Ports
+        if host_scan not in ("-sL", "-sn"):
+            ports = self.port_input.text().strip() or "1-1000"
+            scan_flag = self._get_nmap_scan_flag()
+
+            if len(ports) <= 1000:
+                cmd.extend([scan_flag, "-p", ports])
+            else:
+                if preview:
+                    cmd.extend([scan_flag, "-p", "<ports-file>"])
+                else:
+                    self._temp_ports_file = self._create_ports_file(ports)
+                    cmd.extend([scan_flag, "-iL", self._temp_ports_file])
+
+        # Feature Flags
+        if self.aggressive_scan_check.isChecked():
+            cmd.append("-A")
+        if self.traceroute_check.isChecked():
+            cmd.append("--traceroute")
+        if self.service_version_check.isChecked():
+            cmd.append("-sV")
+        if self.os_detection_check.isChecked():
+            cmd.append("-O")
+
+        # Scripts
+        script = self.script_input.currentText().strip()
+        if script and script != "(None)":
+            cmd.extend(["--script", script])
+
+        # Timing & Rate
+        if self.retries.value() > 0:
+            cmd.extend(["--max-retries", str(self.retries.value())])
+        if self.timeout.value() > 0:
+            cmd.extend(["--host-timeout", f"{self.timeout.value()}s"])
+        if self.max_rps.value() > 0:
+            cmd.extend(["--max-rate", str(self.max_rps.value())])
+        if self.delay.value() > 0:
+            cmd.extend(["--scan-delay", f"{self.delay.value()}ms"])
+
+        # Output Flags (Runtime only)
+        if not preview and self._current_output_flag and self._current_log_base:
+            cmd.append(self._current_output_flag)
+            if self._current_output_flag == "-oA":
+                cmd.append(self._current_log_base)
+            else:
+                # Append extension based on the flag type
+                ext = ""
+                if self._current_output_flag == "-oN": ext = ".txt"
+                elif self._current_output_flag == "-oG": ext = ".gnmap"
+                elif self._current_output_flag == "-oX": ext = ".xml"
+                cmd.append(f"{self._current_log_base}{ext}")
+
+        # Target (Last)
+        cmd.append(target)
+
+        return " ".join(shlex.quote(x) for x in cmd)
+
+    # -------------------------------------------------------------------------
+    # UI Helpers
+    # -------------------------------------------------------------------------
+
     def update_command(self):
         try:
-            target = self.target_input.get_target().strip() or "<target>"
-            host_scan_flag = self._get_host_scan_flag()
-            scan_type_flag = self._get_nmap_scan_flag()
-            port_arg = f"-p {self.port_input.text().strip()}" if self.port_input.text().strip() else "-p 1-1000"
-            
-            output_flag, _ = self._get_output_args()
-            speed_flag = self._get_speed_flag()
-            
-            other_args = []
-            if self.aggressive_scan_check.isChecked():
-                other_args.append("-A")
-            if self.traceroute_check.isChecked():
-                other_args.append("--traceroute")
-            if self.service_version_check.isChecked():
-                other_args.append("-sV")
-            if self.os_detection_check.isChecked():
-                other_args.append("-O")
-            
-            script_arg = []
-            selected_script = self.script_input.currentText().strip()
-            if selected_script and selected_script != '(None)':
-                script_arg = ["--script", selected_script]
-            
-            timing_args = []
-            if self.retries.value() > 0:
-                timing_args.append(f"--max-retries {self.retries.value()}")
-            if self.timeout.value() > 0:
-                timing_args.append(f"--host-timeout {self.timeout.value()}s")
-            if self.max_rps.value() > 0:
-                timing_args.append(f"--max-rate {self.max_rps.value()}")
-            if self.delay.value() > 0:
-                timing_args.append(f"--scan-delay {self.delay.value()}ms")
-            
-            command_parts = ["nmap"]
-            if speed_flag:
-                command_parts.append(speed_flag)
-            if host_scan_flag:
-                command_parts.append(host_scan_flag)
-            
-            if host_scan_flag not in ['-sL', '-sn']:
-                command_parts.extend([scan_type_flag, port_arg])
-            
-            command_parts.extend(other_args)
-            
-            if output_flag:
-                command_parts.extend([output_flag, "nmap"])
-            
-            command_parts.extend(script_arg)
-            command_parts.extend(timing_args)
-            command_parts.append(target)
-            
-            self.command_input.setText(" ".join(command_parts))
-        except AttributeError:
+            cmd_str = self.build_command(preview=True)
+            self.command_input.setText(cmd_str)
+        except ValueError:
+            self.command_input.setText("")  # Clear if invalid
+        except Exception:
             pass
-    
+
+    # -------------------------------------------------------------------------
+    # Execution
+    # -------------------------------------------------------------------------
+
     def run_scan(self):
-        self.output.clear()
-        self._is_stopping = False
-        self._scan_complete_added = False
-        
-        target_str = self.target_input.get_target()
-        targets = parse_targets(target_str)[0]
-        if not targets:
-            return QMessageBox.warning(self, "Warning", "No valid targets specified.")
-        
+        # Parse target first
+        target_str = self.target_input.get_target().strip()
+        if not target_str:
+            QMessageBox.warning(self, "Warning", "No valid targets specified.")
+            return
+
         try:
+            # 1. Setup Environment & Output Paths
+            targets = parse_targets(target_str)[0]
+            if not targets:
+                raise ValueError("No valid targets found")
+
             base_dir = create_target_dirs(targets[0])
             logs_dir = os.path.join(base_dir, "Logs")
             os.makedirs(logs_dir, exist_ok=True)
             
-            output_flag, file_ext = self._get_output_args()
-            log_path_base = os.path.join(logs_dir, "nmap")
-            log_path = f"{log_path_base}{file_ext}"
-            
-            command = ["nmap"]
-            speed_flag = self._get_speed_flag()
-            if speed_flag:
-                command.append(speed_flag)
-            
-            host_scan_flag = self._get_host_scan_flag()
-            if host_scan_flag:
-                command.append(host_scan_flag)
-            
-            if host_scan_flag not in ['-sL', '-sn']:
-                port_input = self.port_input.text().strip()
-                if not port_input:
-                    port_input = "1-1000"
-                
-                if ',' not in port_input and '-' in port_input and len(port_input) <= 20:
-                    command.extend([self._get_nmap_scan_flag(), "-p", port_input])
-                elif len(port_input) <= 1000:
-                    command.extend([self._get_nmap_scan_flag(), "-p", port_input])
-                else:
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-                        ports_list = parse_port_range(port_input)
-                        f.write('\n'.join(map(str, ports_list)))
-                        ports_file = f.name
-                    command.extend([self._get_nmap_scan_flag(), "-iL", ports_file])
-                    self._temp_ports_file = ports_file
-            
-            if self.aggressive_scan_check.isChecked():
-                command.append("-A")
-            if self.traceroute_check.isChecked():
-                command.append("--traceroute")
-            if self.service_version_check.isChecked():
-                command.append("-sV")
-            if self.os_detection_check.isChecked():
-                command.append("-O")
-            
-            if output_flag:
-                path_for_nmap = log_path_base if output_flag == '-oA' else log_path
-                command.extend([output_flag, path_for_nmap])
-            
-            scripts = self.script_input.currentText().strip()
-            if scripts and scripts != '(None)':
-                command.extend(["--script", scripts])
-            
-            if self.retries.value() > 0:
-                command.extend(["--max-retries", str(self.retries.value())])
-            if self.timeout.value() > 0:
-                command.extend(["--host-timeout", f"{self.timeout.value()}s"])
-            if self.max_rps.value() > 0:
-                command.extend(["--max-rate", str(self.max_rps.value())])
-            if self.delay.value() > 0:
-                command.extend(["--scan-delay", f"{self.delay.value()}ms"])
-            
-            command.extend(targets)
-            
-            # Privilege escalation
-            from ui.settingpanel import privilege_manager
-            
-            stdin_data = None
-            
-            if privilege_manager.mode == "sudo":
-                if not privilege_manager.sudo_password:
-                    pwd, ok = QInputDialog.getText(
-                        self,
-                        "Sudo Password Required",
-                        "Sudo is enabled in Settings.\n\nPlease enter your password:",
-                        QLineEdit.Password
-                    )
-                    if ok and pwd.strip():
-                        privilege_manager.set_sudo_password(pwd.strip())
-                    else:
-                        self._error("Scan cancelled: Password is required when sudo is enabled.")
-                        self._info("Tip: Disable 'Enable sudo' in Settings if you don't need it.")
-                        return
-                
-                command = privilege_manager.wrap_command(command)
-                stdin_data = privilege_manager.get_stdin_data()
-                self._info("Running with sudo")
-            
-            if output_flag == '-oA':
-                self._info(f"Scan started. Output will be saved to {log_path_base}.(nmap|xml|gnmap)")
-            else:
-                self._info(f"Scan started. Output will be saved to: {log_path}")
-            
-            self.output.appendPlainText("")
-            
-            self.worker = ProcessWorker(command, stdin_data=stdin_data)
-            self.worker.output_ready.connect(self.output.appendPlainText)
-            self.worker.finished.connect(self.on_finished)
-            self.worker.error.connect(self._error)
-            
-            self.run_button.setEnabled(False)
-            self.stop_button.setEnabled(True)
-            self.worker.start()
-            
+            # Set state for build_command
+            self._current_output_flag, _ = self._get_output_args()
+            self._current_log_base = os.path.join(logs_dir, "nmap")
+
+            # 2. Build Command
+            cmd_str = self.build_command(preview=False)
+
+            # 3. Start Execution (Mixin handles UI state)
+            # Pass output path to mixin for final reporting
+            output_display_path = self._current_log_base if self._current_output_flag else None
+            self.start_execution(cmd_str, output_display_path, buffer_output=False)
+
+
+
         except Exception as e:
-            self._error(f"Failed to start scan: {str(e)}")
+            self._error(str(e))
+            self._cleanup()
     
+    def on_new_output(self, text):
+        clean = text.strip()
+        if clean:
+            self._raw(html.escape(clean))
+
     def on_finished(self):
-        if hasattr(self, '_temp_ports_file') and self._temp_ports_file:
-            try:
-                os.unlink(self._temp_ports_file)
-                self._temp_ports_file = None
-            except (OSError, AttributeError):
-                pass
-        
-        self._on_scan_completed()
-        if self._is_stopping:
-            return
-        
-        if not self._scan_complete_added:
-            self._section("Scan Complete")
-            self._scan_complete_added = True
+        self._cleanup()
+        self.on_execution_finished(success=True)
+
     
-    def stop_scan(self):
-        """Stop the scan safely."""
-        if hasattr(self, '_temp_ports_file') and self._temp_ports_file:
+    def _cleanup(self):
+        # Reset state
+        self._current_output_flag = None
+        self._current_log_base = None
+
+        if self._temp_ports_file:
             try:
                 os.unlink(self._temp_ports_file)
-                self._temp_ports_file = None
-            except (OSError, AttributeError):
+            except Exception:
                 pass
-        
+            self._temp_ports_file = None
+
+    # -------------------------------------------------------------------------
+    # Utilities
+    # -------------------------------------------------------------------------
+
+    def _create_ports_file(self, ports):
+        ports_list = sorted(parse_port_range(ports))
+        # Use mkstemp for secure temporary file creation
+        fd, temp_path = tempfile.mkstemp(prefix="nmap_ports_", suffix=".txt", text=True)
         try:
-            if self.worker and self.worker.isRunning():
-                self._is_stopping = True
-                self.worker.stop()
-                self.worker.wait(1000)
-                self._info("Scan stopped.")
+            with os.fdopen(fd, 'w') as f:
+                f.write("\n".join(map(str, ports_list)))
+            return temp_path
         except Exception:
-            pass
-        finally:
-            self._on_scan_completed()
-    
-    def _on_scan_completed(self):
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.worker = None
-        if self.main_window:
-            self.main_window.active_process = None
-    
-    def copy_results_to_clipboard(self):
-        """Copy scan results to clipboard."""
-        results_text = self.output.toPlainText()
-        if results_text.strip():
-            QApplication.clipboard().setText(results_text)
-            self._notify("Results copied to clipboard.")
-        else:
-            self._notify("No results to copy.")
-    
-    def _get_nmap_scan_flag(self):
-        return {
-            "tcp": "-sT", "syn": "-sS", "udp": "-sU",
-            "ack": "-sA", "fin": "-sF", "null": "-sN",
-            "xmas": "-sX", "window": "-sW", "maimon": "-sM"
-        }.get(self.scan_type.currentText(), "-sS")
-    
-    def _get_host_scan_flag(self):
-        return {
-            'Default': '',
-            'List Scan (-sL)': '-sL',
-            'Ping Scan (-sn)': '-sn',
-            'No Ping (-Pn)': '-Pn'
-        }.get(self.host_scan_type.currentText(), '')
-    
+            # fd is already closed by os.fdopen context manager, so no need to close here
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            raise
+
+    def _get_nmap_scripts(self):
+        """Retrieve list of nmap scripts."""
+        scripts = ["(None)", "vuln", "default", "banner", "http-enum", "http-title"]
+        # Basic check for common location
+        script_dir = "/usr/share/nmap/scripts"
+        if os.path.exists(script_dir):
+            try:
+                found = sorted([f for f in os.listdir(script_dir) if f.endswith(".nse")])
+                scripts.extend(found)
+            except Exception:
+                pass
+        return scripts
+
     def _get_speed_flag(self):
-        """Get Nmap timing template flag."""
-        speed_map = {
-            'T0 (Paranoid)': '-T0',
-            'T1 (Sneaky)': '-T1',
-            'T2 (Polite)': '-T2',
-            'T3 (Normal)': '-T3',
-            'T4 (Aggressive)': '-T4',
-            'T5 (Insane)': '-T5'
+        # Placeholder T3 until UI is added or linked to retries logic properly
+        return "-T3"
+
+    def _get_host_scan_flag(self):
+        if self.host_scan_combo.currentText() == "No Ping (-Pn)":
+            return "-Pn"
+        elif self.host_scan_combo.currentText() == "Ping Scan (-sn)":
+            return "-sn"
+        elif self.host_scan_combo.currentText() == "List Scan (-sL)":
+            return "-sL"
+        return ""
+
+    def _get_nmap_scan_flag(self):
+        scan_map = {
+            "SYN Scan (-sS)": "-sS",
+            "TCP Connect (-sT)": "-sT",
+            "UDP Scan (-sU)": "-sU",
+            "ACK Scan (-sA)": "-sA"
         }
-        return speed_map.get(self.speed_template.currentText(), '-T3')
-    
+        return scan_map.get(self.scan_type_combo.currentText(), "-sS")
+
     def _get_output_args(self):
-        return {
-            'Normal (txt)': ('-oN', '.txt'),
-            'XML (.xml)': ('-oX', '.xml'),
-            'Grepable (.gnmap)': ('-oG', '.gnmap'),
-            'All Formats': ('-oA', '')
-        }.get(self.output_format.currentText(), ('-oN', '.txt'))
+        flags = {
+            "Terminal Only": "", # Added for the new combo box
+            "Normal (-oN)": "-oN",
+            "Grepable (-oG)": "-oG",
+            "XML (-oX)": "-oX",
+            "All (-oA)": "-oA"
+        }
+        flag = flags.get(self.output_format_combo.currentText(), "")
+        ext = ""
+        if flag == "-oN": ext = ".txt"
+        elif flag == "-oG": ext = ".gnmap"
+        elif flag == "-oX": ext = ".xml"
+        return flag, ext
+
+    # -------------------------------------------------------------------------
+    # UI Builder
+    # -------------------------------------------------------------------------
+
+    def _build_ui(self):
+        """Construct the UI using centralized styles."""
+        # setStyleSheet handled by StyledToolView
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Splitter
+        splitter = ToolSplitter()
+        main_layout.addWidget(splitter)
+
+        # === Input Panel ===
+        input_widget = QWidget()
+        input_layout = QVBoxLayout(input_widget)
+        input_layout.setContentsMargins(20, 20, 20, 20)
+        input_layout.setSpacing(20) # Increased spacing between groups
+
+        # Header
+        input_layout.addWidget(HeaderLabel("PORT SCANNING", "Nmap"))
+
+        # --- 1. Scan Configuration Group ---
+        scan_group = StyledGroupBox("Scan Configuration")
+        scan_layout = QGridLayout(scan_group)
+        scan_layout.setVerticalSpacing(10)
+        scan_layout.setHorizontalSpacing(15)
+
+        # Target (Full Width)
+        scan_layout.addWidget(StyledLabel("Target:"), 0, 0)
+        self.target_input = TargetInput()
+        self.target_input.input_box.textChanged.connect(self.update_command)
+        scan_layout.addWidget(self.target_input, 0, 1, 1, 3) # Span 3 columns
+
+        # Row 2: Scan Type & Host Discovery
+        scan_layout.addWidget(StyledLabel("Scan Type:"), 1, 0)
+        self.scan_type_combo = StyledComboBox()
+        self.scan_type_combo.addItems(["SYN Scan (-sS)", "TCP Connect (-sT)", "UDP Scan (-sU)", "ACK Scan (-sA)"])
+        self.scan_type_combo.currentTextChanged.connect(self.update_command)
+        scan_layout.addWidget(self.scan_type_combo, 1, 1)
+
+        scan_layout.addWidget(StyledLabel("Host Discovery:"), 1, 2)
+        self.host_scan_combo = StyledComboBox()
+        self.host_scan_combo.addItem("Default Host Discovery")
+        self.host_scan_combo.addItems(["No Ping (-Pn)", "Ping Scan (-sn)", "List Scan (-sL)"])
+        self.host_scan_combo.currentTextChanged.connect(self.update_command)
+        scan_layout.addWidget(self.host_scan_combo, 1, 3)
+
+        # Row 3: Ports & Scripts
+        scan_layout.addWidget(StyledLabel("Ports:"), 2, 0)
+        self.port_input = StyledLineEdit("1-1000")
+        self.port_input.textChanged.connect(self.update_command)
+        scan_layout.addWidget(self.port_input, 2, 1)
+
+        scan_layout.addWidget(StyledLabel("Script:"), 2, 2)
+        self.script_input = StyledComboBox()
+        self.script_input.setEditable(True) # Allow typing script names
+        self.script_input.addItems(self.nmap_scripts)
+        self.script_input.currentTextChanged.connect(self.update_command)
+        scan_layout.addWidget(self.script_input, 2, 3)
+        
+        # Column stretch
+        scan_layout.setColumnStretch(1, 1)
+        scan_layout.setColumnStretch(3, 1)
+
+        input_layout.addWidget(scan_group)
+
+        # --- 2. Options Group ---
+        options_group = StyledGroupBox("Options")
+        options_layout = QGridLayout(options_group)
+        options_layout.setVerticalSpacing(10)
+        options_layout.setHorizontalSpacing(20)
+
+        self.service_version_check = StyledCheckBox("Service Version (-sV)")
+        self.os_detection_check = StyledCheckBox("OS Detection (-O)")
+        self.aggressive_scan_check = StyledCheckBox("Aggressive (-A)")
+        self.traceroute_check = StyledCheckBox("Traceroute")
+        
+        for chk in [self.service_version_check, self.os_detection_check, 
+                   self.aggressive_scan_check, self.traceroute_check]:
+            chk.stateChanged.connect(self.update_command)
+
+        options_layout.addWidget(self.service_version_check, 0, 0)
+        options_layout.addWidget(self.os_detection_check, 0, 1)
+        options_layout.addWidget(self.aggressive_scan_check, 1, 0)
+        options_layout.addWidget(self.traceroute_check, 1, 1)
+        
+        # Add a stretch or ensure columns are even
+        options_layout.setColumnStretch(0, 1)
+        options_layout.setColumnStretch(1, 1)
+
+        input_layout.addWidget(options_group)
+
+        # --- 3. Performance & Timing Group ---
+        perf_group = StyledGroupBox("Performance & Timing")
+        perf_layout = QGridLayout(perf_group)
+        perf_layout.setVerticalSpacing(10)
+        perf_layout.setHorizontalSpacing(15)
+
+        # Row 1: Retries & Timeout
+        perf_layout.addWidget(StyledLabel("Max Retries:"), 0, 0)
+        self.retries = StyledSpinBox()
+        self.retries.setRange(0, 10)
+        self.retries.setValue(0)
+        self.retries.valueChanged.connect(self.update_command)
+        perf_layout.addWidget(self.retries, 0, 1)
+
+        perf_layout.addWidget(StyledLabel("Timeout (s):"), 0, 2)
+        self.timeout = StyledSpinBox()
+        self.timeout.setRange(0, 9999)
+        self.timeout.setValue(0)
+        self.timeout.valueChanged.connect(self.update_command)
+        perf_layout.addWidget(self.timeout, 0, 3)
+
+        # Row 2: Rate & Delay
+        perf_layout.addWidget(StyledLabel("Max Rate:"), 1, 0)
+        self.max_rps = StyledSpinBox()
+        self.max_rps.setRange(0, 50000)
+        self.max_rps.setValue(0)
+        self.max_rps.valueChanged.connect(self.update_command)
+        perf_layout.addWidget(self.max_rps, 1, 1)
+        
+        perf_layout.addWidget(StyledLabel("Delay (ms):"), 1, 2)
+        self.delay = StyledSpinBox()
+        self.delay.setRange(0, 5000)
+        self.delay.setValue(0)
+        self.delay.valueChanged.connect(self.update_command)
+        perf_layout.addWidget(self.delay, 1, 3)
+        
+        # Column stretch
+        perf_layout.setColumnStretch(1, 1)
+        perf_layout.setColumnStretch(3, 1)
+
+        input_layout.addWidget(perf_group)
+
+        # --- 4. Control & Output ---
+        control_row = QHBoxLayout()
+        control_row.setSpacing(10)
+        
+        control_row.addWidget(StyledLabel("Output Format:"))
+        self.output_format_combo = StyledComboBox()
+        self.output_format_combo.addItems(["Terminal Only", "Normal (-oN)", "Grepable (-oG)", "XML (-oX)", "All (-oA)"])
+        self.output_format_combo.setCurrentIndex(1) # Default to Normal (-oN)
+        control_row.addWidget(self.output_format_combo)
+        
+        control_row.addStretch()
+        
+        self.run_button = RunButton("RUN SCAN")
+        self.run_button.clicked.connect(self.run_scan)
+        
+        self.stop_button = StopButton()
+        self.stop_button.clicked.connect(self.stop_scan)
+
+        control_row.addWidget(self.run_button)
+        control_row.addWidget(self.stop_button)
+        
+        input_layout.addLayout(control_row)
+
+        # Command Preview
+        self.command_input = StyledLineEdit()
+        self.command_input.setReadOnly(True)
+        self.command_input.setPlaceholderText("Command preview...")
+        input_layout.addWidget(self.command_input)
+
+        # Spacer to push everything up
+        input_layout.addStretch()
+
+        splitter.addWidget(input_widget)
+
+        # === Output Panel ===
+        self.output = OutputView(self.main_window)
+        splitter.addWidget(self.output)
+        
+        # Initial Sizes
+        splitter.setSizes([550, 250])

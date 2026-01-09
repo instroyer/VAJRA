@@ -5,103 +5,50 @@
 # =============================================================================
 
 import os
-import subprocess
+import shlex
+import socket
+import html
 from datetime import datetime
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QGroupBox, QFrame, QScrollArea, QApplication, QProgressBar,
-    QMessageBox, QFileDialog
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 
 from modules.bases import ToolBase, ToolCategory
+from ui.worker import ToolExecutionMixin
 from core.fileops import RESULT_BASE
 from ui.styles import (
+    # Widgets
+    RunButton, StopButton, BrowseButton,
     StyledLineEdit, StyledSpinBox, StyledCheckBox, StyledComboBox,
-    StyledLabel, HeaderLabel, CommandDisplay, BrowseButton,
-    StyledGroupBox, SafeStop, OutputHelper,
-    TOOL_VIEW_STYLE, COLOR_TEXT_PRIMARY, COLOR_BACKGROUND_SECONDARY,
-    COLOR_BTN_PRIMARY, COLOR_BTN_PRIMARY_HOVER,
-    COLOR_ACCENT
+    StyledLabel, HeaderLabel, StyledGroupBox, OutputView,
+    ToolSplitter, ConfigTabs, StyledToolView
 )
-
-
-class StatusCard(QFrame):
-    """Visual status card for pipeline steps."""
-    
-    STATUS_PENDING = "pending"
-    STATUS_RUNNING = "running"
-    STATUS_SUCCESS = "success"
-    STATUS_ERROR = "error"
-    
-    def __init__(self, title, description="", parent=None):
-        super().__init__(parent)
-        self.title = title
-        self.description = description
-        self.status = self.STATUS_PENDING
-        self._build_ui()
-        self.update_style()
-        
-    def _build_ui(self):
-        self.setFixedHeight(70)
-        self.setMinimumWidth(180)
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(3)
-        
-        header = QHBoxLayout()
-        self.icon_label = QLabel("⏳")
-        self.icon_label.setFont(QFont("Segoe UI Emoji", 14))
-        header.addWidget(self.icon_label)
-        
-        self.title_label = QLabel(self.title)
-        self.title_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        header.addWidget(self.title_label)
-        header.addStretch()
-        layout.addLayout(header)
-        
-        self.detail_label = QLabel(self.description)
-        self.detail_label.setFont(QFont("Segoe UI", 8))
-        self.detail_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
-        layout.addWidget(self.detail_label)
-    
-    def update_style(self):
-        colors = {
-            self.STATUS_PENDING: ("#2A2A3E", "#444", "⏳"),
-            self.STATUS_RUNNING: ("#1E3A5F", "#3B82F6", "⚡"),
-            self.STATUS_SUCCESS: ("#1A3D2F", "#10B981", "✅"),
-            self.STATUS_ERROR: ("#3D1A1A", "#EF4444", "❌"),
-        }
-        bg, border, icon = colors.get(self.status, colors[self.STATUS_PENDING])
-        self.setStyleSheet(f"QFrame {{ background: {bg}; border: 2px solid {border}; border-radius: 8px; }}")
-        self.icon_label.setText(icon)
-    
-    def set_status(self, status, detail=None):
-        self.status = status
-        if detail:
-            self.detail_label.setText(detail)
-        self.update_style()
 
 
 class MSFVenomTool(ToolBase):
     """MSFVenom Payload Generator tool plugin."""
 
-    @property
-    def name(self) -> str:
-        return "MSFVenom"
+    name = "MSFVenom"
+    category = ToolCategory.PAYLOAD_GENERATOR
 
     @property
-    def category(self):
-        return ToolCategory.PAYLOAD_GENERATOR
+    def description(self) -> str:
+        return "Payload generator and encoder for the Metasploit Framework."
+
+    @property
+    def icon(self) -> str:
+        return "💉"
 
     def get_widget(self, main_window: QWidget) -> QWidget:
         return MSFVenomToolView(main_window=main_window)
 
 
-class MSFVenomToolView(QWidget, SafeStop, OutputHelper):
+class MSFVenomToolView(StyledToolView, ToolExecutionMixin):
     """MSFVenom payload generator interface."""
+    
+    tool_name = "MSFVenom"
+    tool_category = "PAYLOAD_GENERATOR"
 
     PAYLOADS = {
         "Windows (x64)": {
@@ -170,262 +117,205 @@ class MSFVenomToolView(QWidget, SafeStop, OutputHelper):
 
     def __init__(self, main_window=None):
         super().__init__()
-        self.init_safe_stop()
         self.main_window = main_window
-        self.worker = None
         self.output_path = None
+        self.log_file = None
         self._build_ui()
+        self.update_command()
 
     def _build_ui(self):
-        self.setStyleSheet(TOOL_VIEW_STYLE)
+        """Build UI."""
+        # setStyleSheet handled by StyledToolView
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        splitter = ToolSplitter()
+        
+        # ==================== CONTROL PANEL ====================
+        control_panel = QWidget()
+        # Removed legacy style
+        control_layout = QVBoxLayout(control_panel)
+        control_layout.setContentsMargins(10, 10, 10, 10)
+        control_layout.setSpacing(10)
 
         # Header
-        header = HeaderLabel("PAYLOAD_GENERATOR", "MSFVenom")
-        main_layout.addWidget(header)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; }")
-
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setSpacing(12)
+        header = HeaderLabel(self.tool_category, self.tool_name)
+        control_layout.addWidget(header)
 
         # Connection Group
         conn_group = StyledGroupBox("🔌 Connection")
         conn_layout = QHBoxLayout(conn_group)
 
         conn_layout.addWidget(StyledLabel("LHOST:"))
-        self.lhost_input = StyledLineEdit("Your IP address")
-        self.lhost_input.textChanged.connect(self._update_cmd)
+        self.lhost_input = StyledLineEdit()
+        self.lhost_input.setPlaceholderText("IP Address")
+        self.lhost_input.textChanged.connect(self.update_command)
         conn_layout.addWidget(self.lhost_input, 1)
 
-        from PySide6.QtWidgets import QPushButton
-        detect_btn = QPushButton("🔍 Detect")
+        detect_btn = BrowseButton("📍 Detect") # Reuse browse button style for detect
+        detect_btn.setToolTip("Auto-detect IP")
         detect_btn.clicked.connect(self._detect_ip)
-        detect_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLOR_BTN_PRIMARY};
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 12px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background: {COLOR_BTN_PRIMARY_HOVER}; }}
-        """)
-        detect_btn.setCursor(Qt.PointingHandCursor)
         conn_layout.addWidget(detect_btn)
-
+        
         conn_layout.addWidget(StyledLabel("LPORT:"))
         self.lport_spin = StyledSpinBox()
         self.lport_spin.setRange(1, 65535)
         self.lport_spin.setValue(4444)
-        self.lport_spin.valueChanged.connect(self._update_cmd)
+        self.lport_spin.valueChanged.connect(self.update_command)
         conn_layout.addWidget(self.lport_spin)
 
-        layout.addWidget(conn_group)
+        control_layout.addWidget(conn_group)
 
-        # Payload Group
+        # Payload Configuration
         payload_group = StyledGroupBox("🎯 Payload")
         payload_layout = QVBoxLayout(payload_group)
 
-        row1 = QHBoxLayout()
-        row1.addWidget(StyledLabel("Platform:"))
+        p_row1 = QHBoxLayout()
+        p_row1.addWidget(StyledLabel("Platform:"))
         self.platform_combo = StyledComboBox()
         self.platform_combo.addItems(list(self.PAYLOADS.keys()))
         self.platform_combo.currentTextChanged.connect(self._update_payloads)
-        row1.addWidget(self.platform_combo, 1)
-
-        row1.addWidget(StyledLabel("Payload:"))
+        p_row1.addWidget(self.platform_combo, 1)
+        
+        p_row1.addWidget(StyledLabel("Payload:"))
         self.payload_combo = StyledComboBox()
-        self.payload_combo.currentTextChanged.connect(self._update_cmd)
-        row1.addWidget(self.payload_combo, 1)
-        payload_layout.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        row2.addWidget(StyledLabel("Format:"))
+        self.payload_combo.currentTextChanged.connect(self.update_command)
+        p_row1.addWidget(self.payload_combo, 1)
+        payload_layout.addLayout(p_row1)
+        
+        p_row2 = QHBoxLayout()
+        p_row2.addWidget(StyledLabel("Format:"))
         self.format_combo = StyledComboBox()
         self.format_combo.addItems(list(self.FORMATS.keys()))
-        self.format_combo.currentTextChanged.connect(self._update_cmd)
-        row2.addWidget(self.format_combo)
-
-        row2.addWidget(StyledLabel("Arch:"))
+        self.format_combo.currentTextChanged.connect(self.update_command)
+        p_row2.addWidget(self.format_combo)
+        
+        p_row2.addWidget(StyledLabel("Arch:"))
         self.arch_combo = StyledComboBox()
         self.arch_combo.addItems(["(auto)", "x86", "x64"])
-        self.arch_combo.currentTextChanged.connect(self._update_cmd)
-        row2.addWidget(self.arch_combo)
-        payload_layout.addLayout(row2)
+        self.arch_combo.currentTextChanged.connect(self.update_command)
+        p_row2.addWidget(self.arch_combo)
+        payload_layout.addLayout(p_row2)
+        
+        control_layout.addWidget(payload_group)
 
-        layout.addWidget(payload_group)
-
-        # Encoder Group
-        enc_group = StyledGroupBox("🔐 Encoding")
-        enc_layout = QHBoxLayout(enc_group)
-
-        enc_layout.addWidget(StyledLabel("Encoder:"))
+        # Advanced / Encoding
+        enc_group = StyledGroupBox("🔐 Advanced & Encoding")
+        enc_layout = QHBoxLayout(enc_group) # Check if this is used or remove
+        
+        self.advanced_tabs = ConfigTabs()
+        
+        # Tab 1: Encoding
+        enc_tab = QWidget()
+        enc_tab_layout = QHBoxLayout(enc_tab)
+        enc_tab_layout.setContentsMargins(10, 10, 10, 10)
+        
+        enc_tab_layout.addWidget(StyledLabel("Encoder:"))
         self.encoder_combo = StyledComboBox()
         self.encoder_combo.addItems(list(self.ENCODERS.keys()))
-        self.encoder_combo.currentTextChanged.connect(self._update_cmd)
-        enc_layout.addWidget(self.encoder_combo, 1)
-
-        enc_layout.addWidget(StyledLabel("Iterations:"))
+        self.encoder_combo.currentTextChanged.connect(self.update_command)
+        enc_tab_layout.addWidget(self.encoder_combo, 1)
+        
+        enc_tab_layout.addWidget(StyledLabel("Iter:"))
         self.iter_spin = StyledSpinBox()
         self.iter_spin.setRange(1, 20)
         self.iter_spin.setValue(3)
-        self.iter_spin.valueChanged.connect(self._update_cmd)
-        enc_layout.addWidget(self.iter_spin)
-
-        enc_layout.addWidget(StyledLabel("Bad chars:"))
-        self.badchars = StyledLineEdit("\\x00\\x0a\\x0d")
-        self.badchars.setMaximumWidth(120)
-        self.badchars.textChanged.connect(self._update_cmd)
-        enc_layout.addWidget(self.badchars)
-
-        enc_layout.addWidget(StyledLabel("NOPs:"))
-        self.nops_spin = StyledSpinBox()
-        self.nops_spin.setRange(0, 100)
-        self.nops_spin.setValue(0)
-        self.nops_spin.valueChanged.connect(self._update_cmd)
-        enc_layout.addWidget(self.nops_spin)
-
-        layout.addWidget(enc_group)
-
-        # Template Group
-        tmpl_group = StyledGroupBox("📦 Template Injection")
-        tmpl_layout = QHBoxLayout(tmpl_group)
-
-        self.template_check = StyledCheckBox("Use Template")
+        self.iter_spin.valueChanged.connect(self.update_command)
+        enc_tab_layout.addWidget(self.iter_spin)
+        
+        enc_tab_layout.addWidget(StyledLabel("BadChars:"))
+        self.badchars = StyledLineEdit()
+        self.badchars.setPlaceholderText("\\x00")
+        self.badchars.setMaximumWidth(80)
+        self.badchars.textChanged.connect(self.update_command)
+        enc_tab_layout.addWidget(self.badchars)
+        
+        self.advanced_tabs.addTab(enc_tab, "Encoding")
+        
+        # Tab 2: Template
+        tmpl_tab = QWidget()
+        tmpl_tab_layout = QHBoxLayout(tmpl_tab)
+        tmpl_tab_layout.setContentsMargins(10, 10, 10, 10)
+        
+        self.template_check = StyledCheckBox("Template (-x)")
         self.template_check.stateChanged.connect(self._toggle_template)
-        tmpl_layout.addWidget(self.template_check)
-
-        self.template_input = StyledLineEdit("Select template file...")
+        tmpl_tab_layout.addWidget(self.template_check)
+        
+        self.template_input = StyledLineEdit()
+        self.template_input.setPlaceholderText("Select executable...")
         self.template_input.setEnabled(False)
-        tmpl_layout.addWidget(self.template_input, 1)
-
+        self.template_input.textChanged.connect(self.update_command)
+        tmpl_tab_layout.addWidget(self.template_input, 1)
+        
         self.template_btn = BrowseButton()
         self.template_btn.clicked.connect(self._browse_template)
         self.template_btn.setEnabled(False)
-        tmpl_layout.addWidget(self.template_btn)
-
-        self.keep_check = StyledCheckBox("Keep original")
+        tmpl_tab_layout.addWidget(self.template_btn)
+        
+        self.keep_check = StyledCheckBox("Keep (-k)")
         self.keep_check.setEnabled(False)
-        tmpl_layout.addWidget(self.keep_check)
-
-        layout.addWidget(tmpl_group)
-
-        # Output Group
-        out_group = StyledGroupBox("💾 Output")
-        out_layout = QHBoxLayout(out_group)
-
-        self.custom_check = StyledCheckBox("Custom path")
-        self.custom_check.stateChanged.connect(self._toggle_custom)
-        out_layout.addWidget(self.custom_check)
-
-        self.output_input = StyledLineEdit("Auto-generated in VAJRA results")
+        self.keep_check.stateChanged.connect(self.update_command)
+        tmpl_tab_layout.addWidget(self.keep_check)
+        
+        self.advanced_tabs.addTab(tmpl_tab, "Template")
+        
+        # Tab 3: Output
+        out_tab = QWidget()
+        out_tab_layout = QHBoxLayout(out_tab)
+        out_tab_layout.setContentsMargins(10, 10, 10, 10)
+        
+        self.custom_out_check = StyledCheckBox("Custom Path")
+        self.custom_out_check.stateChanged.connect(self._toggle_custom_out)
+        out_tab_layout.addWidget(self.custom_out_check)
+        
+        self.output_input = StyledLineEdit()
+        self.output_input.setPlaceholderText("(Auto-generated)")
         self.output_input.setReadOnly(True)
-        out_layout.addWidget(self.output_input, 1)
-
+        self.output_input.textChanged.connect(self.update_command)
+        out_tab_layout.addWidget(self.output_input, 1)
+        
         self.output_btn = BrowseButton()
         self.output_btn.clicked.connect(self._browse_output)
         self.output_btn.setEnabled(False)
-        out_layout.addWidget(self.output_btn)
-
-        layout.addWidget(out_group)
-
-        # Command Display
-        self.cmd_display = CommandDisplay()
-        layout.addWidget(self.cmd_display)
-
-        # Generate Button
-        from PySide6.QtWidgets import QPushButton
-        self.gen_btn = QPushButton("🚀 Generate Payload")
-        self.gen_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: #f97316;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 10px 16px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            QPushButton:hover {{ background: #ea580c; }}
-        """)
-        self.gen_btn.setCursor(Qt.PointingHandCursor)
-        self.gen_btn.clicked.connect(self._generate)
-        layout.addWidget(self.gen_btn)
-
-        # Progress
-        self.progress = QProgressBar()
-        self.progress.setVisible(False)
-        layout.addWidget(self.progress)
-
-        # Result Frame
-        self.result = QFrame()
-        self.result.setVisible(False)
-        self.result.setStyleSheet("QFrame { background: #1A2E28; border: 2px solid #10B981; border-radius: 8px; padding: 12px; }")
-        res_layout = QVBoxLayout(self.result)
+        out_tab_layout.addWidget(self.output_btn)
         
-        res_header = QHBoxLayout()
-        self.res_icon = QLabel("✅")
-        self.res_icon.setFont(QFont("Segoe UI Emoji", 24))
-        res_header.addWidget(self.res_icon)
-        self.res_title = QLabel("Payload Generated!")
-        self.res_title.setStyleSheet("color: #10B981; font-size: 16px; font-weight: bold;")
-        res_header.addWidget(self.res_title)
-        res_header.addStretch()
-        res_layout.addLayout(res_header)
+        self.advanced_tabs.addTab(out_tab, "Output")
         
-        self.res_path = QLabel("")
-        self.res_path.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 12px;")
-        self.res_path.setWordWrap(True)
-        res_layout.addWidget(self.res_path)
-        
-        res_btns = QHBoxLayout()
-        open_btn = QPushButton("📂 Open Folder")
-        open_btn.clicked.connect(self._open_folder)
-        open_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLOR_BTN_PRIMARY};
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 12px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background: {COLOR_BTN_PRIMARY_HOVER}; }}
-        """)
-        res_btns.addWidget(open_btn)
-        
-        copy_btn = QPushButton("📋 Copy Path")
-        copy_btn.clicked.connect(self._copy_path)
-        copy_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: #8b5cf6;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 12px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background: #7c3aed; }}
-        """)
-        res_btns.addWidget(copy_btn)
-        res_btns.addStretch()
-        res_layout.addLayout(res_btns)
-        
-        layout.addWidget(self.result)
-        layout.addStretch()
+        control_layout.addWidget(self.advanced_tabs)
 
-        scroll.setWidget(content)
-        main_layout.addWidget(scroll)
+        # Command Preview
+        self.command_input = StyledLineEdit()
+        self.command_input.setReadOnly(True)
+        self.command_input.setPlaceholderText("Command preview...")
+        control_layout.addWidget(self.command_input)
 
-        # Initialize UI
+        # Buttons
+        btn_layout = QHBoxLayout()
+        self.run_button = RunButton("GENERATE PAYLOAD")
+        self.run_button.clicked.connect(self.run_scan)
+        self.stop_button = StopButton()
+        self.stop_button.clicked.connect(self.stop_scan)
+        
+        btn_layout.addWidget(self.run_button)
+        btn_layout.addWidget(self.stop_button)
+        control_layout.addLayout(btn_layout)
+
+        control_layout.addStretch()
+        splitter.addWidget(control_panel)
+
+        # Output View
+        self.output = OutputView(self.main_window)
+        self.output.setPlaceholderText("Generation log will appear here...")
+        
+        splitter.addWidget(self.output)
+        splitter.setSizes([500, 300])
+
+        main_layout.addWidget(splitter)
+        
+        # Init
+        self._detect_ip()
         self._update_payloads()
 
     def _update_payloads(self):
@@ -433,184 +323,168 @@ class MSFVenomToolView(QWidget, SafeStop, OutputHelper):
         self.payload_combo.clear()
         if p in self.PAYLOADS:
             self.payload_combo.addItems(list(self.PAYLOADS[p].keys()))
-        self._update_cmd()
+        self.payload_combo.setCurrentIndex(0)
+        self.update_command()
 
-    def _toggle_template(self, state):
+    def _toggle_template(self):
         enabled = self.template_check.isChecked()
         self.template_input.setEnabled(enabled)
         self.template_btn.setEnabled(enabled)
         self.keep_check.setEnabled(enabled)
+        self.update_command()
 
-    def _toggle_custom(self, state):
-        enabled = self.custom_check.isChecked()
+    def _toggle_custom_out(self):
+        enabled = self.custom_out_check.isChecked()
         self.output_input.setReadOnly(not enabled)
         self.output_btn.setEnabled(enabled)
         if not enabled:
             self.output_input.clear()
-            self.output_input.setPlaceholderText("Auto-generated in VAJRA results")
+        self.update_command()
 
     def _browse_template(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Template Executable", os.path.expanduser("~"),
-            "Executables (*.exe *.apk *.elf *.bin *.dll);;All Files (*)"
-        )
+        path, _ = QFileDialog.getOpenFileName(self, "Select Template")
         if path:
             self.template_input.setText(path)
 
     def _browse_output(self):
-        ext = self._ext()
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Payload As", os.path.expanduser(f"~/payload{ext}"),
-            f"Payload (*{ext});;All Files (*)"
-        )
+        path, _ = QFileDialog.getSaveFileName(self, "Save Payload As")
         if path:
             self.output_input.setText(path)
 
     def _detect_ip(self):
         try:
-            import socket
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             self.lhost_input.setText(s.getsockname()[0])
             s.close()
         except:
-            self.lhost_input.setPlaceholderText("Detection failed")
+            self.lhost_input.setText("127.0.0.1")
 
-    def _ext(self):
+    def _get_ext(self):
         fmt = self.FORMATS.get(self.format_combo.currentText(), "bin")
-        m = {"exe": ".exe", "dll": ".dll", "elf": ".elf", 
-             "macho": ".macho", "apk": ".apk", "raw": ".bin", "c": ".c", 
-             "python": ".py", "psh": ".ps1", "php": ".php", "jsp": ".jsp", "war": ".war"}
-        return m.get(fmt, ".bin")
+        m = {"exe": "exe", "dll": "dll", "elf": "elf", 
+             "macho": "macho", "apk": "apk", "raw": "bin", "c": "c", 
+             "python": "py", "psh": "ps1", "php": "php", "jsp": "jsp", "war": "war"}
+        return m.get(fmt, "bin")
 
-    def _build_cmd(self):
+    def _get_output_path(self):
+        if self.custom_out_check.isChecked() and self.output_input.text().strip():
+             return self.output_input.text().strip()
+             
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        platform = self.platform_combo.currentText().lower().split()[0]
+        ext = self._get_ext()
+        filename = f"payload_{platform}_{ts}.{ext}"
+        d = os.path.join(RESULT_BASE, "payloads")
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, filename)
+
+    # -------------------------------------------------------------------------
+    # Command Builder
+    # -------------------------------------------------------------------------
+
+    def build_command(self, preview: bool = False) -> str:
         cmd = ["msfvenom"]
         
+        # Payload
         platform_name = self.platform_combo.currentText()
-        payload = self.payload_combo.currentText()
-        if platform_name in self.PAYLOADS and payload in self.PAYLOADS[platform_name]:
-            cmd.extend(["-p", self.PAYLOADS[platform_name][payload]])
-        
+        payload_name = self.payload_combo.currentText()
+        if platform_name in self.PAYLOADS and payload_name in self.PAYLOADS[platform_name]:
+            cmd.extend(["-p", self.PAYLOADS[platform_name][payload_name]])
+            
+        # LHOST/LPORT
         lhost = self.lhost_input.text().strip()
         if lhost:
             cmd.append(f"LHOST={lhost}")
+        elif not preview:
+             raise ValueError("LHOST required")
+        else:
+             cmd.append("LHOST=<ip>")
+             
         cmd.append(f"LPORT={self.lport_spin.value()}")
         
+        # Arch
         arch = self.arch_combo.currentText()
         if arch != "(auto)":
             cmd.extend(["-a", arch])
-        
-        encoder = self.ENCODERS.get(self.encoder_combo.currentText(), "")
-        if encoder:
-            cmd.extend(["-e", encoder, "-i", str(self.iter_spin.value())])
-        
+            
+        # Encoder
+        enc = self.ENCODERS.get(self.encoder_combo.currentText(), "")
+        if enc:
+            cmd.extend(["-e", enc, "-i", str(self.iter_spin.value())])
+            
+        # Badchars
         bc = self.badchars.text().strip()
         if bc:
             cmd.extend(["-b", bc])
         
-        nops = self.nops_spin.value()
-        if nops > 0:
-            cmd.extend(["-n", str(nops)])
+        # Template
+        if self.template_check.isChecked():
+            tmpl = self.template_input.text().strip()
+            if tmpl:
+                cmd.extend(["-x", tmpl])
+                if self.keep_check.isChecked():
+                    cmd.append("-k")
+            elif not preview:
+                raise ValueError("Template file required")
         
-        if self.template_check.isChecked() and self.template_input.text().strip():
-            cmd.extend(["-x", self.template_input.text().strip()])
-            if self.keep_check.isChecked():
-                cmd.append("-k")
-        
+        # Output Format
         fmt = self.FORMATS.get(self.format_combo.currentText(), "raw")
-        cmd.extend(["-f", fmt, "-o", "<output>"])
+        cmd.extend(["-f", fmt])
         
-        return cmd
-
-    def _update_cmd(self):
-        self.cmd_display.setText(" ".join(self._build_cmd()))
-
-    def _output_path(self):
-        if self.custom_check.isChecked() and self.output_input.text().strip():
-            return self.output_input.text().strip()
-        
-        ts = datetime.now().strftime("%d%m%Y_%H%M%S")
-        platform = self.platform_combo.currentText().lower().replace(" ", "_").replace("(", "").replace(")", "")
-        d = os.path.join(RESULT_BASE, f"payloads_{ts}")
-        os.makedirs(d, exist_ok=True)
-        return os.path.join(d, f"payload_{platform}{self._ext()}")
-
-    def _generate(self):
-        if not self.lhost_input.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Please enter LHOST (your IP address).")
-            return
-        
-        if self.template_check.isChecked() and not self.template_input.text().strip():
-            QMessageBox.warning(self, "Validation Error", "You enabled template injection but did not select a template file.")
-            return
-        
-        self.result.setVisible(False)
-        self.output_path = self._output_path()
-        self.output_input.setText(self.output_path)
-        
-        cmd = self._build_cmd()
-        cmd = [self.output_path if c == "<output>" else c for c in cmd]
-        
-        self.gen_btn.setEnabled(False)
-        self.progress.setVisible(True)
-        self.progress.setValue(0)
-        
-        try:
-            self.progress.setValue(50)
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            self.progress.setValue(100)
-            
-            if result.returncode == 0 and os.path.exists(self.output_path):
-                self._done(True, self.output_path)
-            else:
-                error_msg = result.stderr or result.stdout or "Unknown error"
-                self._done(False, error_msg)
-        except subprocess.TimeoutExpired:
-            self._done(False, "Generation timed out (120s)")
-        except FileNotFoundError:
-            self._done(False, "msfvenom not found. Is Metasploit installed?")
-        except Exception as e:
-            self._done(False, str(e))
-
-    def _done(self, success, msg):
-        self.gen_btn.setEnabled(True)
-        self.progress.setVisible(False)
-        
-        self.result.setVisible(True)
-        if success:
-            self.result.setStyleSheet("QFrame { background: #1A2E28; border: 2px solid #10B981; border-radius: 8px; padding: 12px; }")
-            self.res_icon.setText("✅")
-            self.res_title.setText("Payload Generated Successfully!")
-            self.res_title.setStyleSheet("color: #10B981; font-size: 16px; font-weight: bold;")
-            size = os.path.getsize(msg) if os.path.exists(msg) else 0
-            self.res_path.setText(f"📍 {msg}\n📦 Size: {size:,} bytes")
-            self._notify("Payload generated!")
+        # Output Path (Always last)
+        if preview:
+            cmd.extend(["-o", "<output_file>"])
         else:
-            self.result.setStyleSheet("QFrame { background: #2D1F1F; border: 2px solid #EF4444; border-radius: 8px; padding: 12px; }")
-            self.res_icon.setText("❌")
-            self.res_title.setText("Generation Failed")
-            self.res_title.setStyleSheet("color: #EF4444; font-size: 16px; font-weight: bold;")
-            self.res_path.setText(f"❌ {msg}")
-            self._notify(f"Failed: {msg[:40]}")
+            # Output path is handled in run_scan, but build_command should include it for validity
+            # We'll append it in run_scan
+            pass 
+            
+        return " ".join(shlex.quote(x) for x in cmd)
 
-    def _open_folder(self):
-        if self.output_path:
-            import sys
-            folder = os.path.dirname(self.output_path)
-            if sys.platform == "win32":
-                subprocess.run(["explorer", folder])
-            elif sys.platform == "darwin":
-                subprocess.run(["open", folder])
-            else:
-                subprocess.run(["xdg-open", folder])
+    def update_command(self):
+        try:
+            cmd_str = self.build_command(preview=True)
+            self.command_input.setText(cmd_str)
+        except Exception:
+            self.command_input.setText("")
 
-    def _copy_path(self):
-        if self.output_path:
-            QApplication.clipboard().setText(self.output_path)
-            self._notify("Path copied!")
+    # -------------------------------------------------------------------------
+    # Execution
+    # -------------------------------------------------------------------------
 
-    def stop_all_workers(self):
-        if self.worker:
-            self.worker.stop()
-            self.worker.wait(2000)
-            self.worker = None
+    def run_scan(self):
+        try:
+            cmd_str = self.build_command(preview=False)
+            self.log_file = self._get_output_path()
+            
+            # Append output path
+            cmd_str += f" -o {shlex.quote(self.log_file)}"
+            
+            self._info("Generating Payload...")
+            self._section("MSFVENOM GENERATION")
+            self._section("Command")
+            self._raw(html.escape(cmd_str))
+            self._raw("<br>")
+            self._info(f"Target Output Path: {html.escape(self.log_file)}")
+            
+            self.start_execution(cmd_str, output_path=self.log_file)
+            
+        except Exception as e:
+            self._error(str(e))
+
+    def on_execution_finished(self):
+        super().on_execution_finished()
+        
+        output_file = self.log_file
+        if output_file and os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+            self._section("Generation Successful")
+            self._success(f"Payload saved to: {output_file}")
+            self._notify("Payload generated successfully!")
+        else:
+            self._error("Generation failed or file is empty.")
+
+    def on_new_output(self, line):
+        clean = line.strip()
+        if clean:
+            self._raw(html.escape(clean))

@@ -1,6 +1,5 @@
 
 from enum import Enum
-from PySide6.QtWidgets import QWidget
 
 class ToolCategory(Enum):
     """Enumeration for tool categories."""
@@ -25,23 +24,27 @@ class ToolBase:
     to be discovered and loaded by the main application.
     """
 
+    # Class attributes for discovery (to avoid instantiation)
+    name = None  # Override in subclasses
+    category = None  # Override in subclasses
+
     @property
-    def name(self) -> str:
+    def display_name(self) -> str:
         """
         The display name of the tool.
         This will be shown in the sidebar.
         """
-        raise NotImplementedError
+        return self.name or self.__class__.__name__
 
     @property
-    def category(self) -> ToolCategory:
+    def tool_category(self) -> ToolCategory:
         """
         The category this tool belongs to.
         This determines its grouping in the sidebar.
         """
-        raise NotImplementedError
+        return self.category
 
-    def get_widget(self, main_window: QWidget) -> QWidget:
+    def get_widget(self, main_window) -> "QWidget":
         """
         Returns the main UI widget for the tool.
 
@@ -49,6 +52,15 @@ class ToolBase:
             main_window: A reference to the main window instance.
 
         Returns:
-            An instance of the tool's QWidget.
+            An instance of the tool's UI widget.
         """
         raise NotImplementedError
+
+    def focus_primary_input(self):
+        """
+        Focuses the primary input field of the tool.
+        
+        This method is optional but recommended for keyboard accessibility.
+        The tool implementation should find its main target input and call .setFocus().
+        """
+        pass

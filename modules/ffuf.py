@@ -6,6 +6,8 @@
 
 import os
 import re
+import shlex
+import html
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog
 )
@@ -13,39 +15,41 @@ from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
 from core.fileops import create_target_dirs
-from ui.worker import ProcessWorker
+from ui.worker import ToolExecutionMixin
 from ui.styles import (
-    RunButton, StopButton, CopyButton, BrowseButton,
+    # Widgets
+    RunButton, StopButton, BrowseButton,
     StyledLineEdit, StyledSpinBox, StyledCheckBox, StyledComboBox,
-    StyledLabel, HeaderLabel, CommandDisplay, OutputView,
-    StyledGroupBox, ToolSplitter, ConfigTabs,
-    SafeStop, OutputHelper,
-    TOOL_VIEW_STYLE, COLOR_BACKGROUND_SECONDARY
+    StyledLabel, HeaderLabel, StyledGroupBox, OutputView,
+    ToolSplitter, ConfigTabs, StyledToolView
 )
 
 
 class FFUFTool(ToolBase):
     """FFUF web fuzzing tool plugin."""
 
-    @property
-    def name(self) -> str:
-        return "FFUF"
+    name = "FFUF"
+    category = ToolCategory.WEB_SCANNING
 
     @property
-    def category(self) -> ToolCategory:
-        return ToolCategory.WEB_SCANNING
+    def description(self) -> str:
+        return "Fast web fuzzer written in Go"
+
+    @property
+    def icon(self) -> str:
+        return "🚀"
 
     def get_widget(self, main_window):
-        return FfufView(name=self.name, category=self.category, main_window=main_window)
+        return FfufView(main_window=main_window)
 
 
-class FfufView(QWidget, SafeStop, OutputHelper):
+class FfufView(StyledToolView, ToolExecutionMixin):
     """FFUF web fuzzing interface."""
     
     tool_name = "FFUF"
     tool_category = "WEB_SCANNING"
 
-    def __init__(self, name, category, main_window=None):
+    def __init__(self, main_window=None):
         super().__init__()
         self.main_window = main_window
         self.init_safe_stop()
@@ -59,7 +63,7 @@ class FfufView(QWidget, SafeStop, OutputHelper):
 
     def _build_ui(self):
         """Build complete UI."""
-        self.setStyleSheet(TOOL_VIEW_STYLE)
+        # Note: setStyleSheet handled by StyledToolView
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -69,7 +73,7 @@ class FfufView(QWidget, SafeStop, OutputHelper):
 
         # ==================== CONTROL PANEL ====================
         control_panel = QWidget()
-        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
+        # Removed legacy background style
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
@@ -83,11 +87,12 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         control_layout.addWidget(target_label)
 
         target_row = QHBoxLayout()
-        self.target_input = StyledLineEdit("http://example.com/FUZZ")
+        self.target_input = StyledLineEdit()
+        self.target_input.setPlaceholderText("http://example.com/FUZZ")
         self.target_input.textChanged.connect(self.update_command)
         target_row.addWidget(self.target_input)
         
-        self.run_button = RunButton()
+        self.run_button = RunButton("RUN FFUF")
         self.run_button.clicked.connect(self.run_scan)
         self.stop_button = StopButton()
         self.stop_button.clicked.connect(self.stop_scan)
@@ -103,7 +108,8 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         wl_label = StyledLabel("Wordlist:")
         wl_label.setFixedWidth(100)
 
-        self.wordlist_input = StyledLineEdit("Select wordlist file...")
+        self.wordlist_input = StyledLineEdit()
+        self.wordlist_input.setPlaceholderText("Select wordlist file...")
         self.wordlist_input.textChanged.connect(self.update_command)
 
         wl_browse = BrowseButton()
@@ -115,7 +121,9 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         control_layout.addWidget(wordlist_group)
 
         # Command Display
-        self.command_input = CommandDisplay()
+        self.command_input = StyledLineEdit()
+        self.command_input.setReadOnly(True)
+        self.command_input.setPlaceholderText("Command preview...")
         control_layout.addWidget(self.command_input)
 
         # Configuration Tabs
@@ -140,26 +148,29 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         self.method_combo.addItems(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
         self.method_combo.currentTextChanged.connect(self.update_command)
 
-        self.follow_redirects = StyledCheckBox("Follow Redirects")
+        self.follow_redirects = StyledCheckBox("Follow Redirects (-r)")
         self.follow_redirects.stateChanged.connect(self.update_command)
 
-        self.auto_calibrate = StyledCheckBox("Auto-Calibrate")
+        self.auto_calibrate = StyledCheckBox("Auto-Calibrate (-ac)")
         self.auto_calibrate.setChecked(True)
         self.auto_calibrate.stateChanged.connect(self.update_command)
 
         headers_label = StyledLabel("Headers:")
         headers_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.headers_input = StyledLineEdit('"User-Agent: CustomUA"')
+        self.headers_input = StyledLineEdit()
+        self.headers_input.setPlaceholderText('"User-Agent: CustomUA"')
         self.headers_input.textChanged.connect(self.update_command)
 
         cookies_label = StyledLabel("Cookies:")
         cookies_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.cookies_input = StyledLineEdit("session=abc123; token=xyz789")
+        self.cookies_input = StyledLineEdit()
+        self.cookies_input.setPlaceholderText("session=abc123; token=xyz789")
         self.cookies_input.textChanged.connect(self.update_command)
 
         data_label = StyledLabel("POST Data:")
         data_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.data_input = StyledLineEdit("username=admin&password=FUZZ")
+        self.data_input = StyledLineEdit()
+        self.data_input.setPlaceholderText("username=admin&password=FUZZ")
         self.data_input.textChanged.connect(self.update_command)
 
         request_layout.addWidget(method_label, 0, 0)
@@ -184,49 +195,58 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         filter_layout.setColumnStretch(1, 1)
         filter_layout.setColumnStretch(3, 1)
 
-        filter_sc_label = StyledLabel("Filter Status:")
+        filter_sc_label = StyledLabel("Filter Status (-fc):")
         filter_sc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.filter_status = StyledLineEdit("404,403")
+        self.filter_status = StyledLineEdit()
+        self.filter_status.setPlaceholderText("404,403")
         self.filter_status.textChanged.connect(self.update_command)
 
-        match_sc_label = StyledLabel("Match Status:")
+        match_sc_label = StyledLabel("Match Status (-mc):")
         match_sc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.match_status = StyledLineEdit("200,301")
+        self.match_status = StyledLineEdit()
+        self.match_status.setPlaceholderText("200,301")
         self.match_status.textChanged.connect(self.update_command)
 
-        filter_size_label = StyledLabel("Filter Size:")
+        filter_size_label = StyledLabel("Filter Size (-fs):")
         filter_size_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.filter_size = StyledLineEdit("bytes")
+        self.filter_size = StyledLineEdit()
+        self.filter_size.setPlaceholderText("size")
         self.filter_size.textChanged.connect(self.update_command)
 
-        match_size_label = StyledLabel("Match Size:")
+        match_size_label = StyledLabel("Match Size (-ms):")
         match_size_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.match_size = StyledLineEdit("bytes")
+        self.match_size = StyledLineEdit()
+        self.match_size.setPlaceholderText("size")
         self.match_size.textChanged.connect(self.update_command)
 
-        filter_words_label = StyledLabel("Filter Words:")
+        filter_words_label = StyledLabel("Filter Words (-fw):")
         filter_words_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.filter_words = StyledLineEdit("word count")
+        self.filter_words = StyledLineEdit()
+        self.filter_words.setPlaceholderText("count")
         self.filter_words.textChanged.connect(self.update_command)
 
-        match_words_label = StyledLabel("Match Words:")
+        match_words_label = StyledLabel("Match Words (-mw):")
         match_words_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.match_words = StyledLineEdit("word count")
+        self.match_words = StyledLineEdit()
+        self.match_words.setPlaceholderText("count")
         self.match_words.textChanged.connect(self.update_command)
 
-        filter_lines_label = StyledLabel("Filter Lines:")
+        filter_lines_label = StyledLabel("Filter Lines (-fl):")
         filter_lines_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.filter_lines = StyledLineEdit("line count")
+        self.filter_lines = StyledLineEdit()
+        self.filter_lines.setPlaceholderText("lines")
         self.filter_lines.textChanged.connect(self.update_command)
 
-        match_regex_label = StyledLabel("Match Regex:")
+        match_regex_label = StyledLabel("Match Regex (-mr):")
         match_regex_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.match_regex = StyledLineEdit('"admin.*panel"')
+        self.match_regex = StyledLineEdit()
+        self.match_regex.setPlaceholderText('regex')
         self.match_regex.textChanged.connect(self.update_command)
 
-        filter_regex_label = StyledLabel("Filter Regex:")
+        filter_regex_label = StyledLabel("Filter Regex (-fr):")
         filter_regex_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.filter_regex = StyledLineEdit('"error.*"')
+        self.filter_regex = StyledLineEdit()
+        self.filter_regex.setPlaceholderText('regex')
         self.filter_regex.textChanged.connect(self.update_command)
 
         filter_mode_label = StyledLabel("Filter Mode:")
@@ -275,14 +295,14 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         advanced_layout.setColumnStretch(1, 1)
         advanced_layout.setColumnStretch(3, 1)
 
-        threads_label = StyledLabel("Threads:")
+        threads_label = StyledLabel("Threads (-t):")
         threads_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.threads_spin = StyledSpinBox()
-        self.threads_spin.setRange(1, 100)
+        self.threads_spin.setRange(1, 200)
         self.threads_spin.setValue(40)
         self.threads_spin.valueChanged.connect(self.update_command)
 
-        delay_label = StyledLabel("Delay (ms):")
+        delay_label = StyledLabel("Delay (s) (-p):")
         delay_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.delay_spin = StyledSpinBox()
         self.delay_spin.setRange(0, 5000)
@@ -290,7 +310,7 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         self.delay_spin.setSuffix(" ms")
         self.delay_spin.valueChanged.connect(self.update_command)
 
-        rate_label = StyledLabel("Rate Limit:")
+        rate_label = StyledLabel("Rate Limit (-rate):")
         rate_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.rate_spin = StyledSpinBox()
         self.rate_spin.setRange(0, 10000)
@@ -299,7 +319,7 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         self.rate_spin.setSuffix(" req/s")
         self.rate_spin.valueChanged.connect(self.update_command)
 
-        timeout_label = StyledLabel("Timeout (s):")
+        timeout_label = StyledLabel("Timeout (-timeout):")
         timeout_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.timeout_spin = StyledSpinBox()
         self.timeout_spin.setRange(1, 300)
@@ -307,7 +327,7 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         self.timeout_spin.setSuffix(" s")
         self.timeout_spin.valueChanged.connect(self.update_command)
 
-        self.recursion_check = StyledCheckBox("Recursive Fuzzing")
+        self.recursion_check = StyledCheckBox("Recursive Fuzzing (-r)")
         self.recursion_check.stateChanged.connect(self.update_command)
 
         recursion_depth_label = StyledLabel("Depth:")
@@ -321,9 +341,10 @@ class FfufView(QWidget, SafeStop, OutputHelper):
             lambda: self.recursion_depth.setEnabled(self.recursion_check.isChecked())
         )
 
-        ext_label = StyledLabel("Extensions:")
+        ext_label = StyledLabel("Extensions (-e):")
         ext_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.extensions_input = StyledLineEdit(".php,.html,.js")
+        self.extensions_input = StyledLineEdit()
+        self.extensions_input.setPlaceholderText(".php,.html,.js")
         self.extensions_input.textChanged.connect(self.update_command)
 
         advanced_layout.addWidget(threads_label, 0, 0)
@@ -353,25 +374,10 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         self.output = OutputView(self.main_window)
         self.output.setPlaceholderText("FFUF results will appear here...")
 
-        self.copy_button = CopyButton(self.output.output_text, self.main_window)
-        self.copy_button.setParent(self.output.output_text)
-        self.copy_button.raise_()
-        self.output.output_text.installEventFilter(self)
-
         splitter.addWidget(self.output)
         splitter.setSizes([400, 400])
 
         main_layout.addWidget(splitter)
-
-    def eventFilter(self, obj, event):
-        """Position copy button on resize."""
-        from PySide6.QtCore import QEvent
-        if obj == self.output.output_text and event.type() == QEvent.Resize:
-            self.copy_button.move(
-                self.output.output_text.width() - self.copy_button.sizeHint().width() - 10,
-                10
-            )
-        return super().eventFilter(obj, event)
 
     def _browse_wordlist(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -380,173 +386,193 @@ class FfufView(QWidget, SafeStop, OutputHelper):
         if file_path:
             self.wordlist_input.setText(file_path)
 
-    def update_command(self):
+    # -------------------------------------------------------------------------
+    # Command Builder
+    # -------------------------------------------------------------------------
+
+    def build_command(self, preview: bool = False) -> str:
+        """
+        Builds the FFuF command string.
+        """
+        cmd = ["ffuf"]
+
+        # Target
         target = self.target_input.text().strip()
         if not target:
-            target = "http://<target>/FUZZ"
-        elif "FUZZ" not in target:
-            if not target.startswith("http"):
-                target = f"http://{target}"
-            if not target.endswith("/"):
-                target += "/"
-            target += "FUZZ"
-        elif not target.startswith("http"):
-            target = f"http://{target}"
+            if preview:
+                target = "http://<target>/FUZZ"
+            else:
+                raise ValueError("Target URL required")
+        
+        # Determine strictness for run vs preview
+        if not preview:
+             if "FUZZ" not in target:
+                 raise ValueError("Target must contain FUZZ keyword")
 
+        cmd.extend(["-u", target])
+
+        # Wordlist
         wordlist = self.wordlist_input.text().strip()
         if not wordlist:
-            wordlist = "<wordlist>"
+            if preview:
+                wordlist = "<wordlist>"
+            else:
+                raise ValueError("Wordlist required")
+        cmd.extend(["-w", wordlist])
 
-        cmd_parts = ["ffuf"]
-        cmd_parts.extend(["-u", target])
-        cmd_parts.extend(["-w", wordlist])
-
+        # HTTP Request options
         if self.method_combo.currentText() != "GET":
-            cmd_parts.extend(["-X", self.method_combo.currentText()])
+            cmd.extend(["-X", self.method_combo.currentText()])
 
         headers = self.headers_input.text().strip()
         if headers:
-            for header in headers.split('"'):
-                header = header.strip()
-                if header and ":" in header:
-                    cmd_parts.extend(["-H", f'"{header}"'])
+            if '"' in headers:
+                 parts = [p.strip() for p in headers.split('"') if p.strip()]
+                 for p in parts:
+                     cmd.extend(["-H", p])
+            else:
+                 cmd.extend(["-H", headers])
 
         cookies = self.cookies_input.text().strip()
         if cookies:
-            cmd_parts.extend(["-b", f'"{cookies}"'])
+            cmd.extend(["-b", cookies])
 
         data = self.data_input.text().strip()
         if data:
-            cmd_parts.extend(["-d", f'"{data}"'])
+            cmd.extend(["-d", data])
 
         if self.follow_redirects.isChecked():
-            cmd_parts.append("-r")
+            cmd.append("-r")
         if self.auto_calibrate.isChecked():
-            cmd_parts.append("-ac")
+            cmd.append("-ac")
 
+        # Filters
         if self.filter_status.text().strip():
-            cmd_parts.extend(["-fc", self.filter_status.text().strip()])
+            cmd.extend(["-fc", self.filter_status.text().strip()])
         if self.match_status.text().strip():
-            cmd_parts.extend(["-mc", self.match_status.text().strip()])
+            cmd.extend(["-mc", self.match_status.text().strip()])
         if self.filter_size.text().strip():
-            cmd_parts.extend(["-fs", self.filter_size.text().strip()])
+            cmd.extend(["-fs", self.filter_size.text().strip()])
         if self.match_size.text().strip():
-            cmd_parts.extend(["-ms", self.match_size.text().strip()])
+            cmd.extend(["-ms", self.match_size.text().strip()])
         if self.filter_words.text().strip():
-            cmd_parts.extend(["-fw", self.filter_words.text().strip()])
+            cmd.extend(["-fw", self.filter_words.text().strip()])
         if self.match_words.text().strip():
-            cmd_parts.extend(["-mw", self.match_words.text().strip()])
+            cmd.extend(["-mw", self.match_words.text().strip()])
         if self.filter_lines.text().strip():
-            cmd_parts.extend(["-fl", self.filter_lines.text().strip()])
+            cmd.extend(["-fl", self.filter_lines.text().strip()])
         if self.match_regex.text().strip():
-            cmd_parts.extend(["-mr", f'"{self.match_regex.text().strip()}"'])
+            cmd.extend(["-mr", self.match_regex.text().strip()])
         if self.filter_regex.text().strip():
-            cmd_parts.extend(["-fr", f'"{self.filter_regex.text().strip()}"'])
+            cmd.extend(["-fr", self.filter_regex.text().strip()])
+        
         if self.filter_mode_combo.currentText() != "or":
-            cmd_parts.extend(["-fmode", self.filter_mode_combo.currentText()])
+            cmd.extend(["-fmode", self.filter_mode_combo.currentText()])
         if self.match_mode_combo.currentText() != "or":
-            cmd_parts.extend(["-mmode", self.match_mode_combo.currentText()])
+            cmd.extend(["-mmode", self.match_mode_combo.currentText()])
 
+        # Advanced
         if self.threads_spin.value() != 40:
-            cmd_parts.extend(["-t", str(self.threads_spin.value())])
-        if self.delay_spin.value() > 0:
-            cmd_parts.extend(["-p", f"{self.delay_spin.value()/1000:.3f}"])
+            cmd.extend(["-t", str(self.threads_spin.value())])
+        
+        delay = self.delay_spin.value()
+        if delay > 0:
+            cmd.extend(["-p", f"{delay/1000:.3f}"])
+            
         if self.rate_spin.value() > 0:
-            cmd_parts.extend(["-rate", str(self.rate_spin.value())])
+            cmd.extend(["-rate", str(self.rate_spin.value())])
+            
         if self.timeout_spin.value() != 10:
-            cmd_parts.extend(["-timeout", str(self.timeout_spin.value())])
+            cmd.extend(["-timeout", str(self.timeout_spin.value())])
 
         if self.recursion_check.isChecked():
-            cmd_parts.append("-recursion")
-            cmd_parts.extend(["-recursion-depth", str(self.recursion_depth.value())])
+            cmd.append("-recursion")
+            if self.recursion_depth.value() > 1:
+                cmd.extend(["-recursion-depth", str(self.recursion_depth.value())])
 
         if self.extensions_input.text().strip():
-            cmd_parts.extend(["-e", self.extensions_input.text().strip()])
+            cmd.extend(["-e", self.extensions_input.text().strip()])
 
-        cmd_parts.append("-c")
+        # Always add color for display/processing
+        cmd.append("-c")
 
-        self.command_input.setText(" ".join(cmd_parts))
+        return " ".join(shlex.quote(x) for x in cmd)
+
+    def update_command(self):
+        try:
+            cmd_str = self.build_command(preview=True)
+            self.command_input.setText(cmd_str)
+        except Exception:
+            self.command_input.setText("")
+
+    # -------------------------------------------------------------------------
+    # Execution
+    # -------------------------------------------------------------------------
 
     def run_scan(self):
-        target = self.target_input.text().strip()
-        if not target:
-            self._notify("Please enter a target URL with FUZZ keyword")
-            return
-
-        if "FUZZ" not in target:
-            self._notify("Target must contain FUZZ keyword for fuzzing")
-            return
-
-        wordlist = self.wordlist_input.text().strip()
-        if not wordlist or not os.path.exists(wordlist):
-            self._notify("Please select a valid wordlist file")
-            return
-
-        self.output.clear()
-        self._info(f"Starting FFUF scan on: {target}")
-        self._info(f"Wordlist: {wordlist}")
-        self._info(f"Method: {self.method_combo.currentText()}")
-        self._section("FFUF OUTPUT")
-
         try:
-            temp = target
-            if "://" in temp:
-                temp = temp.split("://", 1)[1]
-            target_name = temp.split("/")[0]
-            if ":" in target_name:
-                target_name = target_name.split(":")[0]
-            target_name = target_name.replace("FUZZ", "").replace("<", "").replace(">", "").strip()
-            if not target_name:
+            target = self.target_input.text().strip()
+            wordlist = self.wordlist_input.text().strip()
+            
+            # Setup logging
+            try:
+                temp = target
+                if "://" in temp:
+                    temp = temp.split("://", 1)[1]
+                target_name = temp.split("/")[0]
+                if ":" in target_name:
+                    target_name = target_name.split(":")[0]
+                target_name = target_name.replace("FUZZ", "").strip()
+                if not target_name:
+                    target_name = "target"
+            except:
                 target_name = "target"
-        except:
-            target_name = "target"
-        
-        self.base_dir = create_target_dirs(target_name, None)
-        json_output = os.path.join(self.base_dir, "Logs", "ffuf.json")
+                
+            self.base_dir = create_target_dirs(target_name, None)
+            output_file = os.path.join(self.base_dir, "Logs", "ffuf.txt")
+            json_output = os.path.join(self.base_dir, "Logs", "ffuf.json")
+            
+            cmd_str = self.build_command(preview=False)
+            
+            # Add output options for execution
+            cmd_str += f" -o {shlex.quote(json_output)} -of json"
+            
+            # Start execution (Mixin)
+            self.start_execution(cmd_str, output_file)
+            
+            self._info(f"Starting FFUF scan on: {target}")
+            self._info(f"Wordlist: {wordlist}")
+            self._section("FFUF OUTPUT")
+            
 
-        command = self.command_input.text().split()
-        command.extend(["-o", json_output, "-of", "json"])
 
-        self.worker = ProcessWorker(command)
-        self.worker.output_ready.connect(self._on_output)
-        self.worker.finished.connect(self._on_scan_completed)
-        self.worker.error.connect(lambda err: self._error(f"Error: {err}"))
+        except Exception as e:
+            self._error(str(e))
 
-        self.run_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-
-        if self.main_window:
-            self.main_window.active_process = self.worker
-
-        self.worker.start()
-
-    def _on_scan_completed(self):
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
+    def on_execution_finished(self):
+        super().on_execution_finished()
         
         if self.base_dir:
             output_file = os.path.join(self.base_dir, "Logs", "ffuf.txt")
             try:
+                # Save the text view content too for convenience
                 with open(output_file, "w", encoding="utf-8") as f:
                     f.write(self.output.toPlainText())
-                self._info(f"Results saved to: {output_file}")
             except Exception as e:
-                self._error(f"Failed to save results: {e}")
+                pass
         
         self.worker = None
         if self.main_window:
             self.main_window.active_process = None
-        self._info("Scan completed")
-        self._notify("FFUF scan completed.")
 
-    def _on_output(self, line):
+    def on_new_output(self, line):
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        line = ansi_escape.sub('', line)
+        clean_line = ansi_escape.sub('', line)
         
-        if ":: Progress:" in line and "[Status:" not in line:
+        if ":: Progress:" in clean_line and "[Status:" not in clean_line:
             return
         
-        if not line.strip():
+        if not clean_line.strip():
             return
         
-        self.output.append(line)
+        self._raw(html.escape(clean_line))

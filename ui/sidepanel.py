@@ -1,13 +1,14 @@
 
+import functools
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QScrollArea, QFrame
 from PySide6.QtCore import Qt, Signal, QEasingCurve, QPropertyAnimation
 from collections import defaultdict
 
 from modules.bases import ToolCategory
 from ui.styles import (
-    COLOR_BACKGROUND_SECONDARY, COLOR_BORDER, COLOR_TEXT_SECONDARY, 
+    COLOR_BG_SECONDARY, COLOR_BORDER_DEFAULT, COLOR_TEXT_SECONDARY, 
     COLOR_TEXT_PRIMARY, FONT_FAMILY_UI, SIDE_PANEL_STYLE, SIDE_PANEL_BUTTON_STYLE,
-    SIDE_PANEL_CATEGORY_STYLE, SIDE_PANEL_HEADER_STYLE, COLOR_ACCENT
+    SIDE_PANEL_CATEGORY_STYLE, SIDE_PANEL_HEADER_STYLE, COLOR_ACCENT_PRIMARY
 )
 
 
@@ -40,7 +41,7 @@ class Sidepanel(QWidget):
         header_layout.setSpacing(5)
 
         title = QLabel("⚡ VAJRA")
-        title.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 22px; font-weight: 800; background: transparent; border: none; font-family: {FONT_FAMILY_UI};")
+        title.setStyleSheet(f"color: {COLOR_ACCENT_PRIMARY}; font-size: 22px; font-weight: 800; background: transparent; border: none; font-family: {FONT_FAMILY_UI};")
         title.setAlignment(Qt.AlignCenter)
         header_layout.addWidget(title)
         
@@ -88,7 +89,7 @@ class Sidepanel(QWidget):
             QPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2d1f1f, stop:1 #3d2f2f);
                 color: #e5e7eb;
-                border-color: {COLOR_ACCENT};
+                border-color: {COLOR_ACCENT_PRIMARY};
             }
         """)
         self.settings_btn.clicked.connect(self.settings_clicked.emit)
@@ -97,8 +98,11 @@ class Sidepanel(QWidget):
 
     def _populate_tools(self):
         categorized_tools = defaultdict(list)
-        for tool in self.tools.values():
-            categorized_tools[tool.category].append(tool)
+        for tool_class in self.tools.values():
+            # Access class attributes without instantiation
+            tool_category = getattr(tool_class, 'category', None)
+            if tool_category:
+                categorized_tools[tool_category].append(tool_class)
 
         order_of_categories = list(ToolCategory)
         sorted_categories = sorted(categorized_tools.keys(), key=lambda x: order_of_categories.index(x))
@@ -116,11 +120,11 @@ class Sidepanel(QWidget):
             container_layout.setContentsMargins(15, 0, 0, 5) # Indent
             container_layout.setSpacing(4)
 
-            sorted_tools = sorted(categorized_tools[category], key=lambda x: x.name)
+            sorted_tools = sorted(categorized_tools[category], key=lambda x: getattr(x, 'name', x.__name__))
             for tool in sorted_tools:
                 # Apply the new SIDE_PANEL_BUTTON_STYLE
                 button = self._add_tool_button(tool, container_layout)
-                button.clicked.connect(lambda checked, t=tool, b=button: self._activate_button(b, t))
+                button.clicked.connect(functools.partial(self._activate_button, button, tool))
 
             container.setVisible(True) # Start expanded
             self.tools_layout.addWidget(container)

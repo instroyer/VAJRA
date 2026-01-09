@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QGridLayout, QLineEdit, QApplication, QMessageBox
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QShortcut, QKeySequence
 
 from modules.bases import ToolBase, ToolCategory
 from ui.sidepanel import Sidepanel
@@ -17,8 +17,8 @@ from ui.notification import NotificationManager
 from ui.settingpanel import SettingsPanel
 from ui.styles import (
     MAIN_WINDOW_STYLE, TAB_WIDGET_STYLE,
-    COLOR_BACKGROUND_SECONDARY, COLOR_BORDER, COLOR_TEXT_SECONDARY, COLOR_TEXT_PRIMARY,
-    COLOR_BACKGROUND_PRIMARY, TOOL_HEADER_STYLE, LABEL_STYLE,
+    COLOR_BG_SECONDARY, COLOR_BORDER_DEFAULT, COLOR_TEXT_SECONDARY, COLOR_TEXT_PRIMARY,
+    COLOR_BG_PRIMARY, TOOL_HEADER_STYLE, LABEL_STYLE,
     TARGET_INPUT_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
     OUTPUT_TEXT_EDIT_STYLE, TOOL_VIEW_STYLE, FONT_FAMILY_UI
 )
@@ -51,8 +51,10 @@ class MainWindow(QMainWindow):
 
         self.active_process = None
         self.open_tool_widgets = {}
+        self.current_tool_obj = {} # Helper to track ToolBase objects for focus delegation
         self.tools = self._discover_tools()
         self._build_ui()
+        self._setup_shortcuts()
 
     def _discover_tools(self):
         """
@@ -96,14 +98,17 @@ class MainWindow(QMainWindow):
                     "portscanner", "searchsploit", "strings", "subfinder", "wafw00f", "whois"
                 ]
         
-        # Load each module and find ToolBase subclasses
+        # Load each module and find ToolBase subclasses (lazy loading)
         for name in known_modules:
             try:
                 module = importlib.import_module(f'{module_path}.{name}')
                 for _, obj in inspect.getmembers(module, inspect.isclass):
                     if issubclass(obj, ToolBase) and obj is not ToolBase:
-                        tool_instance = obj()
-                        tools[tool_instance.name] = tool_instance
+                        # Store class reference instead of instance (lazy loading)
+                        # Use class attributes to avoid instantiation
+                        tool_name = getattr(obj, 'name', None)
+                        if tool_name:
+                            tools[tool_name] = obj  # Store the class, not an instance
             except ImportError as e:
                 print(f"[Discovery] ImportError loading {name}: {e}")
             except Exception as e:
@@ -123,7 +128,7 @@ class MainWindow(QMainWindow):
         # --- Title Bar ---
         title_bar = QWidget()
         title_bar.setFixedHeight(40)
-        title_bar.setStyleSheet(f"background-color: {COLOR_BACKGROUND_PRIMARY}; border-bottom: 1px solid {COLOR_BORDER};")
+        title_bar.setStyleSheet(f"background-color: {COLOR_BG_PRIMARY}; border-bottom: 1px solid {COLOR_BORDER_DEFAULT};")
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(5, 0, 5, 0)
         title_layout.setSpacing(10)
@@ -168,6 +173,8 @@ class MainWindow(QMainWindow):
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setMovable(True)
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
+        # Handle tab change to update context for shortcuts if needed, 
+        # but shortcuts work on active window/widget usually.
         self.tab_widget.setStyleSheet(TAB_WIDGET_STYLE)
         main_content_layout.addWidget(self.tab_widget)
         
@@ -176,8 +183,8 @@ class MainWindow(QMainWindow):
         # --- Status Bar ---
         self.status_bar = QStatusBar()
         self.status_bar.setStyleSheet(f'''QStatusBar {{
-                background-color: {COLOR_BACKGROUND_SECONDARY};
-                border-top: 1px solid {COLOR_BORDER};
+                background-color: {COLOR_BG_SECONDARY};
+                border-top: 1px solid {COLOR_BORDER_DEFAULT};
                 color: {COLOR_TEXT_SECONDARY};
                 padding: 0 10px;
             }}
@@ -196,6 +203,62 @@ class MainWindow(QMainWindow):
         # --- Initial State ---
         self.show_welcome_tab()
         self.sidepanel.setVisible(True) # Ensure sidepanel is visible by default
+
+    def _setup_shortcuts(self):
+        """Setup global keyboard shortcuts."""
+        # Run Active Tool: Ctrl+Enter
+        self.shortcut_run = QShortcut(QKeySequence("Ctrl+Return"), self)
+        self.shortcut_run.activated.connect(self._run_active_tool)
+        
+        # Stop Active Tool: Esc
+        self.shortcut_stop = QShortcut(QKeySequence("Esc"), self)
+        self.shortcut_stop.activated.connect(self._stop_active_tool)
+        
+        # Clear Output: Ctrl+L
+        self.shortcut_clear = QShortcut(QKeySequence("Ctrl+L"), self)
+        self.shortcut_clear.activated.connect(self._clear_active_output)
+        
+        # Focus Input: Ctrl+/ 
+        self.shortcut_focus = QShortcut(QKeySequence("Ctrl+/"), self)
+        self.shortcut_focus.activated.connect(self._focus_primary_input)
+
+    def _get_active_tool_widget(self):
+        return self.tab_widget.currentWidget()
+
+    def _run_active_tool(self):
+        widget = self._get_active_tool_widget()
+        if widget and hasattr(widget, 'run_button') and widget.run_button.isEnabled():
+            if hasattr(widget, 'run_scan'):
+                widget.run_scan() # Direct call preferred or click
+            else:
+                widget.run_button.click()
+
+    def _stop_active_tool(self):
+        widget = self._get_active_tool_widget()
+        if widget and hasattr(widget, 'stop_scan'):
+            widget.stop_scan()
+
+    def _clear_active_output(self):
+        widget = self._get_active_tool_widget()
+        if widget and hasattr(widget, 'output') and hasattr(widget.output, 'clear'):
+            widget.output.clear()
+            self.notification_manager.notify("Output cleared")
+
+    def _focus_primary_input(self):
+        widget = self._get_active_tool_widget()
+        # We need the ToolBase object to delegate this properly if using the new method
+        # or we try to find it on the widget if the widget implements it
+        
+        # Option 1: Widget implements it (if ToolView inherits correctly or manually implemented)
+        if widget and hasattr(widget, 'target_input'):
+             widget.target_input.setFocus()
+             return
+             
+        # Option 2: Fallback to generic search for QLineEdit
+        if widget:
+             input_widget = widget.findChild(QLineEdit)
+             if input_widget:
+                 input_widget.setFocus()
 
     def show_welcome_tab(self):
         if self.tab_widget.count() == 0:
@@ -243,7 +306,15 @@ class MainWindow(QMainWindow):
         
         self.tab_widget.setCurrentIndex(index)
 
-    def open_tool_tab(self, tool: ToolBase):
+    def open_tool_tab(self, tool_class):
+        # Handle both class references (lazy loading) and instances
+        if inspect.isclass(tool_class) and issubclass(tool_class, ToolBase):
+            # It's a class, instantiate it
+            tool = tool_class()
+        else:
+            # It's already an instance
+            tool = tool_class
+
         if tool.name in self.open_tool_widgets:
             widget = self.open_tool_widgets[tool.name]
             self.tab_widget.setCurrentWidget(widget)
@@ -258,6 +329,10 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Tool Error", f"Tool {tool.name} returned None widget")
                 return
             index = self.tab_widget.addTab(tool_widget, tool.name)
+
+            # Store tool entry for focus delegation
+            self.current_tool_obj[tool.name] = tool
+            
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
@@ -293,6 +368,7 @@ class MainWindow(QMainWindow):
         widget = self.tab_widget.widget(index)
         if widget:
             # Stop any running processes in this tool
+            # Check for stop_all_workers first, then fallback to stop_scan
             if hasattr(widget, 'stop_all_workers'):
                 widget.stop_all_workers()
             elif hasattr(widget, 'stop_scan'):
@@ -309,6 +385,8 @@ class MainWindow(QMainWindow):
             
             if tool_name_to_remove in self.open_tool_widgets:
                 del self.open_tool_widgets[tool_name_to_remove]
+                if tool_name_to_remove in self.current_tool_obj:
+                    del self.current_tool_obj[tool_name_to_remove]
             
             self.tab_widget.removeTab(index)
             widget.deleteLater()
@@ -317,8 +395,17 @@ class MainWindow(QMainWindow):
             self.show_welcome_tab()
 
     def stop_active_process(self):
-        if self.active_process and self.active_process.poll() is None:
-            self.active_process.kill()
+        if self.active_process:
+            # Handle ProcessWorker (QThread)
+            if hasattr(self.active_process, 'stop'):
+                self.active_process.stop()
+                if hasattr(self.active_process, 'wait'):
+                    self.active_process.wait(2000) # Optional wait
+            # Handle legacy subprocess.Popen
+            elif hasattr(self.active_process, 'poll') and self.active_process.poll() is None:
+                if hasattr(self.active_process, 'kill'):
+                    self.active_process.kill()
+            
             self.notification_manager.notify("Process terminated.")
 
     def toggle_sidepanel(self):

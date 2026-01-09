@@ -1,40 +1,36 @@
 # =============================================================================
 # modules/strings.py
 #
-# Professional String Extraction Tool - Extract readable strings from binary files,
-# executables, memory dumps, etc. Similar to the Unix 'strings' command.
-# Enhanced with pattern detection, filtering, and security analysis features.
+# Professional String Extraction Tool
 # =============================================================================
 
 import os
 import re
+import html
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QFileDialog, QSpinBox, QCheckBox, QGroupBox, 
-    QApplication, QMessageBox, QLineEdit, QGridLayout
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog,
+    QMessageBox
 )
 from PySide6.QtCore import Qt
 
 from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_BACKGROUND_PRIMARY, COLOR_TEXT_PRIMARY, COLOR_BORDER, 
-    COLOR_BORDER_FOCUSED, SPINBOX_STYLE, LABEL_STYLE, GROUPBOX_STYLE, RunButton, OutputView)
+    RunButton, OutputView, HeaderLabel,
+    StyledToolView, StyledGroupBox, StyledLabel, StyledCheckBox,
+    StyledSpinBox, StyledLineEdit, BrowseButton, ToolSplitter,
+    OutputHelper
+)
 
 
 class StringsTool(ToolBase):
     """Professional string extraction tool for binary file analysis."""
 
-    @property
-    def name(self) -> str:
-        return "Strings"
+    name = "Strings"
+    category = ToolCategory.FILE_ANALYSIS
 
     @property
     def description(self) -> str:
         return "Extract and analyze readable strings from binary files and executables"
-
-    @property
-    def category(self):
-        return ToolCategory.FILE_ANALYSIS
 
     @property
     def icon(self) -> str:
@@ -45,8 +41,11 @@ class StringsTool(ToolBase):
         return StringsToolView(main_window=main_window)
 
 
-class StringsToolView(QWidget):
+class StringsToolView(StyledToolView, OutputHelper):
     """UI for the professional string extraction tool."""
+
+    tool_name = "Strings"
+    tool_category = "FILE_ANALYSIS"
 
     def __init__(self, main_window):
         super().__init__()
@@ -57,46 +56,38 @@ class StringsToolView(QWidget):
 
     def _build_ui(self):
         """Build the Strings tool UI."""
-        from ui.styles import TOOL_VIEW_STYLE, HeaderLabel
-
-        self.setStyleSheet(TOOL_VIEW_STYLE)
+        # setStyleSheet handled by StyledToolView
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        splitter = ToolSplitter()
+
+        # ==================== CONTROL PANEL ====================
+        control_panel = QWidget()
+        control_layout = QVBoxLayout(control_panel)
+        control_layout.setContentsMargins(10, 10, 10, 10)
+        control_layout.setSpacing(10)
 
         # Header
-        header = HeaderLabel("FILE_ANALYSIS", "Strings")
-        main_layout.addWidget(header)
-
-        control_layout = QVBoxLayout()
+        header = HeaderLabel(self.tool_category, self.tool_name)
+        control_layout.addWidget(header)
 
         # File Selection
-        file_group = QGroupBox("📂 File Selection")
-        file_group.setStyleSheet(GROUPBOX_STYLE)
+        file_group = StyledGroupBox("📂 File Selection")
         file_layout = QHBoxLayout(file_group)
 
-        self.file_path_display = QLabel("No file selected")
-        self.file_path_display.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px;")
+        self.file_path_display = StyledLabel("No file selected")
+        # Custom styling for path display to make it truncated/visible
+        self.file_path_display.setStyleSheet("color: #FFFFFF; font-size: 13px;") 
         file_layout.addWidget(self.file_path_display, 1)
 
-        browse_btn = QPushButton("📁 Browse")
-        browse_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn = BrowseButton()
         browse_btn.clicked.connect(self._browse_file)
-        browse_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px 14px;
-            }}
-            QPushButton:hover {{ background-color: #4A4A4A; }}
-        """)
         file_layout.addWidget(browse_btn)
 
-        self.extract_button = RunButton()
-        self.extract_button.setText("Extract") # Keep custom text but use class foundation
+        self.extract_button = RunButton("EXTRACT")
         self.extract_button.setEnabled(False)
         self.extract_button.clicked.connect(self._extract_strings)
         file_layout.addWidget(self.extract_button)
@@ -104,19 +95,16 @@ class StringsToolView(QWidget):
         control_layout.addWidget(file_group)
 
         # Options Group
-        options_group = QGroupBox("⚙️ Extraction Options")
-        options_group.setStyleSheet(GROUPBOX_STYLE)
+        options_group = StyledGroupBox("⚙️ Extraction Options")
         options_layout = QVBoxLayout(options_group)
 
         # First row: Length and encodings
         row1 = QHBoxLayout()
 
-        min_len_label = QLabel("Min Length:")
-        min_len_label.setStyleSheet(LABEL_STYLE)
+        min_len_label = StyledLabel("Min Length:")
         row1.addWidget(min_len_label)
 
-        self.min_length_spin = QSpinBox()
-        self.min_length_spin.setStyleSheet(SPINBOX_STYLE)
+        self.min_length_spin = StyledSpinBox()
         self.min_length_spin.setRange(1, 100)
         self.min_length_spin.setValue(4)
         self.min_length_spin.setToolTip("Minimum string length to extract")
@@ -125,22 +113,18 @@ class StringsToolView(QWidget):
         row1.addSpacing(20)
 
         # Encoding checkboxes
-        self.ascii_check = QCheckBox("ASCII")
-        self.ascii_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.ascii_check = StyledCheckBox("ASCII")
         self.ascii_check.setChecked(True)
         row1.addWidget(self.ascii_check)
 
-        self.unicode_le_check = QCheckBox("UTF-16LE")
-        self.unicode_le_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.unicode_le_check = StyledCheckBox("UTF-16LE")
         self.unicode_le_check.setChecked(True)
         row1.addWidget(self.unicode_le_check)
 
-        self.unicode_be_check = QCheckBox("UTF-16BE")
-        self.unicode_be_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.unicode_be_check = StyledCheckBox("UTF-16BE")
         row1.addWidget(self.unicode_be_check)
 
-        self.utf8_check = QCheckBox("UTF-8")
-        self.utf8_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.utf8_check = StyledCheckBox("UTF-8")
         row1.addWidget(self.utf8_check)
 
         row1.addStretch()
@@ -148,13 +132,11 @@ class StringsToolView(QWidget):
 
         # Display options
         row2 = QHBoxLayout()
-        self.show_offset_check = QCheckBox("Show Offset")
-        self.show_offset_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.show_offset_check = StyledCheckBox("Show Offset")
         self.show_offset_check.setChecked(True)
         row2.addWidget(self.show_offset_check)
 
-        self.show_context_check = QCheckBox("Show Context")
-        self.show_context_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.show_context_check = StyledCheckBox("Show Context")
         row2.addWidget(self.show_context_check)
 
         row2.addStretch()
@@ -162,45 +144,36 @@ class StringsToolView(QWidget):
         control_layout.addWidget(options_group)
 
         # Filters Group
-        filters_group = QGroupBox("🔍 Filters")
-        filters_group.setStyleSheet(GROUPBOX_STYLE)
+        filters_group = StyledGroupBox("🔍 Filters")
         filters_layout = QVBoxLayout(filters_group)
 
         # Filter checkboxes
         filter_row1 = QHBoxLayout()
 
-        self.filter_all = QCheckBox("Show All")
-        self.filter_all.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.filter_all = StyledCheckBox("Show All")
         self.filter_all.setChecked(True)
         self.filter_all.stateChanged.connect(self._on_filter_all_changed)
         filter_row1.addWidget(self.filter_all)
 
-        self.filter_urls = QCheckBox("🌐 URLs")
-        self.filter_urls.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.filter_urls = StyledCheckBox("🌐 URLs")
         filter_row1.addWidget(self.filter_urls)
 
-        self.filter_ips = QCheckBox("🔴 IPs")
-        self.filter_ips.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.filter_ips = StyledCheckBox("🔴 IPs")
         filter_row1.addWidget(self.filter_ips)
 
-        self.filter_emails = QCheckBox("📧 Emails")
-        self.filter_emails.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.filter_emails = StyledCheckBox("📧 Emails")
         filter_row1.addWidget(self.filter_emails)
 
-        self.filter_paths = QCheckBox("📁 Paths")
-        self.filter_paths.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.filter_paths = StyledCheckBox("📁 Paths")
         filter_row1.addWidget(self.filter_paths)
 
-        self.filter_registry = QCheckBox("🔑 Registry")
-        self.filter_registry.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.filter_registry = StyledCheckBox("🔑 Registry")
         filter_row1.addWidget(self.filter_registry)
 
-        self.filter_base64 = QCheckBox("🔐 Base64")
-        self.filter_base64.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.filter_base64 = StyledCheckBox("🔐 Base64")
         filter_row1.addWidget(self.filter_base64)
 
-        self.filter_crypto = QCheckBox("🔒 Crypto")
-        self.filter_crypto.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.filter_crypto = StyledCheckBox("🔒 Crypto")
         filter_row1.addWidget(self.filter_crypto)
 
         filter_row1.addStretch()
@@ -208,42 +181,29 @@ class StringsToolView(QWidget):
 
         # Search box
         search_row = QHBoxLayout()
-        search_label = QLabel("Search:")
-        search_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        search_label = StyledLabel("Search:")
         search_row.addWidget(search_label)
 
-        self.search_box = QLineEdit()
+        self.search_box = StyledLineEdit()
         self.search_box.setPlaceholderText("Filter by text...")
-        self.search_box.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {COLOR_BACKGROUND_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 6px;
-            }}
-        """)
         self.search_box.textChanged.connect(self._apply_filters)
         search_row.addWidget(self.search_box, 1)
 
-        self.case_sensitive_check = QCheckBox("Case Sensitive")
-        self.case_sensitive_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.case_sensitive_check = StyledCheckBox("Case Sensitive")
         search_row.addWidget(self.case_sensitive_check)
 
-        self.regex_check = QCheckBox("Regex")
-        self.regex_check.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
+        self.regex_check = StyledCheckBox("Regex")
         search_row.addWidget(self.regex_check)
 
         filters_layout.addLayout(search_row)
         control_layout.addWidget(filters_group)
 
         # Statistics Group
-        stats_group = QGroupBox("📊 Statistics")
-        stats_group.setStyleSheet(GROUPBOX_STYLE)
+        stats_group = StyledGroupBox("📊 Statistics")
         stats_layout = QGridLayout(stats_group)
         stats_layout.setSpacing(10)
 
-        # Create stat labels with proper references
+        # Create stat labels
         self.stat_total = self._create_stat_label("Total Strings:", "0")
         self.stat_urls = self._create_stat_label("🌐 URLs:", "0", "#3B82F6")
         self.stat_ips = self._create_stat_label("🔴 IPs:", "0", "#EF4444")
@@ -253,7 +213,7 @@ class StringsToolView(QWidget):
         self.stat_base64 = self._create_stat_label("🔐 Base64:", "0", "#EC4899")
         self.stat_crypto = self._create_stat_label("🔒 Crypto:", "0", "#14B8A6")
 
-        # Arrange in grid - 4 columns per row
+        # Arrange in grid
         stats_layout.addWidget(self.stat_total[0], 0, 0)
         stats_layout.addWidget(self.stat_total[1], 0, 1)
         stats_layout.addWidget(self.stat_urls[0], 0, 2)
@@ -273,28 +233,26 @@ class StringsToolView(QWidget):
         stats_layout.addWidget(self.stat_crypto[1], 1, 7)
 
         control_layout.addWidget(stats_group)
-        main_layout.addLayout(control_layout)
+        
+        control_layout.addStretch()
+        splitter.addWidget(control_panel)
 
         # Output area
-        output_group = QGroupBox("Extracted Strings")
-        output_group.setStyleSheet(GROUPBOX_STYLE)
-        output_layout = QVBoxLayout(output_group)
-
-        # Output text area
-        self.output_text = OutputView(show_copy_button=False)
+        self.output_text = OutputView(self.main_window)
         self.output_text.setReadOnly(True)
         self.output_text.setPlaceholderText("Strings results will appear here...")
-        output_layout.addWidget(self.output_text)
+        
+        splitter.addWidget(self.output_text)
+        splitter.setSizes([350, 600])
 
-        main_layout.addWidget(output_group)
+        main_layout.addWidget(splitter)
 
     def _create_stat_label(self, title, value, color="#FFFFFF"):
         """Create a pair of labels for statistics display."""
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY}; font-size: 15px; font-weight: 500;")
+        title_label = StyledLabel(title)
         
-        value_label = QLabel(value)
-        value_label.setStyleSheet(f"color: {color}; font-size: 15px; font-weight: bold;")
+        value_label = StyledLabel(value)
+        value_label.setStyleSheet(f"color: {color}; font-size: 15px; font-weight: bold; background: transparent;")
         
         return (title_label, value_label)
 
@@ -329,7 +287,7 @@ class StringsToolView(QWidget):
     def _extract_strings(self):
         """Extract strings from the selected file."""
         if not self.selected_file or not os.path.exists(self.selected_file):
-            self._show_error("Please select a valid file first.")
+            self._error("Please select a valid file first.")
             return
 
         min_length = self.min_length_spin.value()
@@ -339,11 +297,12 @@ class StringsToolView(QWidget):
         extract_utf8 = self.utf8_check.isChecked()
 
         if not any([extract_ascii, extract_unicode_le, extract_unicode_be, extract_utf8]):
-            self._show_error("Please select at least one encoding type.")
+            self._error("Please select at least one encoding type.")
             return
 
         try:
             self.output_text.clear()
+            self._info(f"Analyzing {os.path.basename(self.selected_file)}...")
             
             # Read file as binary
             with open(self.selected_file, 'rb') as f:
@@ -388,7 +347,7 @@ class StringsToolView(QWidget):
             self._notify(f"Extracted {len(self.all_results)} unique strings")
 
         except Exception as e:
-            self._show_error(f"Error extracting strings: {str(e)}")
+            self._error(f"Error extracting strings: {str(e)}")
 
     def _extract_ascii_strings(self, data, min_length):
         """Extract ASCII printable strings from binary data."""
@@ -558,7 +517,7 @@ class StringsToolView(QWidget):
         """Apply pattern filters and search to display results."""
         if not self.all_results:
             return
-
+            
         self.output_text.clear()
         
         # Determine which patterns to show
@@ -624,7 +583,7 @@ class StringsToolView(QWidget):
         
         # Update total displayed
         if search_text or (not show_all and active_filters):
-            self.output_text.append(f"\n<br><b>--- Showing {displayed_count} of {len(self.all_results)} strings ---</b>")
+            self.output_text.appendHtml(f"<br><b>--- Showing {displayed_count} of {len(self.all_results)} strings ---</b>")
 
     def _display_string(self, result):
         """Display a single string with color coding and formatting."""
@@ -675,116 +634,15 @@ class StringsToolView(QWidget):
             context_after = result.get('context_after', b'')
             hex_before = ' '.join(f'{b:02X}' for b in context_before[-4:])
             hex_after = ' '.join(f'{b:02X}' for b in context_after[:4])
+            # Escape not needed for hex digits
             output_parts.append(f'<span style="color: #4B5563;">{hex_before}</span>')
         
         # Show icon and string
-        escaped_string = string.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        escaped_string = html.escape(string)
         output_parts.append(f'{icon} <span style="color: {color}; font-weight: bold;">{escaped_string}</span>')
         
         # Show context after
         if self.show_context_check.isChecked():
             output_parts.append(f'<span style="color: #4B5563;">{hex_after}</span>')
         
-        self.output_text.append(' '.join(output_parts) + '<br>')
-
-    def _clear_output(self):
-        """Clear the output area and reset statistics."""
-        self.output_text.clear()
-        self.all_results = []
-        # Reset all statistics
-        self.stat_total[1].setText("0")
-        self.stat_urls[1].setText("0")
-        self.stat_ips[1].setText("0")
-        self.stat_emails[1].setText("0")
-        self.stat_paths[1].setText("0")
-        self.stat_registry[1].setText("0")
-        self.stat_base64[1].setText("0")
-        self.stat_crypto[1].setText("0")
-
-    def _save_results(self):
-        """Save extracted strings to a file."""
-        if not self.all_results:
-            self._show_error("No results to save.")
-            return
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Extracted Strings",
-            "strings_output.txt",
-            "Text Files (*.txt);;JSON Files (*.json);;CSV Files (*.csv);;All Files (*.*)"
-        )
-
-        if file_path:
-            try:
-                if file_path.endswith('.json'):
-                    self._save_as_json(file_path)
-                elif file_path.endswith('.csv'):
-                    self._save_as_csv(file_path)
-                else:
-                    self._save_as_txt(file_path)
-                
-                self._notify(f"Results saved to {os.path.basename(file_path)}")
-            except Exception as e:
-                self._show_error(f"Error saving file: {str(e)}")
-
-    def _save_as_txt(self, file_path):
-        """Save results as plain text."""
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(f"Strings Extraction Report\n")
-            f.write(f"File: {self.selected_file}\n")
-            f.write(f"Total Strings: {len(self.all_results)}\n")
-            f.write("=" * 80 + "\n\n")
-            
-            for result in self.all_results:
-                if self.show_offset_check.isChecked():
-                    f.write(f"[0x{result['offset']:08X}] ")
-                f.write(f"[{result['encoding']}] ")
-                if result.get('patterns'):
-                    f.write(f"[{','.join(result['patterns'])}] ")
-                f.write(f"{result['string']}\n")
-
-    def _save_as_json(self, file_path):
-        """Save results as JSON."""
-        import json
-        
-        output_data = {
-            'file': self.selected_file,
-            'total_strings': len(self.all_results),
-            'strings': []
-        }
-        
-        for result in self.all_results:
-            output_data['strings'].append({
-                'offset': f"0x{result['offset']:08X}",
-                'encoding': result['encoding'],
-                'patterns': result.get('patterns', []),
-                'string': result['string']
-            })
-        
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, indent=2)
-
-    def _save_as_csv(self, file_path):
-        """Save results as CSV."""
-        import csv
-        
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Offset', 'Encoding', 'Patterns', 'String'])
-            
-            for result in self.all_results:
-                writer.writerow([
-                    f"0x{result['offset']:08X}",
-                    result['encoding'],
-                    ','.join(result.get('patterns', [])),
-                    result['string']
-                ])
-
-    def _show_error(self, message):
-        """Show error message."""
-        QMessageBox.critical(self, "Error", message)
-
-    def _notify(self, message):
-        """Send notification to main window."""
-        if self.main_window and hasattr(self.main_window, 'notification_manager'):
-            self.main_window.notification_manager.notify(message)
+        self.output_text.appendHtml(' '.join(output_parts))

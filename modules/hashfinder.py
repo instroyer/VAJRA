@@ -4,7 +4,7 @@
 # Hash Finder Tool - Hash Type Identification
 # =============================================================================
 
-import re
+import html
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 from PySide6.QtCore import Qt
 
@@ -12,21 +12,20 @@ from modules.bases import ToolBase, ToolCategory
 from ui.styles import (
     RunButton, StopButton, CopyButton,
     StyledLineEdit, StyledLabel, HeaderLabel, OutputView,
-    ToolSplitter, OutputHelper,
-    TOOL_VIEW_STYLE, COLOR_BACKGROUND_SECONDARY
+    ToolSplitter, OutputHelper, StyledToolView,
+    StyledGroupBox
 )
 
 
 class HashFinderTool(ToolBase):
     """Hash Finder tool plugin for identifying hash types."""
 
-    @property
-    def name(self) -> str:
-        return "Hash Finder"
+    name = "Hash Finder"
+    category = ToolCategory.CRACKER
 
     @property
-    def category(self) -> ToolCategory:
-        return ToolCategory.CRACKER
+    def icon(self) -> str:
+        return "🔍"
 
     def get_widget(self, main_window):
         return HashFinderToolView(main_window=main_window)
@@ -229,8 +228,11 @@ class HashIdentifier:
         return results
 
 
-class HashFinderToolView(QWidget, OutputHelper):
+class HashFinderToolView(StyledToolView, OutputHelper):
     """Hash Finder tool interface."""
+    
+    tool_name = "Hash Finder"
+    tool_category = "CRACKER"
 
     def __init__(self, main_window=None):
         super().__init__()
@@ -240,7 +242,7 @@ class HashFinderToolView(QWidget, OutputHelper):
 
     def _build_ui(self):
         """Build the UI."""
-        self.setStyleSheet(TOOL_VIEW_STYLE)
+        # setStyleSheet handled by StyledToolView
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -250,7 +252,7 @@ class HashFinderToolView(QWidget, OutputHelper):
 
         # ==================== CONTROL PANEL ====================
         control_panel = QWidget()
-        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
+        # Removed legacy style
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
@@ -260,12 +262,12 @@ class HashFinderToolView(QWidget, OutputHelper):
         control_layout.addWidget(header)
 
         # Hash Input
-        hash_label = StyledLabel("Hash to Identify")
-        control_layout.addWidget(hash_label)
-
-        hash_row = QHBoxLayout()
-        self.hash_input = StyledLineEdit("Enter hash here (e.g., 5f4dcc3b5aa765d61d8327deb882cf99)")
-        self.hash_input.textChanged.connect(self.on_hash_changed)
+        input_group = StyledGroupBox("Hash Input")
+        input_layout = QVBoxLayout(input_group)
+        
+        input_row = QHBoxLayout()
+        self.hash_input = StyledLineEdit()
+        self.hash_input.setPlaceholderText("Enter hash here (e.g., 5f4dcc3b5aa765d61d8327deb882cf99)")
         self.hash_input.returnPressed.connect(self.identify_hash)
 
         self.identify_button = RunButton("IDENTIFY")
@@ -275,10 +277,12 @@ class HashFinderToolView(QWidget, OutputHelper):
         self.clear_button.setEnabled(True)
         self.clear_button.clicked.connect(self.clear_all)
 
-        hash_row.addWidget(self.hash_input)
-        hash_row.addWidget(self.identify_button)
-        hash_row.addWidget(self.clear_button)
-        control_layout.addLayout(hash_row)
+        input_row.addWidget(self.hash_input, 1) # Expand input
+        input_row.addWidget(self.identify_button)
+        input_row.addWidget(self.clear_button)
+        
+        input_layout.addLayout(input_row)
+        control_layout.addWidget(input_group)
 
         control_layout.addStretch()
         splitter.addWidget(control_panel)
@@ -287,32 +291,14 @@ class HashFinderToolView(QWidget, OutputHelper):
         self.output = OutputView(self.main_window)
         self.output.setPlaceholderText("Hash Finder results will appear here...")
 
-        self.copy_button = CopyButton(self.output.output_text, self.main_window)
-        self.copy_button.setParent(self.output.output_text)
-        self.copy_button.raise_()
-        self.output.output_text.installEventFilter(self)
-
         splitter.addWidget(self.output)
         splitter.setSizes([200, 600])
 
         main_layout.addWidget(splitter)
 
-    def eventFilter(self, obj, event):
-        """Position copy button on resize."""
-        from PySide6.QtCore import QEvent
-        if obj == self.output.output_text and event.type() == QEvent.Resize:
-            self.copy_button.move(
-                self.output.output_text.width() - self.copy_button.sizeHint().width() - 10,
-                10
-            )
-        return super().eventFilter(obj, event)
-
     def clear_all(self):
         self.hash_input.clear()
         self.output.clear()
-
-    def on_hash_changed(self):
-        pass
 
     def identify_hash(self):
         hash_value = self.hash_input.text().strip()
@@ -334,18 +320,18 @@ class HashFinderToolView(QWidget, OutputHelper):
                 self._info("This could be a custom or unknown hash format")
             else:
                 if len(results) == 1:
-                    self.output.append(f'<span style="color:#10B981;font-weight:bold;">[+] {results[0]}</span>')
+                    self._raw(f'<span style="color:#10B981;font-weight:bold;">[+] {html.escape(results[0])}</span>')
                 elif len(results) == 2:
-                    self.output.append('<span style="color:#FACC15;font-weight:bold;">Most Probable:</span>')
-                    self.output.append(f'<span style="color:#10B981;">[+] {results[0]}</span>')
-                    self.output.append(f'<span style="color:#10B981;">[+] {results[1]}</span>')
+                    self._raw('<span style="color:#FACC15;font-weight:bold;">Most Probable:</span>')
+                    self._raw(f'<span style="color:#10B981;">[+] {html.escape(results[0])}</span>')
+                    self._raw(f'<span style="color:#10B981;">[+] {html.escape(results[1])}</span>')
                 else:
-                    self.output.append('<span style="color:#FACC15;font-weight:bold;">Most Probable:</span>')
-                    self.output.append(f'<span style="color:#10B981;">[+] {results[0]}</span>')
-                    self.output.append(f'<span style="color:#10B981;">[+] {results[1]}</span>')
-                    self.output.append('<br><span style="color:#FB923C;font-weight:bold;">Other Possibilities:</span>')
+                    self._raw('<span style="color:#FACC15;font-weight:bold;">Most Probable:</span>')
+                    self._raw(f'<span style="color:#10B981;">[+] {html.escape(results[0])}</span>')
+                    self._raw(f'<span style="color:#10B981;">[+] {html.escape(results[1])}</span>')
+                    self._raw('<br><span style="color:#FB923C;font-weight:bold;">Other Possibilities:</span>')
                     for algo in results[2:]:
-                        self.output.append(f'<span style="color:#60A5FA;">[+] {algo}</span>')
+                        self._raw(f'<span style="color:#60A5FA;">[+] {html.escape(algo)}</span>')
                 
                 self._section("IDENTIFICATION COMPLETE")
                 self._info(f"Found {len(results)} possible match{'es' if len(results) != 1 else ''}")

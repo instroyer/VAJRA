@@ -6,6 +6,7 @@
 
 import os
 import shlex
+import html
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QGridLayout, QFileDialog
@@ -15,57 +16,47 @@ from PySide6.QtCore import Qt
 from modules.bases import ToolBase, ToolCategory
 from core.tgtinput import TargetInput
 from core.fileops import create_target_dirs
-from ui.worker import ProcessWorker
+from ui.worker import ToolExecutionMixin
 from ui.styles import (
     # Widgets
-    RunButton, StopButton, CopyButton, BrowseButton,
+    RunButton, StopButton, BrowseButton,
     StyledLineEdit, StyledSpinBox, StyledCheckBox, StyledComboBox,
-    StyledLabel, HeaderLabel, CommandDisplay, OutputView,
-    StyledGroupBox, ToolSplitter, ConfigTabs, StyledTextEdit,
-    # Behaviors
-    SafeStop, OutputHelper,
-    # Constants
-    TOOL_VIEW_STYLE, COLOR_BACKGROUND_SECONDARY
+    StyledLabel, HeaderLabel, StyledGroupBox, OutputView,
+    ToolSplitter, ConfigTabs, CopyButton, StyledToolView, StyledTextEdit
 )
 
 
 class GobusterTool(ToolBase):
     """Gobuster web brute-forcing tool plugin."""
 
-    @property
-    def name(self) -> str:
-        return "Gobuster"
+    name = "Gobuster"
+    category = ToolCategory.WEB_SCANNING
 
     @property
     def description(self) -> str:
         return "High-speed directory, file, and DNS brute-forcing tool."
 
     @property
-    def category(self):
-        return ToolCategory.WEB_SCANNING
-
-    @property
     def icon(self) -> str:
         return "👻"
 
     def get_widget(self, main_window: QWidget) -> QWidget:
-        return GobusterView("Gobuster", ToolCategory.WEB_SCANNING, main_window)
+        return GobusterView(main_window=main_window)
 
 
-class GobusterView(QWidget, SafeStop, OutputHelper):
+class GobusterView(StyledToolView, ToolExecutionMixin):
     """Gobuster directory/DNS/VHost/Fuzz/S3 brute-forcing interface."""
     
     tool_name = "Gobuster"
     tool_category = "WEB_SCANNING"
     
-    def __init__(self, name, category, main_window=None):
+    def __init__(self, main_window=None):
         super().__init__()
         self.main_window = main_window
         self.init_safe_stop()
         
         # State
         self.log_file = None
-        self.raw_output = ""
         
         # Build UI
         self._build_ui()
@@ -73,7 +64,7 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
 
     def _build_ui(self):
         """Build the complete UI."""
-        self.setStyleSheet(TOOL_VIEW_STYLE)
+        # setStyleSheet handled by StyledToolView
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -83,7 +74,7 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         
         # ==================== CONTROL PANEL ====================
         control_panel = QWidget()
-        control_panel.setStyleSheet(f"background-color: {COLOR_BACKGROUND_SECONDARY};")
+        # Removed legacy styling
         control_layout = QVBoxLayout(control_panel)
         control_layout.setContentsMargins(10, 10, 10, 10)
         control_layout.setSpacing(10)
@@ -101,7 +92,7 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         self.target_input.input_box.textChanged.connect(self.update_command)
         target_row.addWidget(self.target_input, 1)
         
-        self.run_button = RunButton()
+        self.run_button = RunButton("RUN GOBUSTER")
         self.run_button.clicked.connect(self.run_scan)
         self.stop_button = StopButton()
         self.stop_button.clicked.connect(self.stop_scan)
@@ -117,7 +108,8 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         
         wl_row = QHBoxLayout()
         wl_label = StyledLabel("Wordlist:")
-        self.dict_input = StyledLineEdit("Select wordlist file...")
+        self.dict_input = StyledLineEdit()
+        self.dict_input.setPlaceholderText("Select wordlist file...")
         self.dict_input.textChanged.connect(self.update_command)
         
         self.dict_browse_btn = BrowseButton()
@@ -125,7 +117,7 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         
         threads_label = StyledLabel("Threads:")
         self.threads_spin = StyledSpinBox()
-        self.threads_spin.setRange(1, 100)
+        self.threads_spin.setRange(1, 200)
         self.threads_spin.setValue(10)
         self.threads_spin.valueChanged.connect(self.update_command)
         
@@ -153,22 +145,26 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         
         ext_label = StyledLabel("Ext (-x):")
         ext_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.dir_ext_input = StyledLineEdit("php,txt,html,jsp,asp")
+        self.dir_ext_input = StyledLineEdit()
+        self.dir_ext_input.setPlaceholderText("php,txt,html,jsp,asp")
         self.dir_ext_input.textChanged.connect(self.update_command)
         
         blacklist_label = StyledLabel("Blacklist (-b):")
         blacklist_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.dir_blacklist_input = StyledLineEdit("404,400-404")
+        self.dir_blacklist_input = StyledLineEdit()
+        self.dir_blacklist_input.setPlaceholderText("404,400-404")
         self.dir_blacklist_input.textChanged.connect(self.update_command)
         
         xl_label = StyledLabel("Excl Len (--xl):")
         xl_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.dir_xl_input = StyledLineEdit("e.g. 0 or 100-200")
+        self.dir_xl_input = StyledLineEdit()
+        self.dir_xl_input.setPlaceholderText("e.g. 0 or 100-200")
         self.dir_xl_input.textChanged.connect(self.update_command)
         
         ua_label = StyledLabel("UA (-a):")
         ua_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.dir_ua_input = StyledLineEdit("User Agent")
+        self.dir_ua_input = StyledLineEdit()
+        self.dir_ua_input.setPlaceholderText("User Agent")
         self.dir_ua_input.textChanged.connect(self.update_command)
         
         dir_layout.addWidget(ext_label, 0, 0)
@@ -251,7 +247,8 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         
         offset_label = StyledLabel("Offset:")
         offset_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.fuzz_wordlist_offset = StyledLineEdit("0")
+        self.fuzz_wordlist_offset = StyledLineEdit()
+        self.fuzz_wordlist_offset.setPlaceholderText("0")
         self.fuzz_wordlist_offset.textChanged.connect(self.update_command)
         
         fuzz_grid.addWidget(method_label, 0, 0)
@@ -260,7 +257,8 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         fuzz_grid.addWidget(self.fuzz_wordlist_offset, 0, 3, 1, 3)
         
         body_label = StyledLabel("Request Body (-B):")
-        self.fuzz_request_body = StyledTextEdit('{"user": "FUZZ"}')
+        self.fuzz_request_body = StyledTextEdit()
+        self.fuzz_request_body.setPlaceholderText('{"user": "FUZZ"}')
         self.fuzz_request_body.setMaximumHeight(45)
         self.fuzz_request_body.textChanged.connect(self.update_command)
         
@@ -269,17 +267,20 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         
         cookies_label = StyledLabel("Cookies:")
         cookies_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.fuzz_cookies_input = StyledLineEdit("session=FUZZ")
+        self.fuzz_cookies_input = StyledLineEdit()
+        self.fuzz_cookies_input.setPlaceholderText("session=FUZZ")
         self.fuzz_cookies_input.textChanged.connect(self.update_command)
         
         headers_label = StyledLabel("Header:")
         headers_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.fuzz_headers_text = StyledLineEdit("Authorization: Bearer FUZZ")
+        self.fuzz_headers_text = StyledLineEdit()
+        self.fuzz_headers_text.setPlaceholderText("Authorization: Bearer FUZZ")
         self.fuzz_headers_text.textChanged.connect(self.update_command)
         
         proxy_label = StyledLabel("Proxy:")
         proxy_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.fuzz_proxy_input = StyledLineEdit("http://127.0.0.1:8080")
+        self.fuzz_proxy_input = StyledLineEdit()
+        self.fuzz_proxy_input.setPlaceholderText("http://127.0.0.1:8080")
         self.fuzz_proxy_input.textChanged.connect(self.update_command)
         
         fuzz_grid.addWidget(cookies_label, 3, 0)
@@ -291,12 +292,14 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         
         status_label = StyledLabel("Exclude Status (-b):")
         status_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.fuzz_exclude_status = StyledLineEdit("404,400-404")
+        self.fuzz_exclude_status = StyledLineEdit()
+        self.fuzz_exclude_status.setPlaceholderText("404,400-404")
         self.fuzz_exclude_status.textChanged.connect(self.update_command)
         
         length_label = StyledLabel("Exclude Length:")
         length_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.fuzz_exclude_length = StyledLineEdit("0,100-200")
+        self.fuzz_exclude_length = StyledLineEdit()
+        self.fuzz_exclude_length.setPlaceholderText("0,100-200")
         self.fuzz_exclude_length.textChanged.connect(self.update_command)
         
         fuzz_grid.addWidget(status_label, 4, 0)
@@ -375,7 +378,9 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         control_layout.addWidget(config_group)
         
         # Command Display
-        self.command_input = CommandDisplay()
+        self.command_input = StyledLineEdit()
+        self.command_input.setReadOnly(True)
+        self.command_input.setPlaceholderText("Command preview...")
         control_layout.addWidget(self.command_input)
         
         control_layout.addStretch()
@@ -385,25 +390,10 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         self.output = OutputView(self.main_window)
         self.output.setPlaceholderText("Gobuster results will appear here...")
         
-        self.copy_button = CopyButton(self.output.output_text, self.main_window)
-        self.copy_button.setParent(self.output.output_text)
-        self.copy_button.raise_()
-        self.output.output_text.installEventFilter(self)
-        
         splitter.addWidget(self.output)
         splitter.setSizes([450, 350])
         
         main_layout.addWidget(splitter)
-    
-    def eventFilter(self, obj, event):
-        """Position copy button on resize."""
-        from PySide6.QtCore import QEvent
-        if obj == self.output.output_text and event.type() == QEvent.Resize:
-            self.copy_button.move(
-                self.output.output_text.width() - self.copy_button.sizeHint().width() - 10,
-                10
-            )
-        return super().eventFilter(obj, event)
     
     def _browse_dict(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -421,176 +411,176 @@ class GobusterView(QWidget, SafeStop, OutputHelper):
         modes = ["dir", "dns", "vhost", "fuzz", "s3"]
         return modes[idx] if idx < len(modes) else "dir"
     
-    def update_command(self):
-        target = self.target_input.get_target().strip()
-        if not target:
-            target = "<target>"
-        
+     # -------------------------------------------------------------------------
+    # Command Builder
+    # -------------------------------------------------------------------------
+
+    def build_command(self, preview: bool = False) -> str:
+        """
+        Builds the Gobuster command string.
+        """
         mode = self._get_active_mode()
-        cmd_parts = ["gobuster", mode]
+        cmd = ["gobuster", mode]
         
         # Target handling
+        target = self.target_input.get_target().strip()
+        if not target:
+            if preview:
+                target = "<target>"
+            else:
+                raise ValueError("Target required")
+        
         if mode == "dns":
-            cmd_parts.extend(["-d", target])
+            cmd.extend(["-d", target])
         elif mode == "s3":
-            if target != "<target>":
-                cmd_parts.append(target)
+            cmd.append(target)
         elif mode == "fuzz":
-            if not target.startswith("http") and target != "<target>":
-                target = f"http://{target}"
-            cmd_parts.extend(["-u", target])
+            if not target.startswith("http") and not preview:
+                 target = f"http://{target}"
+            cmd.extend(["-u", target])
         else:
-            if not target.startswith("http") and target != "<target>":
-                target = f"http://{target}"
-            cmd_parts.extend(["-u", target])
+            if not target.startswith("http") and not preview:
+                 target = f"http://{target}"
+            cmd.extend(["-u", target])
         
         # Wordlist
         wordlist = self.dict_input.text().strip()
         if wordlist:
-            cmd_parts.extend(["-w", wordlist])
+            cmd.extend(["-w", wordlist])
         else:
-            cmd_parts.extend(["-w", "<wordlist>"])
+            if preview:
+                cmd.extend(["-w", "<wordlist>"])
+            else:
+                 raise ValueError("Wordlist required")
         
         # Threads
         threads = self.threads_spin.value()
         if threads != 10:
-            cmd_parts.extend(["-t", str(threads)])
+            cmd.extend(["-t", str(threads)])
         
         # Mode Specifics
         if mode == "dir":
             exts = self.dir_ext_input.text().strip()
             if exts:
-                cmd_parts.extend(["-x", exts])
+                cmd.extend(["-x", exts])
             codes = self.dir_blacklist_input.text().strip()
             if codes:
-                cmd_parts.extend(["-b", codes])
+                cmd.extend(["-b", codes])
             ua = self.dir_ua_input.text().strip()
             if ua:
-                cmd_parts.extend(["-a", shlex.quote(ua)])
+                cmd.extend(["-a", ua])
             xl = self.dir_xl_input.text().strip()
             if xl:
-                cmd_parts.extend(["--xl", xl])
+                cmd.extend(["--xl", xl])
             if self.dir_expanded_check.isChecked():
-                cmd_parts.append("-e")
+                cmd.append("-e")
             if self.dir_k_check.isChecked():
-                cmd_parts.append("-k")
+                cmd.append("-k")
             if self.dir_r_check.isChecked():
-                cmd_parts.append("-r")
+                cmd.append("-r")
             if self.dir_f_check.isChecked():
-                cmd_parts.append("-f")
+                cmd.append("-f")
         
         elif mode == "dns":
             if self.dns_show_ip_check.isChecked():
-                cmd_parts.append("-i")
+                cmd.append("-i")
             if self.dns_wildcard_check.isChecked():
-                cmd_parts.append("--wildcard")
+                cmd.append("--wildcard")
         
         elif mode == "vhost":
             if self.vhost_append_check.isChecked():
-                cmd_parts.append("--append-domain")
+                cmd.append("--append-domain")
         
         elif mode == "fuzz":
             offset = self.fuzz_wordlist_offset.text().strip()
             if offset and offset != "0":
-                cmd_parts.extend(["--offset", offset])
+                cmd.extend(["--offset", offset])
             body = self.fuzz_request_body.toPlainText().strip()
             if body:
-                cmd_parts.extend(["-B", shlex.quote(body)])
+                cmd.extend(["-B", body])
             cookies = self.fuzz_cookies_input.text().strip()
             if cookies:
-                cmd_parts.extend(["-c", shlex.quote(cookies)])
+                cmd.extend(["-c", cookies])
             header = self.fuzz_headers_text.text().strip()
             if header:
-                cmd_parts.extend(["-H", shlex.quote(header)])
+                cmd.extend(["-H", header])
             proxy = self.fuzz_proxy_input.text().strip()
             if proxy:
-                cmd_parts.extend(["--proxy", proxy])
+                cmd.extend(["--proxy", proxy])
             status_codes = self.fuzz_exclude_status.text().strip()
             if status_codes:
-                cmd_parts.extend(["-b", status_codes])
+                cmd.extend(["-b", status_codes])
             length = self.fuzz_exclude_length.text().strip()
             if length:
-                cmd_parts.extend(["--exclude-length", length])
+                cmd.extend(["--exclude-length", length])
             delay = self.fuzz_delay_spin.value()
             if delay > 0:
-                cmd_parts.extend(["--delay", f"{delay}ms"])
+                cmd.extend(["--delay", f"{delay}ms"])
             if self.fuzz_skip_tls.isChecked():
-                cmd_parts.append("-k")
+                cmd.append("-k")
             if self.fuzz_retry_check.isChecked():
                 retry_count = self.fuzz_retry_count.value()
-                cmd_parts.extend(["--retry", str(retry_count)])
+                cmd.extend(["--retry", str(retry_count)])
         
         elif mode == "s3":
             maxfiles = self.s3_maxfiles_spin.value()
             if maxfiles != 5:
-                cmd_parts.extend(["-m", str(maxfiles)])
+                cmd.extend(["-m", str(maxfiles)])
             if self.s3_k_check.isChecked():
-                cmd_parts.append("-k")
+                cmd.append("-k")
         
-        self.command_input.setText(" ".join(cmd_parts))
+        return " ".join(shlex.quote(x) for x in cmd)
+
+    def update_command(self):
+        try:
+            cmd_str = self.build_command(preview=True)
+            self.command_input.setText(cmd_str)
+        except Exception:
+            self.command_input.setText("")
+
+    # -------------------------------------------------------------------------
+    # Execution
+    # -------------------------------------------------------------------------
     
     def run_scan(self):
-        cmd_text = self.command_input.text().strip()
-        if not cmd_text:
-            return
-        
-        target = self.target_input.get_target().strip()
-        if not target or "<target>" in cmd_text or "<wordlist>" in cmd_text:
-            self._notify("Please provide a Target and Wordlist.")
-            return
-        
-        self.run_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-        self.output.clear()
-        self.raw_output = ""
-        
-        mode = self._get_active_mode()
-        
-        self._info(f"Running Gobuster ({mode.upper()}) for: {target}")
-        self.output.appendPlainText("")
-        self._section(f"GOBUSTER {mode.upper()}: {target}")
-        
         try:
-            base_dir = create_target_dirs(target, group_name=None)
-            self.log_file = os.path.join(base_dir, "Logs", f"gobuster_{mode}.txt")
-        except Exception as e:
-            self._error(f"Failed to create log directories: {e}")
-            self.log_file = None
-        
-        try:
-            cmd_list = shlex.split(cmd_text)
-        except ValueError:
-            cmd_list = cmd_text.split()
-        
-        self.worker = ProcessWorker(cmd_list)
-        self.worker.output_ready.connect(self._handle_output)
-        self.worker.finished.connect(self._on_scan_completed)
-        self.worker.start()
-        
-        if self.main_window:
-            self.main_window.active_process = self.worker
-    
-    def _handle_output(self, text):
-        self.output.appendPlainText(text)
-        self.raw_output += text
-    
-    def _on_scan_completed(self):
-        self.run_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        
-        self.output.appendPlainText("\n✨ Scan Complete.")
-        
-        if self.log_file:
+            target = self.target_input.get_target().strip()
+            mode = self._get_active_mode()
+            
+            # Validation via build_command
+            cmd_str = self.build_command(preview=False)
+            
             try:
-                with open(self.log_file, "w", encoding="utf-8") as f:
-                    f.write(self.raw_output)
-                if self.main_window:
-                    self.main_window.notification_manager.notify(
-                        f"Results saved to {os.path.basename(self.log_file)}"
-                    )
+                base_dir = create_target_dirs(target, group_name=None)
+                self.log_file = os.path.join(base_dir, "Logs", f"gobuster_{mode}.txt")
+                os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
             except Exception as e:
-                self._error(f"Failed to write results to file: {e}")
-        
+                self._error(f"Failed to create log directories: {e}")
+                self.log_file = None
+
+            # Append output flag for native tool logging
+            if self.log_file:
+                cmd_str += f" -o {shlex.quote(self.log_file)}"
+
+            # Start Execution (Mixin)
+            self.start_execution(cmd_str, self.log_file)
+            
+            self._info(f"Running Gobuster ({mode.upper()}) for: {target}")
+            self._raw("<br>")
+            self._section(f"GOBUSTER {mode.upper()}: {target}")
+            
+
+
+        except Exception as e:
+            self._error(str(e))
+    
+    def on_new_output(self, text):
+        clean = text.strip()
+        if clean:
+             self._raw(html.escape(clean))
+    
+    def on_execution_finished(self):
+        super().on_execution_finished()
         self.worker = None
         if self.main_window:
             self.main_window.active_process = None

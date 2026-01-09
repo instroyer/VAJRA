@@ -12,9 +12,9 @@ from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtGui import QIcon
 
 from ui.styles import (
-    COLOR_BACKGROUND_INPUT, COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY,
-    COLOR_BORDER, FONT_FAMILY_UI,
-    COLOR_BACKGROUND_PRIMARY, COLOR_BACKGROUND_SECONDARY
+    COLOR_BG_INPUT, COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY,
+    COLOR_BORDER_DEFAULT, FONT_FAMILY_UI,
+    COLOR_BG_PRIMARY, COLOR_BG_SECONDARY
 )
 
 
@@ -36,9 +36,9 @@ class ToastNotification(QWidget):
         layout = QHBoxLayout(self)
         self.setStyleSheet(f"""
             QWidget {{
-                background-color: {COLOR_BACKGROUND_INPUT};
+                background-color: {COLOR_BG_INPUT};
                 color: {COLOR_TEXT_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
+                border: 1px solid {COLOR_BORDER_DEFAULT};
                 border-radius: 6px;
                 font-family: {FONT_FAMILY_UI};
             }}
@@ -68,10 +68,12 @@ class ToastNotification(QWidget):
 
     def show_at_bottom_right(self):
         if self.parent():
-            parent_geom = self.parent().geometry()
+            # Use global screen coordinates for correct positioning
+            parent_rect = self.parent().frameGeometry()
             self.adjustSize()
-            x = parent_geom.x() + parent_geom.width() - self.width() - 15
-            y = parent_geom.y() + parent_geom.height() - self.height() - 50 # Adjusted for status bar
+            global_pos = self.parent().mapToGlobal(self.parent().rect().bottomRight())
+            x = global_pos.x() - self.width() - 20
+            y = global_pos.y() - self.height() - 60  # Account for status bar
             self.move(x, y)
         self.show()
 
@@ -94,8 +96,8 @@ class NotificationPanel(QWidget):
         self.main_frame.setObjectName("main_frame")
         self.main_frame.setStyleSheet(f"""
             #main_frame {{
-                background-color: {COLOR_BACKGROUND_PRIMARY};
-                border: 1px solid {COLOR_BORDER};
+                background-color: {COLOR_BG_PRIMARY};
+                border: 1px solid {COLOR_BORDER_DEFAULT};
                 border-radius: 8px;
                 font-family: {FONT_FAMILY_UI};
             }}
@@ -111,7 +113,7 @@ class NotificationPanel(QWidget):
 
         # Header
         header = QWidget()
-        header.setStyleSheet(f"background-color: {COLOR_BACKGROUND_INPUT}; border-bottom: 1px solid {COLOR_BORDER}; border-top-left-radius: 8px; border-top-right-radius: 8px;")
+        header.setStyleSheet(f"background-color: {COLOR_BG_INPUT}; border-bottom: 1px solid {COLOR_BORDER_DEFAULT}; border-top-left-radius: 8px; border-top-right-radius: 8px;")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(15,10,15,10)
         
@@ -178,8 +180,8 @@ class NotificationPanel(QWidget):
         notification_widget.setStyleSheet(f"""
             QLabel {{
                 color: {COLOR_TEXT_PRIMARY};
-                background-color: {COLOR_BACKGROUND_INPUT};
-                border: 1px solid {COLOR_BORDER};
+                background-color: {COLOR_BG_INPUT};
+                border: 1px solid {COLOR_BORDER_DEFAULT};
                 border-radius: 5px;
                 padding: 10px;
             }}
@@ -191,7 +193,16 @@ class NotificationPanel(QWidget):
         while self.content_layout.count():
             child = self.content_layout.takeAt(0)
             if child.widget():
-                child.widget().deleteLater()
+                widget = child.widget()
+                # Disconnect all signals to prevent callbacks on deleted objects
+                # widget.disconnect() # Removed invalid call
+                # Force immediate deletion instead of async deleteLater()
+                widget.setParent(None)
+                widget.deleteLater()  # Keep deleteLater for thread safety
+
+        # Force Qt to process events to ensure cleanup happens
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
 
 # =====================================================
 # NOTIFICATION MANAGER

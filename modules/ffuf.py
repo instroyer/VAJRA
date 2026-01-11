@@ -152,7 +152,7 @@ class FfufView(StyledToolView, ToolExecutionMixin):
         self.follow_redirects.stateChanged.connect(self.update_command)
 
         self.auto_calibrate = StyledCheckBox("Auto-Calibrate (-ac)")
-        self.auto_calibrate.setChecked(True)
+        self.auto_calibrate.setChecked(False)
         self.auto_calibrate.stateChanged.connect(self.update_command)
 
         headers_label = StyledLabel("Headers:")

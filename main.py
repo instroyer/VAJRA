@@ -6,8 +6,8 @@ from ui.main_window import MainWindow
 
 
 def qt_message_handler(mode, context, message):
-    """Custom Qt message handler to filter out unwanted warnings."""
-    # Suppress "Unknown property transform" warnings from Qt's HTML/CSS renderer
+    """Custom Qt message handler."""
+    # Suppress "Unknown property transform" warnings
     if "Unknown property" in message and "transform" in message:
         return
     
@@ -25,7 +25,7 @@ def qt_message_handler(mode, context, message):
 
 
 def main():
-    # Install custom message handler to suppress unwanted Qt warnings
+    # Suppress unwanted Qt warnings
     qInstallMessageHandler(qt_message_handler)
     
     # Suppress other Qt warnings
@@ -33,8 +33,7 @@ def main():
     
     app = QApplication(sys.argv)
 
-    # ===== Global Font Consistency =====
-    # Applied once for entire application - Consistent fonts across all UI
+    # Global Font Consistency
     app.setStyleSheet("""
         QWidget {
             font-family: "Segoe UI", "Arial", sans-serif;

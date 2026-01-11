@@ -3,6 +3,7 @@
 # =============================================================================
 # VAJRA - Nuitka Build Script
 # Compiles Python to native C++ for better protection and performance
+# Version: 2.0.0 - Updated 2026-01-11
 # =============================================================================
 
 set -e
@@ -17,6 +18,7 @@ PYTHON_BIN="$VENV_DIR/bin/python3"
 PIP_BIN="$VENV_DIR/bin/pip"
 
 echo "🔨 Starting Vajra Build Process (Nuitka)..."
+echo "   Version: 2.0.0"
 cd "$PROJECT_ROOT"
 
 # 1. Setup Virtual Environment
@@ -26,7 +28,19 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
+# Check if venv exists and is valid for this project
+NEED_NEW_VENV=false
 if [ ! -d "$VENV_DIR" ]; then
+    NEED_NEW_VENV=true
+elif [ -f "$VENV_DIR/pyvenv.cfg" ]; then
+    if ! grep -q "$PROJECT_ROOT" "$VENV_DIR/pyvenv.cfg" 2>/dev/null; then
+        echo "   ⚠️  Venv was created for a different project, recreating..."
+        rm -rf "$VENV_DIR"
+        NEED_NEW_VENV=true
+    fi
+fi
+
+if [ "$NEED_NEW_VENV" = true ]; then
     echo "   Creating venv..."
     python3 -m venv "$VENV_DIR" || {
         echo "❌ Error creating virtual environment."
@@ -35,11 +49,17 @@ if [ ! -d "$VENV_DIR" ]; then
     }
 fi
 
-# 2. Install Dependencies
+# 2. Install Dependencies (PySide6 only, no pyinstaller needed for Nuitka)
 echo "⬇️  Installing dependencies..."
 "$PIP_BIN" install --upgrade pip
-"$PIP_BIN" install -r requirements.txt
+"$PIP_BIN" install PySide6>=6.7.0
 "$PIP_BIN" install nuitka ordered-set
+
+# Verify nuitka is installed
+if ! "$PYTHON_BIN" -c "import nuitka" 2>/dev/null; then
+    echo "   📦 Reinstalling Nuitka..."
+    "$PIP_BIN" install --force-reinstall nuitka ordered-set
+fi
 
 # 3. Check for required tools
 echo "🔍 Checking for required tools..."
@@ -71,6 +91,8 @@ echo "🚀 Compiling with Nuitka (this will take several minutes)..."
     --include-package=modules \
     --include-package=core \
     --include-package=ui \
+    --nofollow-import-to=*.md \
+    --nofollow-import-to=*.txt \
     --output-dir=dist \
     --output-filename=vajra \
     --assume-yes-for-downloads \
@@ -85,6 +107,7 @@ rm -rf main.build main.onefile-build
 echo ""
 echo "✅ Build Complete!"
 echo "   Executable: dist/vajra"
+echo "   Version: 2.0.0"
 echo ""
 echo "To run it:"
 echo "   ./dist/vajra"

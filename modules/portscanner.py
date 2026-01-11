@@ -914,7 +914,7 @@ class PortScannerView(StyledToolView, ToolExecutionMixin, SafeStop, OutputHelper
         self._info(f"Scanning target: {current_target}")
 
         try:
-            self.worker = ScannerWorker(
+            self.worker = self.ScannerWorker(
                 current_target,
                 self._all_ports,
                 self.scan_type.currentText(),

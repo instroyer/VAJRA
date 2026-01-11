@@ -22,7 +22,7 @@ from ui.styles import (
     RunButton, StopButton, BrowseButton,
     StyledLineEdit, StyledSpinBox, StyledCheckBox, StyledComboBox,
     StyledLabel, HeaderLabel, StyledGroupBox, OutputView,
-    ToolSplitter, ConfigTabs, CopyButton, StyledToolView
+    ToolSplitter, ConfigTabs, CopyButton, StyledToolView, SafeStop
 )
 
 
@@ -40,7 +40,7 @@ class EyewitnessTool(ToolBase):
         return EyewitnessView(main_window=main_window)
 
 
-class EyewitnessView(StyledToolView, ToolExecutionMixin):
+class EyewitnessView(StyledToolView, ToolExecutionMixin, SafeStop):
     """Eyewitness web screenshot tool interface."""
     
     tool_name = "Eyewitness"
@@ -48,10 +48,20 @@ class EyewitnessView(StyledToolView, ToolExecutionMixin):
     
     def __init__(self, main_window=None):
         super().__init__()
+        self.init_safe_stop()
         self.main_window = main_window
         self.output_dir = None
         self._build_ui()
         self.update_command()
+    
+    def _cleanup_geckodriver_log(self):
+        """Remove geckodriver.log from project directory."""
+        log_path = "geckodriver.log"
+        if os.path.exists(log_path):
+            try:
+                os.remove(log_path)
+            except Exception:
+                pass
     
     def _build_ui(self):
         """Build the complete UI."""
@@ -260,9 +270,7 @@ class EyewitnessView(StyledToolView, ToolExecutionMixin):
             cmd_str += f" -d {shlex.quote(self.output_dir)}"
             
             # Remove old geckodriver.log
-            if os.path.exists("geckodriver.log"):
-                try: os.remove("geckodriver.log")
-                except: pass
+            self._cleanup_geckodriver_log()
             
             self._info(f"Results will be saved to: {self.output_dir}")
             self.start_execution(cmd_str, output_path=self.output_dir)
@@ -277,10 +285,13 @@ class EyewitnessView(StyledToolView, ToolExecutionMixin):
              self._info(f"Report available in: {self.output_dir}")
              self._notify("Eyewitness capture complete.")
              
-        # Cleanup log again
-        if os.path.exists("geckodriver.log"):
-            try: os.remove("geckodriver.log")
-            except: pass
+        # Cleanup geckodriver log
+        self._cleanup_geckodriver_log()
+    
+    def stop_scan(self):
+        """Stop the scan and cleanup."""
+        super().stop_scan()
+        self._cleanup_geckodriver_log()
 
     def on_new_output(self, line):
         clean = line.strip()

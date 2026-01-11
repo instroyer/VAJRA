@@ -283,6 +283,7 @@ class FinalJsonGenerator:
         try:
             findings = []
             targets_scanned = []
+            severity_counts = {'high': 0, 'medium': 0, 'info': 0}
             
             with open(nikto_file, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
@@ -297,16 +298,25 @@ class FinalJsonGenerator:
             for finding in finding_lines[:100]:  # Limit to 100
                 finding = finding.strip()
                 if finding and len(finding) > 10:  # Filter out noise
-                    # Categorize severity
+                    # Categorize severity - ALIGNED WITH automation.py
                     severity = 'info'
-                    if any(word in finding.lower() for word in ['vulnerability', 'exploit', 'backdoor', 'shell']):
+                    finding_lower = finding.lower()
+                    
+                    # High severity: vulnerabilities, XSS, SQL injection, etc.
+                    if any(word in finding_lower for word in ['vulnerability', 'outdated', 'xss', 'sql', 'injection', 'exploit', 'backdoor', 'shell', 'rce', 'lfi', 'rfi']):
                         severity = 'high'
-                    elif any(word in finding.lower() for word in ['disclosure', 'exposure', 'misconfiguration']):
+                        severity_counts['high'] += 1
+                    # Medium severity: OSVDB entries and disclosures
+                    elif 'osvdb' in finding_lower or any(word in finding_lower for word in ['disclosure', 'exposure', 'misconfiguration', 'default', 'error']):
                         severity = 'medium'
+                        severity_counts['medium'] += 1
+                    else:
+                        severity_counts['info'] += 1
                     
                     findings.append({
                         'severity': severity,
-                        'description': finding
+                        'description': finding,
+                        'finding': finding  # Also include as 'finding' for compatibility
                     })
             
             if not findings:
@@ -315,6 +325,7 @@ class FinalJsonGenerator:
             return {
                 'targets_scanned': targets_scanned,
                 'total_findings': len(findings),
+                'severity_breakdown': severity_counts,  # Added for report
                 'findings': findings
             }
         except Exception as e:
@@ -326,18 +337,24 @@ class FinalJsonGenerator:
             return None
         
         try:
-            # Count images
-            image_files = [f for f in os.listdir(self.screenshots_dir) 
-                          if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+            # Count images recursively (EyeWitness stores in subdirs like screens/)
+            image_count = 0
+            for root, dirs, files in os.walk(self.screenshots_dir):
+                for f in files:
+                    if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                        image_count += 1
             
-            # Look for report.html
-            report_html = os.path.join(self.screenshots_dir, "report.html")
-            has_report = os.path.exists(report_html)
+            # Look for report.html in root or subdirs
+            report_html = None
+            for root, dirs, files in os.walk(self.screenshots_dir):
+                if "report.html" in files:
+                    report_html = os.path.join(root, "report.html")
+                    break
             
-            if image_files or has_report:
+            if image_count > 0 or report_html:
                 return {
-                    'screenshot_count': len(image_files),
-                    'report_path': report_html if has_report else None,
+                    'screenshot_count': image_count,
+                    'report_path': report_html,
                     'directory': self.screenshots_dir
                 }
             return None

@@ -424,14 +424,18 @@ class AutomationWorker(QThread):
         self.stats[target]['subdomain_tools'] = tool_results
         self.stats_update.emit(self.stats)
         
-        # Show detailed results
-        self.output.emit(f'<br><div style="background:#16213e; padding:15px; border-radius:8px; border:2px solid #3B82F6;">')
-        self.output.emit(f'<h3 style="color:#3B82F6; margin:0;">📊 Subdomain Enumeration Results</h3>')
-        self.output.emit(f'<table style="width:100%; margin-top:10px; color:#E5E7EB;">')
-        for tool_name, count in tool_results.items():
-            self.output.emit(f'<tr><td style="padding:5px;"><b>{tool_name}:</b></td><td style="color:#3B82F6; font-weight:bold;">{count} domains</td></tr>')
-        self.output.emit(f'<tr style="border-top:2px solid #3B82F6;"><td style="padding:5px; padding-top:10px;"><b>Total Unique:</b></td><td style="color:#10B981; font-weight:bold; font-size:18px; padding-top:10px;">{subdomain_count}</td></tr>')
-        self.output.emit(f'</table></div><br>')
+        # Show detailed results - combine into single HTML string
+        tool_rows = "".join([f'<tr><td style="padding:5px;"><b>{tool_name}:</b></td><td style="color:#3B82F6; font-weight:bold;">{count} domains</td></tr>' for tool_name, count in tool_results.items()])
+        
+        subdomain_html = f'''
+<br><div style="background:#16213e; padding:15px; border-radius:8px; border:2px solid #3B82F6;">
+<h3 style="color:#3B82F6; margin:0;">📊 Subdomain Enumeration Results</h3>
+<table style="width:100%; margin-top:10px; color:#E5E7EB;">
+{tool_rows}
+<tr style="border-top:2px solid #3B82F6;"><td style="padding:5px; padding-top:10px;"><b>Total Unique:</b></td><td style="color:#10B981; font-weight:bold; font-size:18px; padding-top:10px;">{subdomain_count}</td></tr>
+</table>
+</div>'''
+        self.output.emit(subdomain_html)
         
         return subdomain_count > 0 or any(results)
     
@@ -506,11 +510,14 @@ class AutomationWorker(QThread):
         self.stats_update.emit(self.stats)
         
         percentage = (live_count / total * 100) if total > 0 else 0
-        self.output.emit(f'<br><div style="background:#16213e; padding:15px; border-radius:8px; border:2px solid #10B981;">')
-        self.output.emit(f'<h3 style="color:#10B981; margin:0;">🎯 HTTP Probing Results</h3>')
-        self.output.emit(f'<p style="font-size:18px; color:#E5E7EB; margin:10px 0;"><b>Live Hosts:</b> <span style="color:#10B981; font-size:24px; font-weight:bold;">{live_count}</span> / {total} ({percentage:.1f}%)</p>')
-        self.output.emit(f'<p style="color:#9CA3AF; margin:5px 0;">Saved to: <code>Logs/alive.txt</code></p>')
-        self.output.emit(f'</div><br>')
+        
+        http_html = f'''
+<br><div style="background:#16213e; padding:15px; border-radius:8px; border:2px solid #10B981;">
+<h3 style="color:#10B981; margin:0;">🎯 HTTP Probing Results</h3>
+<p style="font-size:18px; color:#E5E7EB; margin:10px 0;"><b>Live Hosts:</b> <span style="color:#10B981; font-size:24px; font-weight:bold;">{live_count}</span> / {total} ({percentage:.1f}%)</p>
+<p style="color:#9CA3AF; margin:5px 0;">Saved to: <code>Logs/alive.txt</code></p>
+</div>'''
+        self.output.emit(http_html)
         
         return result
     
@@ -631,21 +638,61 @@ class AutomationWorker(QThread):
         
         result = self._execute_command(cmd, nuclei_output, "Nuclei")
         
-        # Count findings
-        findings = 0
+        # Parse findings with severity breakdown
+        severity_counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'info': 0}
+        nuclei_details = []
+        
         if os.path.exists(nuclei_output):
             with open(nuclei_output, 'r') as f:
-                findings = len(f.readlines())
+                for line in f:
+                    line_lower = line.lower()
+                    finding = {'line': line.strip(), 'severity': 'info'}
+                    
+                    # Parse severity from nuclei output format: [severity] or [critical] etc
+                    if '[critical]' in line_lower:
+                        severity_counts['critical'] += 1
+                        finding['severity'] = 'critical'
+                    elif '[high]' in line_lower:
+                        severity_counts['high'] += 1
+                        finding['severity'] = 'high'
+                    elif '[medium]' in line_lower:
+                        severity_counts['medium'] += 1
+                        finding['severity'] = 'medium'
+                    elif '[low]' in line_lower:
+                        severity_counts['low'] += 1
+                        finding['severity'] = 'low'
+                    else:
+                        severity_counts['info'] += 1
+                    
+                    nuclei_details.append(finding)
         
-        self.stats[target]['nuclei_findings'] = findings
+        total_findings = sum(severity_counts.values())
+        
+        # Store in stats for report
+        self.stats[target]['nuclei_findings'] = total_findings
+        self.stats[target]['nuclei_severity'] = severity_counts
+        self.stats[target]['nuclei_details'] = nuclei_details
         self.stats_update.emit(self.stats)
         
-        if findings > 0:
+        # CVSS-based colors
+        # Critical (9.0-10.0): #7f1d1d bg, #DC2626 text
+        # High (7.0-8.9): #991b1b bg, #EF4444 text  
+        # Medium (4.0-6.9): #78350f bg, #F59E0B text
+        # Low (0.1-3.9): #1e3a5f bg, #3B82F6 text
+        # Info (0.0): #1f2937 bg, #6B7280 text
+        
+        if total_findings > 0:
             nuclei_html = f'''
 <div style="background:#7f1d1d; padding:15px; border-radius:8px; border:2px solid #DC2626; margin:10px 0;">
-<h3 style="color:#DC2626; margin:0;">⚠️ Vulnerability Scan Results</h3>
-<p style="font-size:20px; color:#E5E7EB; margin:10px 0;"><b>Found:</b> <span style="color:#DC2626; font-size:28px; font-weight:bold;">{findings}</span> vulnerabilities!</p>
-<p style="color:#9CA3AF; margin:5px 0;">Saved to: <code>Logs/nuclei.txt</code></p>
+<h3 style="color:#DC2626; margin:0;">⚠️ Nuclei Vulnerability Scan Results</h3>
+<table style="margin-top:10px;"><tr>
+<td style="background:#450a0a; padding:10px 20px; border-radius:6px; text-align:center;"><div style="color:#DC2626; font-size:24px; font-weight:bold;">{severity_counts['critical']}</div><div style="color:#FCA5A5;">Critical</div><div style="color:#9CA3AF; font-size:10px;">CVSS 9.0-10.0</div></td>
+<td style="background:#7f1d1d; padding:10px 20px; border-radius:6px; text-align:center;"><div style="color:#EF4444; font-size:24px; font-weight:bold;">{severity_counts['high']}</div><div style="color:#FCA5A5;">High</div><div style="color:#9CA3AF; font-size:10px;">CVSS 7.0-8.9</div></td>
+<td style="background:#78350f; padding:10px 20px; border-radius:6px; text-align:center;"><div style="color:#F59E0B; font-size:24px; font-weight:bold;">{severity_counts['medium']}</div><div style="color:#FCD34D;">Medium</div><div style="color:#9CA3AF; font-size:10px;">CVSS 4.0-6.9</div></td>
+<td style="background:#1e3a5f; padding:10px 20px; border-radius:6px; text-align:center;"><div style="color:#3B82F6; font-size:24px; font-weight:bold;">{severity_counts['low']}</div><div style="color:#93C5FD;">Low</div><div style="color:#9CA3AF; font-size:10px;">CVSS 0.1-3.9</div></td>
+<td style="background:#1f2937; padding:10px 20px; border-radius:6px; text-align:center; border:1px solid #374151;"><div style="color:#6B7280; font-size:24px; font-weight:bold;">{severity_counts['info']}</div><div style="color:#9CA3AF;">Info</div><div style="color:#6B7280; font-size:10px;">CVSS 0.0</div></td>
+</tr></table>
+<p style="color:#9CA3AF; margin:10px 0 0 0;">Total: <b style="color:#E5E7EB;">{total_findings}</b> vulnerabilities saved to <code>Logs/nuclei.txt</code></p>
 </div>'''
             self.output.emit(nuclei_html)
         else:
@@ -711,24 +758,25 @@ class AutomationWorker(QThread):
                     self.output.emit(f'<span style="color:{COLOR_ERROR};">✗ {host}: {str(e)}</span><br>')
                     all_success = False
         
-        # Store findings for report
+        # Store findings for report with severity breakdown
+        high_count = len([f for f in nikto_findings if f['severity'] == 'high'])
+        medium_count = len([f for f in nikto_findings if f['severity'] == 'medium'])
+        info_count = len([f for f in nikto_findings if f['severity'] == 'info'])
+        
         self.stats[target]['nikto_findings'] = len(nikto_findings)
+        self.stats[target]['nikto_severity'] = {'high': high_count, 'medium': medium_count, 'info': info_count}
         self.stats[target]['nikto_details'] = nikto_findings
         self.stats_update.emit(self.stats)
         
-        # Display styled summary (like Nuclei)
+        # Display styled summary with CVSS labels (like Nuclei)
         if nikto_findings:
-            high_count = len([f for f in nikto_findings if f['severity'] == 'high'])
-            medium_count = len([f for f in nikto_findings if f['severity'] == 'medium'])
-            info_count = len([f for f in nikto_findings if f['severity'] == 'info'])
-            
             nikto_html = f'''
 <div style="background:#1e3a5f; padding:15px; border-radius:8px; border:2px solid #3B82F6; margin:10px 0;">
-<h3 style="color:#3B82F6; margin:0;">🔧 Nikto Scan Results</h3>
+<h3 style="color:#3B82F6; margin:0;">🔧 Nikto Web Server Scan Results</h3>
 <table style="margin-top:10px;"><tr>
-<td style="background:#7f1d1d; padding:10px 20px; border-radius:6px; text-align:center;"><div style="color:#DC2626; font-size:24px; font-weight:bold;">{high_count}</div><div style="color:#FCA5A5;">High</div></td>
-<td style="background:#78350f; padding:10px 20px; border-radius:6px; text-align:center;"><div style="color:#F59E0B; font-size:24px; font-weight:bold;">{medium_count}</div><div style="color:#FCD34D;">Medium</div></td>
-<td style="background:#1e3a5f; padding:10px 20px; border-radius:6px; text-align:center; border:1px solid #3B82F6;"><div style="color:#3B82F6; font-size:24px; font-weight:bold;">{info_count}</div><div style="color:#93C5FD;">Info</div></td>
+<td style="background:#7f1d1d; padding:10px 20px; border-radius:6px; text-align:center;"><div style="color:#EF4444; font-size:24px; font-weight:bold;">{high_count}</div><div style="color:#FCA5A5;">High</div><div style="color:#9CA3AF; font-size:10px;">CVSS 7.0-8.9</div></td>
+<td style="background:#78350f; padding:10px 20px; border-radius:6px; text-align:center;"><div style="color:#F59E0B; font-size:24px; font-weight:bold;">{medium_count}</div><div style="color:#FCD34D;">Medium</div><div style="color:#9CA3AF; font-size:10px;">CVSS 4.0-6.9</div></td>
+<td style="background:#1f2937; padding:10px 20px; border-radius:6px; text-align:center; border:1px solid #374151;"><div style="color:#6B7280; font-size:24px; font-weight:bold;">{info_count}</div><div style="color:#9CA3AF;">Info</div><div style="color:#6B7280; font-size:10px;">CVSS 0.0</div></td>
 </tr></table>
 <p style="color:#9CA3AF; margin:10px 0 0 0;">Total: <b style="color:#E5E7EB;">{len(nikto_findings)}</b> findings saved to <code>Logs/nikto.txt</code></p>
 </div>'''
@@ -777,10 +825,12 @@ class AutomationWorker(QThread):
                 reports = [f for f in os.listdir(reports_dir) if f.endswith('.html')]
                 if reports:
                     report_path = os.path.join(reports_dir, reports[0])
-                    self.output.emit(f'<br><div style="background:#16213e; padding:15px; border-radius:8px; border:2px solid #10B981;">')
-                    self.output.emit(f'<h3 style="color:#10B981; margin:0;">📝 Report Generated Successfully</h3>')
-                    self.output.emit(f'<p style="color:#E5E7EB; margin:10px 0;">Location: <code>{report_path}</code></p>')
-                    self.output.emit(f'</div><br>')
+                    report_html = f'''
+<br><div style="background:#16213e; padding:15px; border-radius:8px; border:2px solid #10B981;">
+<h3 style="color:#10B981; margin:0;">📝 Report Generated Successfully</h3>
+<p style="color:#E5E7EB; margin:10px 0;">Location: <code>{report_path}</code></p>
+</div>'''
+                    self.output.emit(report_html)
                     return True
             
             self.output.emit(f'<span style="color:{COLOR_SUCCESS};">✓ Report generation completed</span><br>')
@@ -852,9 +902,9 @@ class AutomationWorker(QThread):
         # Single combined HTML output
         summary_html = f'''
 <div style="background:#0f172a; padding:20px; border-radius:10px; border:3px solid #3B82F6; margin:20px 0;">
-<h2 style="color:#3B82F6; text-align:center; margin:0 0 15px 0;">📊 AUTOMATION SUMMARY</h2>
-<div style="background: linear-gradient(135deg, #3B82F6, #8B5CF6); padding: 12px; border-radius: 8px; margin-bottom: 15px; text-align: center;">
-<span style="color: white; font-size: 16px; font-weight: bold;">🎯 Target: {html.escape(target)}</span>
+<h2 style="color:#3B82F6; margin:0 0 15px 0; font-size:18px;">📊 AUTOMATION SUMMARY</h2>
+<div style="background: linear-gradient(135deg, #3B82F6, #8B5CF6); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+<span style="color: white; font-size: 14px; font-weight: bold;">🎯 Target: {html.escape(target)}</span>
 </div>
 <table style="width:100%; color:#E5E7EB; font-size:14px;">
 <tr><td style="padding:8px;"><b>🌐 Subdomains Found:</b></td><td style="color:#10B981; font-weight:bold; font-size:18px;">{stats.get("subdomains_found", 0)}</td></tr>
@@ -876,9 +926,6 @@ class AutomationWorker(QThread):
 </div>'''
         
         self.output.emit(summary_html)
-        
-        # Also emit completion message
-        self.output.emit('<div style="color:#10B981; font-weight:bold; padding:10px;">✅ Automation pipeline finished!</div>')
 
 
 class Automation(ToolBase):
@@ -1219,7 +1266,7 @@ class AutomationView(StyledToolView, SafeStop, OutputHelper):
         
         self.worker = None
         
-        self._info("🎉 Automation pipeline finished!")
+        self._info("✅ Automation pipeline finished!")
     
     def update_status(self, key, status):
         """Update step status"""

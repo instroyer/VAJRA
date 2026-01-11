@@ -108,8 +108,14 @@ class ReportGenerator:
     def _generate_header(self):
         scan_info = self.data.get('scan_info', {})
         target_name = scan_info.get('target', 'N/A')
-        scan_date = scan_info.get('scan_date', 'N/A')
+        scan_date_raw = scan_info.get('scan_date', 'N/A')
         risk_level = scan_info.get('risk_level', 'Medium')
+        
+        # Format date to remove seconds (show only YYYY-MM-DD HH:MM)
+        if scan_date_raw and len(scan_date_raw) >= 16:
+            scan_date = scan_date_raw[:16]  # "2026-01-11 14:01"
+        else:
+            scan_date = scan_date_raw
         
         # Color code risk level
         risk_colors = {
@@ -121,6 +127,32 @@ class ReportGenerator:
         }
         risk_color = risk_colors.get(risk_level, '#3B82F6')
         
+        # Build executive summary for first page
+        subdomains = self.data.get('subdomains', {})
+        nuclei = self.data.get('nuclei', {})
+        nikto = self.data.get('nikto', {})
+        nmap = self.data.get('nmap', {})
+        
+        summary_items = []
+        if subdomains:
+            total_discovered = subdomains.get('total_discovered', 0)
+            total_alive = subdomains.get('total_alive', 0)
+            summary_items.append(f"🌐 {total_discovered} subdomains discovered, {total_alive} live hosts")
+        if nmap:
+            total_ports = nmap.get('scan_summary', {}).get('total_open_ports', 0)
+            summary_items.append(f"🔍 {total_ports} open ports identified")
+        if nuclei:
+            total_vulns = nuclei.get('total_findings', 0)
+            severity = nuclei.get('severity_breakdown', {})
+            critical = severity.get('critical', 0)
+            high = severity.get('high', 0)
+            summary_items.append(f"⚠️ {total_vulns} vulnerabilities ({critical} critical, {high} high)")
+        if nikto:
+            total_nikto = nikto.get('total_findings', 0)
+            summary_items.append(f"🔧 {total_nikto} web server findings")
+        
+        summary_html = "".join([f'<div style="padding: 6px 0; color: #374151;">{item}</div>' for item in summary_items]) if summary_items else '<div style="color: #6B7280;">Comprehensive security assessment completed.</div>'
+        
         return f"""
         <div class="header">
             <div class="header-top">
@@ -130,20 +162,24 @@ class ReportGenerator:
                 </div>
             </div>
             <div class="report-title">Comprehensive Security Assessment Report</div>
-            <div class="scan-info">
+            <div class="scan-info-row">
                 <div class="info-item target" onclick="copyToClipboard('{target_name}')">
                     <span class="copy-badge"><i class="fas fa-copy"></i></span>
-                    <h3><i class="fas fa-bullseye"></i> Target</h3>
-                    <p>{target_name}</p>
+                    <div class="info-label"><i class="fas fa-bullseye"></i> Target</div>
+                    <div class="info-value">{target_name}</div>
                 </div>
                 <div class="info-item date">
-                    <h3><i class="fas fa-calendar-alt"></i> Scan Date</h3>
-                    <p>{scan_date}</p>
+                    <div class="info-label"><i class="fas fa-calendar-alt"></i> Scan Date</div>
+                    <div class="info-value">{scan_date}</div>
                 </div>
                 <div class="info-item risk" style="background: linear-gradient(135deg, {risk_color} 0%, {risk_color}CC 100%);">
-                    <h3><i class="fas fa-shield-alt"></i> Risk Level</h3>
-                    <p style="font-size: 1.3em; font-weight: 800;">{risk_level}</p>
+                    <div class="info-label"><i class="fas fa-shield-alt"></i> Risk Level</div>
+                    <div class="info-value" style="font-size: 1.2em;">{risk_level}</div>
                 </div>
+            </div>
+            <div class="executive-summary-box print-only">
+                <h4><i class="fas fa-chart-line"></i> Executive Summary</h4>
+                {summary_html}
             </div>
         </div>
         """
@@ -466,28 +502,33 @@ class ReportGenerator:
         severity = nuclei.get('severity_breakdown', {})
         vulnerabilities = nuclei.get('vulnerabilities', [])
         
-        # Severity stats
+        # Severity stats with CVSS labels
         severity_html = f"""
         <div class="severity-grid">
             <div class="severity-card critical">
                 <div class="severity-count">{severity.get('critical', 0)}</div>
                 <div class="severity-label">Critical</div>
+                <div class="cvss-label">CVSS 9.0-10.0</div>
             </div>
             <div class="severity-card high">
                 <div class="severity-count">{severity.get('high', 0)}</div>
                 <div class="severity-label">High</div>
+                <div class="cvss-label">CVSS 7.0-8.9</div>
             </div>
             <div class="severity-card medium">
                 <div class="severity-count">{severity.get('medium', 0)}</div>
                 <div class="severity-label">Medium</div>
+                <div class="cvss-label">CVSS 4.0-6.9</div>
             </div>
             <div class="severity-card low">
                 <div class="severity-count">{severity.get('low', 0)}</div>
                 <div class="severity-label">Low</div>
+                <div class="cvss-label">CVSS 0.1-3.9</div>
             </div>
             <div class="severity-card info">
                 <div class="severity-count">{severity.get('info', 0)}</div>
                 <div class="severity-label">Info</div>
+                <div class="cvss-label">CVSS 0.0</div>
             </div>
         </div>
         """
@@ -533,51 +574,61 @@ class ReportGenerator:
         targets_scanned = nikto.get('targets_scanned', [])
         findings = nikto.get('findings', [])
         
-        # Count by severity
-        high_count = len([f for f in findings if f.get('severity') == 'high'])
-        medium_count = len([f for f in findings if f.get('severity') == 'medium'])
-        info_count = len([f for f in findings if f.get('severity') == 'info'])
+        # Use severity_breakdown from JSON if available, else count manually
+        severity_breakdown = nikto.get('severity_breakdown', {})
+        if severity_breakdown:
+            high_count = severity_breakdown.get('high', 0)
+            medium_count = severity_breakdown.get('medium', 0)
+            info_count = severity_breakdown.get('info', 0)
+        else:
+            # Fallback: count from findings
+            high_count = len([f for f in findings if f.get('severity') == 'high'])
+            medium_count = len([f for f in findings if f.get('severity') == 'medium'])
+            info_count = len([f for f in findings if f.get('severity') == 'info'])
         
         targets_html = ", ".join(targets_scanned) if targets_scanned else "N/A"
         
-        # Severity stats grid (like Nuclei)
+        # Severity stats grid with CVSS labels (matching VAJRA output)
         severity_html = f"""
         <div class="severity-grid">
             <div class="severity-card high">
                 <div class="severity-count">{high_count}</div>
                 <div class="severity-label">High</div>
+                <div class="cvss-label">CVSS 7.0-8.9</div>
             </div>
             <div class="severity-card medium">
                 <div class="severity-count">{medium_count}</div>
                 <div class="severity-label">Medium</div>
+                <div class="cvss-label">CVSS 4.0-6.9</div>
             </div>
             <div class="severity-card info">
                 <div class="severity-count">{info_count}</div>
                 <div class="severity-label">Info</div>
+                <div class="cvss-label">CVSS 0.0</div>
             </div>
         </div>
         """
         
-        # Findings list with severity badges
+        # Findings list with severity badges (styled like Nuclei)
         findings_html = ""
         for finding in findings[:100]:  # Show first 100
             severity = finding.get('severity', 'info')
-            severity_colors = {
-                'high': '#DC2626',
-                'medium': '#F59E0B',
-                'info': '#3B82F6'
+            # Colored backgrounds matching Nuclei style
+            severity_styles = {
+                'high': 'background: #DC2626; color: white;',
+                'medium': 'background: #F59E0B; color: white;',
+                'info': 'background: #3B82F6; color: white;'
             }
-            color = severity_colors.get(severity, '#6B7280')
-            host = finding.get('host', 'N/A')
+            badge_style = severity_styles.get(severity, 'background: #6B7280; color: white;')
             description = finding.get('finding', finding.get('description', 'N/A'))
             
             findings_html += f"""
             <div class="vuln-item {severity}">
                 <div class="vuln-header">
-                    <span class="vuln-severity" style="background: {color};"><i class="fas fa-shield-alt"></i> {severity.upper()}</span>
-                    <span class="vuln-title">{host}</span>
+                    <span class="vuln-severity" style="{badge_style} padding: 4px 12px; border-radius: 4px; font-weight: 700;"><i class="fas fa-shield-alt"></i> {severity.upper()}</span>
+                    <span class="vuln-title" style="color: #6B7280;">N/A</span>
                 </div>
-                <div class="vuln-description">{description}</div>
+                <div class="vuln-description" style="color: #374151; margin-top: 8px;">{description}</div>
             </div>
             """
         
@@ -755,13 +806,65 @@ class ReportGenerator:
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ font-family: 'Montserrat', sans-serif; line-height: 1.6; background: linear-gradient(135deg, #0f0f0f, #1a2a6c, #b21f1f); color: #333; min-height: 100vh; }}
         
-        /* Print Styles - Hide sidebar and fixed header for PDF */
+        /* Print Styles - Professional PDF output */
         @media print {{
-            .fixed-header, .sidebar, #backToTop, .menu-toggle {{ display: none !important; }}
-            .container {{ margin-top: 0 !important; padding: 10px !important; }}
-            body {{ background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-            .section {{ page-break-inside: avoid; break-inside: avoid; margin-bottom: 15px; }}
-            .header {{ margin-top: 0 !important; }}
+            /* Hide navigation elements */
+            .fixed-header, .sidebar, #backToTop, .menu-toggle, .toggle-btn {{ display: none !important; }}
+            
+            /* Reset layout */
+            .container {{ margin: 0 !important; padding: 15px !important; max-width: 100% !important; }}
+            body {{ 
+                background: white !important; 
+                -webkit-print-color-adjust: exact !important; 
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }}
+            
+            /* Header stays on first page */
+            .header {{ 
+                page-break-after: always;
+                margin: 0 !important; 
+                box-shadow: none !important;
+            }}
+            
+            /* Each section starts on new page */
+            .section {{ 
+                page-break-before: always !important;
+                page-break-inside: avoid !important;
+                break-before: page !important;
+                break-inside: avoid !important;
+                margin-bottom: 20px !important;
+                box-shadow: none !important;
+                border: 1px solid #e5e7eb !important;
+            }}
+            
+            /* Prevent breaking inside these elements */
+            .stats-box, .stat-item, .severity-grid, .severity-card, 
+            .info-item, .vuln-item, .host-card, .compact-table,
+            .alert-box, .dns-grid, .service-item, .dns-item {{
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+            }}
+            
+            /* Table handling */
+            .compact-table {{ 
+                page-break-inside: auto !important; 
+            }}
+            .compact-table tr {{ 
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+            }}
+            
+            /* Preserve background colors */
+            .stat-item, .severity-card, .info-item, .alert-box, .vuln-severity {{
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }}
+            
+            /* Keep section styling visible */
+            .section.vulnerability {{ background: #fee !important; }}
+            .vajra-title {{ color: #3B82F6 !important; -webkit-text-fill-color: #3B82F6 !important; }}
         }}
         .container {{ max-width: 1400px; margin: 0 auto; padding: 20px; }}
         .header {{ background: rgba(255,255,255,0.98); padding: 30px; border-radius: 20px; box-shadow: 0 15px 40px rgba(0,0,0,0.1); margin: 20px 0 30px 0; text-align: center; }}
@@ -769,12 +872,30 @@ class ReportGenerator:
         @keyframes rainbow {{ 0%{{background-position:0% 50%}} 50%{{background-position:100% 50%}} 100%{{background-position:0% 50%}} }}
         .vajra-subtitle {{ color: var(--primary); font-size: 1.2em; font-weight: 600; margin-top: 5px; }}
         .report-title {{ color: var(--secondary); font-size: 2.2em; margin: 10px 0 15px 0; padding-top: 15px; border-top: 3px solid var(--accent); font-weight: 700; }}
-        .scan-info {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-top: 20px; }}
-        .info-item {{ padding: 20px; border-radius: 12px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.1); color: #fff; cursor: pointer; transition: transform 0.3s; }}
-        .info-item:hover {{ transform: scale(1.05); }}
+        .scan-info-row {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 25px; }}
+        .info-item {{ position: relative; padding: 20px; border-radius: 12px; text-align: left; box-shadow: 0 4px 12px rgba(0,0,0,0.1); color: #fff; cursor: pointer; transition: transform 0.3s; min-height: 90px; }}
+        .info-item:hover {{ transform: scale(1.02); }}
+        .info-item .copy-badge {{ position: absolute; top: 10px; right: 10px; opacity: 0.8; font-size: 0.9em; }}
+        .info-item .copy-badge:hover {{ opacity: 1; }}
+        .info-label {{ font-size: 0.85em; opacity: 0.9; margin-bottom: 8px; font-weight: 600; }}
+        .info-value {{ font-size: 1.1em; font-weight: 700; word-break: break-all; }}
         .info-item.target {{ background: linear-gradient(135deg, #3B82F6 0%, #2c3e50 100%); }}
         .info-item.date {{ background: linear-gradient(135deg, #DC2626 0%, #b21f1f 100%); }}
         .info-item.risk {{ background: linear-gradient(135deg, #F59E0B 0%, #e67e22 100%); }}
+        .executive-summary-box {{ display: none; }}  /* Hidden in browser */
+        @media print {{
+            .executive-summary-box {{ 
+                display: block !important; 
+                background: #f8fafc; 
+                border: 2px solid #3B82F6; 
+                border-radius: 10px; 
+                padding: 20px; 
+                margin-top: 25px; 
+                text-align: left;
+                page-break-inside: avoid;
+            }}
+            .executive-summary-box h4 {{ color: #1e40af; margin: 0 0 12px 0; font-size: 1.2em; }}
+        }}
         .section {{ background: rgba(255,255,255,0.97); padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); margin-bottom: 25px; border-left: 5px solid; }}
         .section.executive {{ border-left-color: #ffc107; }}
         .section.domain {{ border-left-color: #28a745; }}
@@ -817,6 +938,7 @@ class ReportGenerator:
         .severity-card.info {{ background: linear-gradient(135deg, #6B7280 0%, #4B5563 100%); }}
         .severity-count {{ font-size: 2em; font-weight: 800; }}
         .severity-label {{ font-size: 0.9em; opacity: 0.9; }}
+        .cvss-label {{ font-size: 0.7em; opacity: 0.7; margin-top: 4px; }}
         
         /* Vulnerability items */
         .vuln-list {{ margin-top: 15px; }}

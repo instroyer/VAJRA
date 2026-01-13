@@ -38,9 +38,6 @@ chmod +x build_nuitka.sh
 ---
 
 ## Files
-
-- **`vajra_launcher.sh`**: Helper script to launch from source.
-- **`install.sh`**: Installs the .desktop shortcut.
 - **`build_linux.sh`**: Builds executable using PyInstaller.
 - **`build_nuitka.sh`**: Builds executable using Nuitka (better protection).
 - **`hook-vajra.py`**: PyInstaller hook file.

@@ -73,10 +73,11 @@ class MainWindow(QMainWindow):
             # PyInstaller: Use explicit list (dynamic discovery doesn't work)
             print("[Discovery] Running in frozen mode - using fallback list")
             known_modules = [
-                "amass", "automation", "dencoder", "dig", "dnsrecon", 
+                "amass", "WebInjection", "automation", "dencoder", "dig", "dnsrecon", 
                 "eyewitness", "ffuf", "gobuster", "hashcat", "hashfinder", 
-                "httpx", "hydra", "john", "msfvenom", "nikto", "nmap", "nuclei", 
-                "portscanner", "searchsploit", "strings", "subfinder", "wafw00f", "whois"
+                "httpx", "hydra", "john", "msfvenom", "nikto", "nmap", 
+                "nuclei", "portscanner", "searchsploit", "strings", 
+                "subfinder", "wafw00f", "whois"
             ]
         else:
             # Development/Nuitka: Auto-discover all modules dynamically
@@ -88,15 +89,28 @@ class MainWindow(QMainWindow):
                     if name != "bases"  # Skip the base class
                 ]
                 print(f"[Discovery] Found modules: {known_modules}")
+                
+                # If auto-discovery returned nothing (e.g. weird environment), use fallback
+                if not known_modules:
+                    print("[Discovery] Auto-discovery returned 0 modules, forcing fallback list")
+                    known_modules = [
+                        "amass", "WebInjection", "automation", "dencoder", "dig", "dnsrecon", 
+                        "eyewitness", "ffuf", "gobuster", "hashcat", "hashfinder", 
+                        "httpx", "hydra", "john", "msfvenom", "nikto", "nmap", 
+                        "nuclei", "portscanner", "searchsploit", "strings", 
+                        "subfinder", "wafw00f", "whois"
+                    ]
             except Exception as e:
                 # Fallback if auto-discovery fails
                 print(f"[Discovery] Auto-discovery failed: {e}, using fallback")
                 known_modules = [
-                    "amass", "automation", "dencoder", "dig", "dnsrecon", 
-                    "eyewitness", "ffuf", "gobuster", "hashcat", "hashfinder", 
-                    "httpx", "hydra", "john", "msfvenom", "nikto", "nmap", "nuclei", 
-                    "portscanner", "searchsploit", "strings", "subfinder", "wafw00f", "whois"
+                "amass", "WebInjection", "automation", "dencoder", "dig", "dnsrecon", 
+                "eyewitness", "ffuf", "gobuster", "hashcat", "hashfinder", 
+                "httpx", "hydra", "john", "msfvenom", "nikto", "nmap", 
+                "nuclei", "portscanner", "searchsploit", "strings", 
+                "subfinder", "wafw00f", "whois"
                 ]
+        
         
         # Load each module and find ToolBase subclasses (lazy loading)
         for name in known_modules:
@@ -104,11 +118,9 @@ class MainWindow(QMainWindow):
                 module = importlib.import_module(f'{module_path}.{name}')
                 for _, obj in inspect.getmembers(module, inspect.isclass):
                     if issubclass(obj, ToolBase) and obj is not ToolBase:
-                        # Store class reference instead of instance (lazy loading)
-                        # Use class attributes to avoid instantiation
                         tool_name = getattr(obj, 'name', None)
                         if tool_name:
-                            tools[tool_name] = obj  # Store the class, not an instance
+                            tools[tool_name] = obj
             except ImportError as e:
                 print(f"[Discovery] ImportError loading {name}: {e}")
             except Exception as e:

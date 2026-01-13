@@ -10,11 +10,12 @@ class ToolCategory(Enum):
     PORT_SCANNING = "Port Scanning"
     WEB_SCREENSHOTS = "Web Screenshots"
     WEB_SCANNING = "Web Scanning"
+    WEB_INJECTION = "Web Injection"
     VULNERABILITY_SCANNER = "Vulnerability Scanner"
     CRACKER = "Cracker"
     PAYLOAD_GENERATOR = "Payload Generator"
     FILE_ANALYSIS = "File Analysis"
-    
+
     
 class ToolBase:
     """

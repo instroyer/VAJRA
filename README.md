@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-Qt_for_Python-green.svg)](https://pypi.org/project/PySide6/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tools](https://img.shields.io/badge/Tools-24-orange.svg)](#-integrated-tools-24-total)
+[![Tools](https://img.shields.io/badge/Tools-28-orange.svg)](#-integrated-tools-28-total)
 
 </div>
 
@@ -15,7 +15,7 @@
 
 ## 📋 Overview
 
-**VAJRA** (Versatile Automated Jailbreak and Reconnaissance Arsenal) is a professional-grade offensive security platform that integrates **24 powerful penetration testing tools** into a unified, easy-to-use graphical interface. Built with a modular plugin architecture and centralized styling system, VAJRA streamlines reconnaissance, vulnerability assessment, and security testing workflows.
+**VAJRA** (Versatile Automated Jailbreak and Reconnaissance Arsenal) is a professional-grade offensive security platform that integrates **28 powerful penetration testing tools** into a unified, easy-to-use graphical interface. Built with a modular plugin architecture and centralized styling system, VAJRA streamlines reconnaissance, vulnerability assessment, web injection testing, and security testing workflows.
 
 ### ✨ Key Features
 
@@ -31,7 +31,7 @@
 
 ---
 
-## 🛠️ Integrated Tools (24 Total)
+## 🛠️ Integrated Tools (28 Total)
 
 ### 🤖 Automation
 - **Automation** - Complete 8-step reconnaissance pipeline:
@@ -71,6 +71,14 @@
 | **FFUF** | Fast web fuzzer with advanced filters and matchers |
 | **EyeWitness** | Web application screenshot capture |
 
+### 💉 Web Injection
+| Tool | Description |
+|------|-------------|
+| **SQLi Hunter** | Native SQL injection scanner (error-based, boolean-blind, time-blind) |
+| **Web Crawler** | BurpSuite-style web spider with depth control and screenshot integration |
+| **API Tester** | Postman-like API testing with authentication support |
+| **Web Fuzzer** | Custom web fuzzer with concurrent requests |
+
 ### 🛡️ Vulnerability Assessment
 | Tool | Description |
 |------|-------------|
@@ -108,23 +116,19 @@
 
 ### Quick Install (Recommended)
 
-Use the included installer script to install all required tools:
-
+**Step 1: Clone the repository**
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/VAJRA-OSP.git
 cd VAJRA-OSP
-
-# Run the tool installer (installs all external tools)
-chmod +x install_tools.sh
-./install_tools.sh
-
-# Or just verify which tools you have
-./install_tools.sh --verify
-
-# Quick install (skip slow tools like metasploit)
-./install_tools.sh --quick
 ```
+
+**Step 2: Install security tools automatically**
+```bash
+chmod +x Tool_Installation.sh
+sudo ./Tool_Installation.sh
+```
+
+The script automatically detects missing tools and installs them for your OS (Debian/Ubuntu/Kali, Arch, macOS).
 
 ### Manual Installation
 
@@ -146,26 +150,28 @@ brew install nmap gobuster subfinder amass httpx bind dnsrecon \
              hashcat john hydra whois nikto ffuf nuclei
 ```
 
-### Install VAJRA
+### Python Dependencies & Running VAJRA
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/yourusername/VAJRA-OSP.git
-   cd VAJRA-OSP
-   ```
+**Step 3: Install Python dependencies**
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+# or: .\venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+```
 
-2. **Create virtual environment and install dependencies**:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Linux/macOS
-   # or: .\venv\Scripts\activate  # Windows
-   pip install -r requirements.txt
-   ```
+**Dependencies installed:**
+- `PySide6` - Qt GUI framework for the modern interface
+- `requests` - HTTP library for web injection tools
+- `beautifulsoup4` - HTML parsing for web crawler
+- `urllib3` - HTTP client utilities
+- `pyinstaller` - For building standalone executables
+- `python-pptx`, `pillow` - Optional presentation tools
 
-3. **Run VAJRA**:
-   ```bash
-   python main.py
-   ```
+**Step 4: Run VAJRA**
+```bash
+python main.py
+```
 
 ---
 

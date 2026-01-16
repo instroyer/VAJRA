@@ -218,20 +218,20 @@ class MainWindow(QMainWindow):
 
     def _setup_shortcuts(self):
         """Setup global keyboard shortcuts."""
-        # Run Active Tool: Ctrl+Enter
-        self.shortcut_run = QShortcut(QKeySequence("Ctrl+Return"), self)
+        # Run Active Tool: Ctrl+R
+        self.shortcut_run = QShortcut(QKeySequence("Ctrl+R"), self)
         self.shortcut_run.activated.connect(self._run_active_tool)
         
-        # Stop Active Tool: Esc
-        self.shortcut_stop = QShortcut(QKeySequence("Esc"), self)
+        # Stop Active Tool: Ctrl+Q
+        self.shortcut_stop = QShortcut(QKeySequence("Ctrl+Q"), self)
         self.shortcut_stop.activated.connect(self._stop_active_tool)
         
         # Clear Output: Ctrl+L
         self.shortcut_clear = QShortcut(QKeySequence("Ctrl+L"), self)
         self.shortcut_clear.activated.connect(self._clear_active_output)
         
-        # Focus Input: Ctrl+/ 
-        self.shortcut_focus = QShortcut(QKeySequence("Ctrl+/"), self)
+        # Focus Input: Ctrl+I
+        self.shortcut_focus = QShortcut(QKeySequence("Ctrl+I"), self)
         self.shortcut_focus.activated.connect(self._focus_primary_input)
 
     def _get_active_tool_widget(self):

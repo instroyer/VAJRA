@@ -1,5 +1,4 @@
 # VAJRA-OSP Requirements
-# Core dependencies for the offensive security platform
 
 # GUI Framework
 PySide6>=6.4.0

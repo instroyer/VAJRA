@@ -1,7 +1,7 @@
 
 import functools
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QScrollArea, QFrame
-from PySide6.QtCore import Qt, Signal, QEasingCurve, QPropertyAnimation
+from PySide6.QtCore import Qt, Signal
 from collections import defaultdict
 
 from modules.bases import ToolCategory

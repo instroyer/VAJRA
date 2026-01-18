@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QScrollArea, QFrame
 )
 from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtGui import QIcon
 
 from ui.styles import (
     COLOR_BG_INPUT, COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY,

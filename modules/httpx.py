@@ -110,6 +110,8 @@ class HttpxView(StyledToolView, ToolExecutionMixin):
         options_layout.addWidget(self.tech_check, 2, 0)
         options_layout.addWidget(self.follow_redirects, 2, 1)
         
+        options_layout.setColumnStretch(2, 1) # Prevent wide columns
+        
         control_layout.addWidget(options_group)
 
         # Command Preview

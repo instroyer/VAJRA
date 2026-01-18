@@ -3,7 +3,7 @@
 # =============================================================================
 # VAJRA - Nuitka Build Script
 # Compiles Python to native C++ for better protection and performance
-# Version: 2.0.0 - Updated 2026-01-11
+# Version: 1.0.0 - Updated 2026-01-11
 # =============================================================================
 
 set -e
@@ -18,7 +18,7 @@ PYTHON_BIN="$VENV_DIR/bin/python3"
 PIP_BIN="$VENV_DIR/bin/pip"
 
 echo "🔨 Starting Vajra Build Process (Nuitka)..."
-echo "   Version: 2.0.0"
+echo "   Version: 1.0.0"
 cd "$PROJECT_ROOT"
 
 # 1. Setup Virtual Environment
@@ -52,7 +52,7 @@ fi
 # 2. Install Dependencies (PySide6 only, no pyinstaller needed for Nuitka)
 echo "⬇️  Installing dependencies..."
 "$PIP_BIN" install --upgrade pip
-"$PIP_BIN" install PySide6>=6.7.0
+"$PIP_BIN" install "PySide6>=6.7.0"
 "$PIP_BIN" install nuitka ordered-set
 
 # Verify nuitka is installed
@@ -91,6 +91,7 @@ echo "🚀 Compiling with Nuitka (this will take several minutes)..."
     --include-package=modules \
     --include-package=core \
     --include-package=ui \
+    --include-data-dir=db=db \
     --nofollow-import-to=*.md \
     --nofollow-import-to=*.txt \
     --output-dir=dist \
@@ -107,7 +108,7 @@ rm -rf main.build main.onefile-build
 echo ""
 echo "✅ Build Complete!"
 echo "   Executable: dist/vajra"
-echo "   Version: 2.0.0"
+echo "   Version: 1.0.0"
 echo ""
 echo "To run it:"
 echo "   ./dist/vajra"

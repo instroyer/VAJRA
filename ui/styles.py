@@ -20,9 +20,6 @@ from PySide6.QtWidgets import (
     QTabWidget, QRadioButton, QToolButton, QProgressBar
 )
 
-
-
-
 # =============================================================================
 # SECTION 1: CORE CONSTANTS
 # =============================================================================
@@ -58,8 +55,6 @@ COLOR_CRITICAL = "#ef4444"
 # Borders
 COLOR_BORDER_DEFAULT = "#27272a"
 COLOR_BORDER_FOCUS   = "transparent" 
-
-
 
 
 # =============================================================================
@@ -170,59 +165,68 @@ SPINBOX_STYLE = f"""
         font-family: {FONT_FAMILY_UI};
         border: 1px solid {COLOR_BORDER_DEFAULT};
         border-radius: 4px;
-        padding: 4px 24px 4px 8px;
-        min-width: 50px;
+        padding-left: 8px;
+        padding-right: 18px; /* Space for buttons */
+        min-height: 28px;
+        max-width: 100px;
+        selection-background-color: {COLOR_ACCENT_PRIMARY};
     }}
     QSpinBox:focus {{
-        border: 1px solid {COLOR_TEXT_MUTED};
+        border: 1px solid {COLOR_ACCENT_PRIMARY};
     }}
+    /* Up Button */
     QSpinBox::up-button {{
         subcontrol-origin: border;
-        subcontrol-position: center right;
-        width: 12px;
-        height: 100%;
-        right: 0px;
-        border: none;
+        subcontrol-position: top right;
+        width: 15px; /* Compact width */
         border-left: 1px solid {COLOR_BORDER_DEFAULT};
-        background: transparent;
+        border-bottom: 1px solid {COLOR_BORDER_DEFAULT};
+        background-color: {COLOR_BG_ELEVATED};
+        /* Inset by 1px so the focus border wraps around it */
+        margin-right: 1px;
+        margin-top: 1px;
+        border-top-right-radius: 3px;
     }}
     QSpinBox::up-button:hover {{
-        background-color: rgba(255, 255, 255, 0.08);
+        background-color: {COLOR_BG_SECONDARY};
+    }}
+    QSpinBox::up-button:pressed {{
+        background-color: {COLOR_ACCENT_PRIMARY};
     }}
     QSpinBox::up-arrow {{
-        width: 0; height: 0;
-        border-top: 4px solid transparent;
-        border-bottom: 4px solid transparent;
-        border-left: 5px solid {COLOR_TEXT_SECONDARY};
+        width: 0;
+        height: 0;
+        border-left: 3px solid transparent;
+        border-right: 3px solid transparent;
+        border-bottom: 4px solid {COLOR_TEXT_PRIMARY};
     }}
-    QSpinBox::up-arrow:hover {{
-        border-left: 5px solid {COLOR_TEXT_PRIMARY};
-    }}
+
+    /* Down Button */
     QSpinBox::down-button {{
         subcontrol-origin: border;
-        subcontrol-position: center right;
-        width: 12px;
-        height: 100%;
-        right: 12px;
-        border: none;
+        subcontrol-position: bottom right;
+        width: 15px;
         border-left: 1px solid {COLOR_BORDER_DEFAULT};
-        background: transparent;
+        background-color: {COLOR_BG_ELEVATED};
+        /* Inset by 1px so the focus border wraps around it */
+        margin-right: 1px;
+        margin-bottom: 1px;
+        border-bottom-right-radius: 3px;
     }}
     QSpinBox::down-button:hover {{
-        background-color: rgba(255, 255, 255, 0.08);
+        background-color: {COLOR_BG_SECONDARY};
+    }}
+    QSpinBox::down-button:pressed {{
+        background-color: {COLOR_ACCENT_PRIMARY};
     }}
     QSpinBox::down-arrow {{
-        width: 0; height: 0;
-        border-top: 4px solid transparent;
-        border-bottom: 4px solid transparent;
-        border-right: 5px solid {COLOR_TEXT_SECONDARY};
-    }}
-    QSpinBox::down-arrow:hover {{
-        border-right: 5px solid {COLOR_TEXT_PRIMARY};
+        width: 0;
+        height: 0;
+        border-left: 3px solid transparent;
+        border-right: 3px solid transparent;
+        border-top: 4px solid {COLOR_TEXT_PRIMARY};
     }}
 """
-
-
 
 COMBO_BOX_STYLE = f"""
     QComboBox {{
@@ -232,14 +236,50 @@ COMBO_BOX_STYLE = f"""
         font-family: {FONT_FAMILY_UI};
         border: 1px solid {COLOR_BORDER_DEFAULT};
         border-radius: 4px;
-        padding: 6px;
-        padding-right: 20px;
+        padding-left: 10px;
+        padding-right: 18px; /* Space for button */
+        min-height: 28px;
     }}
     QComboBox:focus {{
-        border-color: {COLOR_TEXT_MUTED};
+        border: 1px solid {COLOR_ACCENT_PRIMARY};
     }}
     QComboBox::drop-down {{
-        border: none;
+        subcontrol-origin: border;
+        subcontrol-position: center right;
+        width: 15px; /* Match SpinBox */
+        border-left: 1px solid {COLOR_BORDER_DEFAULT};
+        background-color: {COLOR_BG_ELEVATED};
+        
+        /* Inset by 1px so the focus border wraps around it */
+        margin-top: 1px;
+        margin-right: 1px;
+        margin-bottom: 1px;
+        border-top-right-radius: 3px;
+        border-bottom-right-radius: 3px;
+    }}
+    QComboBox::drop-down:hover {{
+        background-color: {COLOR_BG_SECONDARY};
+    }}
+    QComboBox::drop-down:on {{
+        background-color: {COLOR_ACCENT_PRIMARY};
+    }}
+    QComboBox::down-arrow {{
+        width: 0;
+        height: 0;
+        border-left: 3px solid transparent;
+        border-right: 3px solid transparent;
+        border-top: 4px solid {COLOR_TEXT_PRIMARY};
+    }}
+    }}
+    QComboBox::down-arrow:on {{
+        border-top: 5px solid {COLOR_TEXT_PRIMARY}; 
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {COLOR_BG_INPUT};
+        color: {COLOR_TEXT_PRIMARY};
+        selection-background-color: {COLOR_ACCENT_PRIMARY};
+        border: 1px solid {COLOR_BORDER_DEFAULT};
+        outline: none;
     }}
 """
 
@@ -720,6 +760,15 @@ class StyledSpinBox(QSpinBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(SPINBOX_STYLE)
+        self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setWheelHandling(True)
+
+    def setWheelHandling(self, enable: bool):
+        """Toggle mouse wheel support."""
+        if not enable:
+            self.wheelEvent = lambda event: event.ignore()
+
 
 
 class StyledComboBox(QComboBox):
@@ -727,57 +776,10 @@ class StyledComboBox(QComboBox):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet(f"""
-            QComboBox {{
-                background-color: {COLOR_BG_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                font-size: {FONT_SIZE};
-                font-family: {FONT_FAMILY_UI};
-                border: 1px solid {COLOR_BORDER_DEFAULT};
-                border-radius: 4px;
-                padding: 6px;
-                padding-right: 20px;
-            }}
-            QComboBox:focus {{
-                border: 1px solid {COLOR_TEXT_MUTED};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-            }}
-            QComboBox::down-arrow {{
-                width: 0; height: 0;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 6px solid {COLOR_TEXT_PRIMARY};
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {COLOR_BG_INPUT};
-                color: {COLOR_TEXT_PRIMARY};
-                selection-background-color: {COLOR_ACCENT_PRIMARY};
-                border: 1px solid {COLOR_BORDER_DEFAULT};
-            }}
-        """)
+        self.setStyleSheet(COMBO_BOX_STYLE)
 
-    def paintEvent(self, event):
-        """Custom paint for arrow."""
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        width = self.width()
-        height = self.height()
-        drop_down_rect = QRect(width - 20, 0, 20, height)
-        center = drop_down_rect.center()
 
-        painter.setPen(QPen(Qt.NoPen))
-        painter.setBrush(QBrush(QColor(COLOR_TEXT_PRIMARY)))
 
-        arrow = QPolygon([
-            QPoint(center.x() - 3, center.y() - 2),
-            QPoint(center.x() + 3, center.y() - 2),
-            QPoint(center.x(), center.y() + 3)
-        ])
-        painter.drawPolygon(arrow)
 
 
 class StyledCheckBox(QCheckBox):
@@ -1083,9 +1085,10 @@ class SafeStop:
 
         
     def stop_scan(self):
-        if self.worker and self.worker.isRunning():
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
             self.worker.stop()
-            self._error("Process terminated by user.")
+            if hasattr(self, '_error'):
+                self._error("Process terminated by user.")
             if hasattr(self, 'run_button'): self.run_button.setEnabled(True)
             if hasattr(self, 'stop_button'): self.stop_button.setEnabled(False)
             if hasattr(self, 'run_button') and hasattr(self.run_button, 'set_loading'):
@@ -1095,10 +1098,12 @@ class SafeStop:
         """Stop all registered workers."""
         self.stop_scan() # Stop main worker
         # Stop any other tracked workers
-        for w in list(self.workers):
-            if w.isRunning():
-                w.stop()
-        self.workers.clear()
+        if hasattr(self, 'workers'):
+            for w in list(self.workers):
+                if hasattr(w, 'isRunning') and w.isRunning():
+                    if hasattr(w, 'stop'):
+                        w.stop()
+            self.workers.clear()
 
 
 class ToolSplitter(QSplitter):

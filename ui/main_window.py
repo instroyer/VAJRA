@@ -81,14 +81,12 @@ class MainWindow(QMainWindow):
             ]
         else:
             # Development/Nuitka: Auto-discover all modules dynamically
-            print("[Discovery] Running in dev mode - auto-discovering modules")
             try:
                 import modules
                 known_modules = [
                     name for _, name, _ in pkgutil.iter_modules(modules.__path__)
                     if name != "bases"  # Skip the base class
                 ]
-                print(f"[Discovery] Found modules: {known_modules}")
                 
                 # If auto-discovery returned nothing (e.g. weird environment), use fallback
                 if not known_modules:
@@ -102,7 +100,6 @@ class MainWindow(QMainWindow):
                     ]
             except Exception as e:
                 # Fallback if auto-discovery fails
-                print(f"[Discovery] Auto-discovery failed: {e}, using fallback")
                 known_modules = [
                 "amass", "WebInjection", "automation", "dencoder", "dig", "dnsrecon", 
                 "eyewitness", "ffuf", "gobuster", "hashcat", "hashfinder", 
@@ -121,12 +118,10 @@ class MainWindow(QMainWindow):
                         tool_name = getattr(obj, 'name', None)
                         if tool_name:
                             tools[tool_name] = obj
-            except ImportError as e:
-                print(f"[Discovery] ImportError loading {name}: {e}")
-            except Exception as e:
-                print(f"[Discovery] Error loading {name}: {e}")
+            except Exception:
+                # Silent failure - skip broken modules
+                pass
         
-        print(f"[Discovery] Loaded {len(tools)} tools: {list(tools.keys())}")
         return tools
 
     def _build_ui(self):

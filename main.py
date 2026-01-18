@@ -11,6 +11,10 @@ def qt_message_handler(mode, context, message):
     if "Unknown property" in message and "transform" in message:
         return
     
+    # Suppress QBoxLayout warnings (internal Qt layout issues)
+    if "QBoxLayout" in message or "out of range" in message:
+        return
+    
     # For other messages, use default behavior
     if mode == QtMsgType.QtDebugMsg:
         print(f"Qt Debug: {message}")

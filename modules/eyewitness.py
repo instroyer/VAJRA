@@ -122,6 +122,8 @@ class EyewitnessView(StyledToolView, ToolExecutionMixin, SafeStop):
         config_layout.addWidget(StyledLabel("Delay:"), 1, 0)
         config_layout.addWidget(self.delay_spin, 1, 1)
         
+        config_layout.setColumnStretch(4, 1) # Prevent wide columns
+        
         control_layout.addWidget(config_group)
         
         # Options

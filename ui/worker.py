@@ -38,6 +38,17 @@ class ProcessWorker(QThread):
 
     def run(self):
         try:
+            # Platform-specific "death pact" to ensure child dies with parent
+            def _set_pdeathsig():
+                import ctypes
+                import signal
+                try:
+                    # PR_SET_PDEATHSIG = 1, SIGTERM = 15
+                    libc = ctypes.CDLL("libc.so.6")
+                    libc.prctl(1, 15, 0, 0, 0)
+                except Exception:
+                    pass
+
             popen_kwargs = {
                 'stdout': subprocess.PIPE,
                 'stderr': subprocess.STDOUT,
@@ -50,6 +61,9 @@ class ProcessWorker(QThread):
             
             if os.name != 'nt':
                 popen_kwargs['start_new_session'] = True
+                # Only use preexec_fn on Linux for safety
+                if os.name == 'posix' and os.uname().sysname == 'Linux':
+                    popen_kwargs['preexec_fn'] = _set_pdeathsig
             
             self.process = subprocess.Popen(
                 self.command,

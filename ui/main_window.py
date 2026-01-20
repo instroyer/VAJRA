@@ -314,6 +314,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.setCurrentIndex(index)
 
     def open_tool_tab(self, tool_class):
+        if tool_class is None:
+            return
+
         # Handle both class references (lazy loading) and instances
         if inspect.isclass(tool_class) and issubclass(tool_class, ToolBase):
             # It's a class, instantiate it

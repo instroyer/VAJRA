@@ -179,16 +179,15 @@ SPINBOX_STYLE = f"""
         subcontrol-origin: border;
         subcontrol-position: top right;
         width: 15px; /* Compact width */
-        border-left: 1px solid {COLOR_BORDER_DEFAULT};
-        border-bottom: 1px solid {COLOR_BORDER_DEFAULT};
-        background-color: {COLOR_BG_ELEVATED};
+        background-color: transparent; /* No box background */
+        border: none; /* No box border */
         /* Inset by 1px so the focus border wraps around it */
         margin-right: 1px;
         margin-top: 1px;
         border-top-right-radius: 3px;
     }}
     QSpinBox::up-button:hover {{
-        background-color: {COLOR_BG_SECONDARY};
+        background-color: {COLOR_BG_SECONDARY}; /* Subtle hover indication */
     }}
     QSpinBox::up-button:pressed {{
         background-color: {COLOR_ACCENT_PRIMARY};
@@ -206,15 +205,15 @@ SPINBOX_STYLE = f"""
         subcontrol-origin: border;
         subcontrol-position: bottom right;
         width: 15px;
-        border-left: 1px solid {COLOR_BORDER_DEFAULT};
-        background-color: {COLOR_BG_ELEVATED};
+        background-color: transparent; /* No box background */
+        border: none; /* No box border */
         /* Inset by 1px so the focus border wraps around it */
         margin-right: 1px;
         margin-bottom: 1px;
         border-bottom-right-radius: 3px;
     }}
     QSpinBox::down-button:hover {{
-        background-color: {COLOR_BG_SECONDARY};
+        background-color: {COLOR_BG_SECONDARY}; /* Subtle hover indication */
     }}
     QSpinBox::down-button:pressed {{
         background-color: {COLOR_ACCENT_PRIMARY};
@@ -269,7 +268,6 @@ COMBO_BOX_STYLE = f"""
         border-left: 3px solid transparent;
         border-right: 3px solid transparent;
         border-top: 4px solid {COLOR_TEXT_PRIMARY};
-    }}
     }}
     QComboBox::down-arrow:on {{
         border-top: 5px solid {COLOR_TEXT_PRIMARY}; 
@@ -699,6 +697,11 @@ class StyledLineEdit(QLineEdit):
     def __init__(self, placeholder="", parent=None):
         super().__init__(parent)
         self.setPlaceholderText(placeholder)
+        # Ensure cursor starts at beginning (useful for long pasted URLs)
+        self.textChanged.connect(lambda: self.setCursorPosition(0) if len(self.text()) > 50 else None)
+        # Validation logic for file paths
+        self.textChanged.connect(self._validate_input)
+
         # Add padding-left for the icon
         self.setStyleSheet(f"""
             QLineEdit {{
@@ -715,6 +718,16 @@ class StyledLineEdit(QLineEdit):
                 border: 1px solid {COLOR_TEXT_MUTED};
             }}
         """)
+
+    def _validate_input(self):
+        text = self.text()
+        # Simple file existence check if it looks like a path
+        if text.startswith('/') or text.startswith('./'):
+            if not os.path.exists(text):
+                self.setStyleSheet(self.styleSheet().replace(f"border: 1px solid {COLOR_TEXT_MUTED}", f"border: 1px solid {COLOR_ERROR}"))
+            else:
+                self.setStyleSheet(self.styleSheet().replace(f"border: 1px solid {COLOR_ERROR}", f"border: 1px solid {COLOR_TEXT_MUTED}"))
+
         
     def paintEvent(self, event):
         super().paintEvent(event)

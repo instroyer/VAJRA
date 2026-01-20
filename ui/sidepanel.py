@@ -71,26 +71,27 @@ class Sidepanel(QWidget):
 
         # --- Footer (Settings Button) ---
         footer_widget = QWidget()
-        footer_widget.setStyleSheet("background: transparent;") # Removed border-top
+        footer_widget.setStyleSheet("background: transparent;")
         footer_layout = QVBoxLayout(footer_widget)
         footer_layout.setContentsMargins(12, 12, 12, 12)
-        self.settings_btn = QPushButton("⚙️ Settings")
+        
+        self.settings_btn = QPushButton("⚙  Settings")
         self.settings_btn.setCursor(Qt.PointingHandCursor)
-        self.settings_btn.setStyleSheet("""
-            QPushButton {
+        self.settings_btn.setStyleSheet(f"""
+            QPushButton {{
+                color: {COLOR_TEXT_SECONDARY};
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1a1a1a, stop:1 #2d1f1f);
-                color: #9ca3af;
                 border: 1px solid #3d3d3d;
                 border-radius: 6px;
-                padding: 10px 15px;
-                font-size: 13px;
+                padding: 10px;
                 font-weight: 600;
-            }
-            QPushButton:hover {
+                font-family: {FONT_FAMILY_UI};
+            }}
+            QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2d1f1f, stop:1 #3d2f2f);
                 color: #e5e7eb;
                 border-color: {COLOR_ACCENT_PRIMARY};
-            }
+            }}
         """)
         self.settings_btn.clicked.connect(self.settings_clicked.emit)
         footer_layout.addWidget(self.settings_btn)

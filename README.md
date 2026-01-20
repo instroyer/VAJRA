@@ -112,16 +112,13 @@ Before running VAJRA, you need to install the external security tools it wraps.
 
 ### Install Security Tools
 
-Run the automated installer (supports Debian/Ubuntu/Kali, Arch Linux, macOS):
+VAJRA includes an **integrated tool installer** that can automatically detect and install missing dependencies.
 
-```bash
-chmod +x Tool_Installation.sh
-sudo ./Tool_Installation.sh
-```
+1. Launch VAJRA (see [Running VAJRA](#-running-vajra) below).
+2. Navigate to **Settings > Tool Installer**.
+3. Click **Install Missing Tools** to automatically install supported tools using your system's package manager (apt/dnf/pacman/brew) or Go.
 
-The script automatically detects and installs missing tools:
-- **Package Manager Tools**: nmap, gobuster, ffuf, hashcat, john, hydra, nikto, etc.
-- **Go Tools**: subfinder, httpx, nuclei, amass (installed to `~/go/bin`)
+> **Note:** Installation requires `sudo` privileges for system packages.
 
 ### Manual Installation
 
@@ -147,16 +144,24 @@ brew install nmap gobuster subfinder amass httpx bind dnsrecon \
 
 ## 🚀 Running VAJRA
 
-### Quick Start
+### One-Step Setup
 
-1. **Make the executable runnable**:
+1. **Install Python Dependencies**:
+
    ```bash
-   chmod +x vajra
+   pip install -r requirements.txt
    ```
 
 2. **Launch VAJRA**:
+
    ```bash
-   ./vajra
+   python3 main.py
+   ```
+
+   *Alternatively, if you have built a binary using Nuitka:*
+
+   ```bash
+   ./dist/vajra
    ```
 
 3. **Select a tool** from the left sidebar (organized by 12 categories)
@@ -231,7 +236,7 @@ VAJRA generates professional HTML reports with:
 
 ## 📍 Tool Installation Locations
 
-After running `Tool_Installation.sh`:
+Tools installed via the **Tool Installer** are located at:
 
 - **System Tools**: `/usr/bin/` and `/usr/local/bin/` (nmap, hashcat, john, etc.)
 - **Go Tools**: `~/go/bin/` (subfinder, httpx, nuclei, amass)

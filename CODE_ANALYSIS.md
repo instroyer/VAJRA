@@ -126,7 +126,8 @@ VAJRA-OSP/
 │   ├── jsonparser.py (20.9KB)      # JSON aggregation
 │   ├── privileges.py (1.2KB)       # Root privilege checks
 │   ├── reportgen.py (56KB)         # HTML/PDF report gen
-│   └── tgtinput.py (3.7KB)         # Target parsing
+│   ├── tgtinput.py (3.7KB)         # Target parsing
+│   └── tool_installer.py (12KB)    # Tool installation manager
 │
 ├── 🎨 ui/ (User interface)
 │   ├── __init__.py
@@ -172,8 +173,9 @@ VAJRA-OSP/
 │       ├── apitester.py (17KB)     # API tester
 │       └── web_fuzzer.py (10.9KB)  # Web fuzzer
 │
-├── 🐧 linux_setup/
-│   └── Tool_Installation.sh (14.4KB)
+│
+├── builder/
+│   └── build_nuitka.sh (3.2KB)     # Compiled build script
 │
 ├── 📦 Configuration
 │   ├── requirements.txt (278 bytes)

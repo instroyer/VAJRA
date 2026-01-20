@@ -133,7 +133,7 @@ python -W all main.py
 ### Environment Variables
 
 | Variable | Purpose | Example |
-|----------|---------|---------|
+| :--- | :--- | :--- |
 | `QT_DEBUG_PLUGINS` | Debug Qt plugin loading | `1` |
 | `QT_LOGGING_RULES` | Control Qt log verbosity | `qt.*=false` |
 | `VAJRA_OUTPUT_DIR` | Custom output directory | `/home/user/scans` |
@@ -142,7 +142,7 @@ python -W all main.py
 
 ## 📁 Project Structure
 
-```
+```text
 VAJRA-OSP/
 ├── main.py                 # Entry point - start here
 │
@@ -162,11 +162,15 @@ VAJRA-OSP/
 │   ├── notification.py     # Toast notifications
 │   └── settingpanel.py     # Settings UI
 │
+│
 ├── modules/                # Tool plugins
 │   ├── bases.py            # ToolBase, ToolCategory
 │   ├── automation.py       # 8-step pipeline
 │   ├── nmap.py             # Nmap integration
 │   └── ...                 # 24 tools total
+│
+├── builder/                # Build system
+│   └── build_nuitka.sh     # Nuitka compilation script
 │
 ├── docs/                   # Documentation
 │   ├── ARCHITECTURE.md
@@ -187,6 +191,7 @@ VAJRA-OSP/
 ### Adding a New Tool
 
 1. **Create the file**:
+
    ```bash
    touch modules/mytool.py
    ```
@@ -194,6 +199,7 @@ VAJRA-OSP/
 2. **Use the template** from `CONTRIBUTING.md`
 
 3. **Test discovery**:
+
    ```bash
    python main.py
    # Check console for: [Discovery] Loaded X tools: [..., 'My Tool', ...]
@@ -217,8 +223,8 @@ All styling is in `ui/styles.py`. To modify:
 **Never add inline styles in tool files!**
 
 ### Modifying Core Utilities
-
 Files in `core/` should:
+
 - Not import PySide6
 - Be testable without Qt event loop
 - Have docstrings on all public functions
@@ -337,7 +343,7 @@ def run(self):
 ### Common Issues
 
 | Issue | Cause | Solution |
-|-------|-------|----------|
+| :--- | :--- | :--- |
 | Tool not appearing | Missing `name` attribute | Add `name = "Tool Name"` |
 | Import error on start | Syntax error in tool | Check console, fix syntax |
 | UI freeze | Long operation on main thread | Use ProcessWorker |
@@ -425,7 +431,25 @@ pre-commit install
 
 ## 📦 Building for Distribution
 
-### PyInstaller (Recommended)
+### Using Nuitka (Recommended)
+
+VAJRA includes a dedicated build script using Nuitka, which compiles the Python code to a native executable for better performance and security (process obfuscation).
+
+```bash
+# Run the build script
+./builder/build_nuitka.sh
+```
+
+**What the script does:**
+1. Sets up a fresh virtual environment
+2. Installs dependencies
+3. Compiles `main.py` referencing `modules`, `core`, and `ui` packages
+4. Embeds the `db` directory
+5. Produces a standalone binary in `dist/vajra`
+
+### Using PyInstaller (Alternative)
+
+If you prefer PyInstaller, you can use the manual method:
 
 ```bash
 # Install
@@ -435,74 +459,7 @@ pip install pyinstaller
 pyinstaller --onefile --windowed \
     --name VAJRA \
     --add-data "modules:modules" \
-    main.py
-
-# Output in dist/VAJRA
-```
-
-### PyInstaller Spec File
-
-Create `vajra.spec`:
-
-```python
-# vajra.spec
-block_cipher = None
-
-a = Analysis(
-    ['main.py'],
-    pathex=[],
-    binaries=[],
-    datas=[('modules', 'modules')],
-    hiddenimports=[
-        'modules.amass', 'modules.automation', 'modules.nmap',
-        # ... list all modules
-    ],
-    hookspath=['linux_setup'],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
-    noarchive=False,
-)
-
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
-    name='VAJRA',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    console=False,
-)
-```
-
-```bash
-# Build with spec
-pyinstaller vajra.spec
-```
-
-### Nuitka (Alternative)
-
-```bash
-# Install
-pip install nuitka
-
-# Build
-python -m nuitka \
-    --standalone \
-    --include-package=modules \
-    --include-package=ui \
-    --include-package=core \
-    --enable-plugin=pyside6 \
+    --add-data "db:db" \
     main.py
 ```
 
@@ -564,10 +521,10 @@ python -m cProfile -s cumtime main.py 2>&1 | head -50
 
 ## 📚 Additional Resources
 
-- **PySide6 Documentation**: https://doc.qt.io/qtforpython-6/
-- **Qt Stylesheets Reference**: https://doc.qt.io/qt-6/stylesheet-reference.html
-- **Python Packaging**: https://packaging.python.org/
-- **PyInstaller Manual**: https://pyinstaller.org/en/stable/
+- **PySide6 Documentation**: <https://doc.qt.io/qtforpython-6/>
+- **Qt Stylesheets Reference**: <https://doc.qt.io/qt-6/stylesheet-reference.html>
+- **Python Packaging**: <https://packaging.python.org/>
+- **PyInstaller Manual**: <https://pyinstaller.org/en/stable/>
 
 ---
 

@@ -6,22 +6,22 @@ This document describes the architectural design decisions, module relationships
 
 ## 📋 Table of Contents
 
-1. [High-Level Architecture](#high-level-architecture)
-2. [Directory Structure](#directory-structure)
-3. [Plugin Discovery System](#plugin-discovery-system)
-4. [Module Relationships](#module-relationships)
-5. [Design Patterns](#design-patterns)
-6. [Data Flow](#data-flow)
-7. [Styling Architecture](#styling-architecture)
-8. [Process Management](#process-management)
-9. [Report Generation Pipeline](#report-generation-pipeline)
-10. [Design Decisions](#design-decisions)
+1. [High-Level Architecture](#-high-level-architecture)
+2. [Directory Structure](#-directory-structure)
+3. [Plugin Discovery System](#-plugin-discovery-system)
+4. [Module Relationships](#-module-relationships)
+5. [Design Patterns](#-design-patterns)
+6. [Data Flow](#-data-flow)
+7. [Styling Architecture](#-styling-architecture)
+8. [Process Management](#-process-management)
+9. [Report Generation Pipeline](#-report-generation-pipeline)
+10. [Design Decisions](#-design-decisions)
 
 ---
 
 ## 🏗️ High-Level Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              VAJRA-OSP                                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -77,7 +77,7 @@ This document describes the architectural design decisions, module relationships
 
 ## 📁 Directory Structure
 
-```
+```text
 VAJRA-OSP/
 │
 ├── main.py                 # Application entry point
@@ -92,7 +92,8 @@ VAJRA-OSP/
 │   ├── jsonparser.py       # FinalJsonGenerator - aggregates scan data
 │   ├── privileges.py       # Privilege checking for root operations
 │   ├── reportgen.py        # ReportGenerator - HTML/PDF reports
-│   └── tgtinput.py         # Target parsing and normalization
+│   ├── tgtinput.py         # Target parsing and normalization
+│   └── tool_installer.py   # Dynamic tool installer
 │
 ├── ui/                     # User interface layer
 │   ├── __init__.py
@@ -107,6 +108,9 @@ VAJRA-OSP/
 │   ├── __init__.py
 │   ├── bases.py            # ToolBase, ToolCategory (contracts)
 │   └── <tool>.py           # Individual tool implementations
+│
+├── builder/                # Build system
+│   └── build_nuitka.sh     # Nuitka compilation script
 │
 └── docs/                   # Documentation
     ├── ARCHITECTURE.md     # This file
@@ -218,7 +222,7 @@ The tool will be automatically discovered on the next application launch.
 
 ### Dependency Graph
 
-```
+```text
                     ┌─────────────┐
                     │   main.py   │
                     └──────┬──────┘
@@ -284,7 +288,7 @@ The tool will be automatically discovered on the next application launch.
 ### Import Rules
 
 | From | Can Import | Cannot Import |
-|------|------------|---------------|
+| :--- | :--- | :--- |
 | `main.py` | `ui/*`, `modules/*` | - |
 | `ui/*` | `ui/*`, `modules/bases.py`, `core/*` | - |
 | `modules/*` | `ui/styles.py`, `ui/worker.py`, `core/*`, `modules/bases.py` | `ui/main_window.py` |
@@ -370,7 +374,7 @@ class ProcessWorker(QThread):
 
 ### Scan Execution Flow
 
-```
+```text
 User Input (UI)
        │
        ▼
@@ -406,7 +410,7 @@ Button States (enabled)
 
 ### Report Generation Flow
 
-```
+```text
 Automation Pipeline Completes
             │
             ▼
@@ -452,7 +456,7 @@ Automation Pipeline Completes
 
 ### Single Source of Truth: `ui/styles.py`
 
-```
+```text
 ui/styles.py
 ├── Color Constants
 │   ├── COLOR_BG_PRIMARY, COLOR_BG_SECONDARY
@@ -498,7 +502,7 @@ ui/styles.py
 
 ### ProcessWorker Lifecycle
 
-```
+```text
                     ┌─────────────────────┐
                     │   ProcessWorker     │
                     │      created        │
@@ -551,6 +555,7 @@ class SafeStop:
 **Decision**: `core/` modules cannot import PySide6.
 
 **Rationale**:
+
 - Enables CLI tools using core functionality
 - Easier unit testing without Qt event loop
 - Clear separation of concerns
@@ -561,6 +566,7 @@ class SafeStop:
 **Decision**: Store class references, instantiate on tab open.
 
 **Rationale**:
+
 - Faster startup (24 tools × ~50ms = 1.2s saved)
 - Lower memory footprint
 - Tools only loaded when needed
@@ -570,6 +576,7 @@ class SafeStop:
 **Decision**: All styles in `ui/styles.py`.
 
 **Rationale**:
+
 - Single source of truth
 - Prevents style drift
 - Easy theme switching
@@ -580,6 +587,7 @@ class SafeStop:
 **Decision**: Use mixins (`SafeStop`, `OutputHelper`) instead of deep inheritance.
 
 **Rationale**:
+
 - Composition over inheritance
 - Pick only needed functionality
 - Easier testing of individual mixins
@@ -590,6 +598,7 @@ class SafeStop:
 **Decision**: All tools implement `build_command(preview=False)`.
 
 **Rationale**:
+
 - Testable command generation
 - Preview mode for display
 - Consistent pattern across tools
@@ -600,10 +609,29 @@ class SafeStop:
 **Decision**: Dynamic discovery via `pkgutil` + `inspect`.
 
 **Rationale**:
+
 - Zero configuration for new tools
 - Just create file → tool appears
 - No manual registration
 - Supports both dev and frozen modes
+
+---
+
+## 🛠️ Build System
+
+VAJRA-OSP uses **Nuitka** to compile the Python application into a standalone native executable.
+
+### Compilation Process (`builder/build_nuitka.sh`)
+
+1. **Environment Setup**: Creates a fresh virtual environment.
+2. **Dependency Install**: Installs PySide6 and Nuitka.
+3. **Compilation**:
+    - `--standalone`: Bundles Python and dependencies.
+    - `--onefile`: Creates a single binary.
+    - `--enable-plugin=pyside6`: Handles Qt plugins.
+    - Includes `modules`, `core`, `ui` packages.
+    - Embeds `db` directory.
+4. **Security**: The resulting binary is harder to reverse-engineer than raw Python bytecode.
 
 ---
 

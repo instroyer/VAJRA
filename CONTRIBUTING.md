@@ -63,7 +63,11 @@ VAJRA-OSP/
 │   ├── fileops.py     # File operations, directory creation
 │   ├── jsonparser.py  # JSON parsing and aggregation
 │   ├── reportgen.py   # HTML/PDF report generation
-│   └── tgtinput.py    # Target input parsing
+│   ├── tgtinput.py    # Target input parsing
+│   └── tool_installer.py # Dynamic tool installer
+│
+├── builder/           # Build scripts (Nuitka)
+│   └── build_nuitka.sh
 │
 ├── ui/                # User interface (Qt widgets, styles)
 │   ├── styles.py      # ALL styles and reusable widgets

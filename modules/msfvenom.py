@@ -56,40 +56,80 @@ class MSFVenomToolView(StyledToolView, ToolExecutionMixin):
             "Meterpreter Stageless": "windows/x64/meterpreter_reverse_tcp",
             "Shell Staged": "windows/x64/shell/reverse_tcp",
             "Shell Stageless": "windows/x64/shell_reverse_tcp",
+            "Meterpreter HTTPS": "windows/x64/meterpreter/reverse_https",
+            "Meterpreter Bind TCP": "windows/x64/meterpreter/bind_tcp",
+            "Shell Bind TCP": "windows/x64/shell/bind_tcp",
+            "Powershell Reverse": "windows/x64/powershell_reverse_tcp",
+            "VNC Inject": "windows/x64/vncinject/reverse_tcp",
         },
         "Windows (x86)": {
             "Meterpreter Staged": "windows/meterpreter/reverse_tcp",
             "Meterpreter Stageless": "windows/meterpreter_reverse_tcp",
             "Shell Staged": "windows/shell/reverse_tcp",
             "Shell Stageless": "windows/shell_reverse_tcp",
+            "Meterpreter HTTPS": "windows/meterpreter/reverse_https",
+            "Meterpreter Bind TCP": "windows/meterpreter/bind_tcp",
+            "Shell Bind TCP": "windows/shell/bind_tcp",
+            "Powershell Reverse": "windows/powershell_reverse_tcp",
+            "VNC Inject": "windows/vncinject/reverse_tcp",
         },
         "Linux (x64)": {
             "Meterpreter Staged": "linux/x64/meterpreter/reverse_tcp",
             "Shell Stageless": "linux/x64/shell_reverse_tcp",
+            "Meterpreter Bind TCP": "linux/x64/meterpreter/bind_tcp",
+            "Shell Bind TCP": "linux/x64/shell/bind_tcp",
+            "Shell Reverse IPv6": "linux/x64/shell/reverse_tcp_uuid",
         },
         "Linux (x86)": {
             "Meterpreter Staged": "linux/x86/meterpreter/reverse_tcp",
             "Shell Stageless": "linux/x86/shell_reverse_tcp",
+            "Meterpreter Bind TCP": "linux/x86/meterpreter/bind_tcp",
+            "Shell Bind TCP": "linux/x86/shell/bind_tcp",
         },
         "macOS (x64)": {
             "Meterpreter Staged": "osx/x64/meterpreter/reverse_tcp",
             "Shell Stageless": "osx/x64/shell_reverse_tcp",
+            "Shell Bind TCP": "osx/x64/shell_bind_tcp",
         },
         "Android": {
-            "Meterpreter": "android/meterpreter/reverse_tcp",
+            "Meterpreter TCP": "android/meterpreter/reverse_tcp",
+            "Meterpreter HTTPS": "android/meterpreter/reverse_https",
+            "Meterpreter HTTP": "android/meterpreter/reverse_http",
+            "Shell Reverse": "android/shell/reverse_tcp",
         },
         "PHP": {
             "Meterpreter": "php/meterpreter_reverse_tcp",
             "Reverse PHP": "php/reverse_php",
+            "Bind PHP": "php/bind_php",
+            "Reverse Persian": "php/reverse_perl",
         },
         "Python": {
             "Meterpreter": "python/meterpreter_reverse_tcp",
+            "Meterpreter Bind": "python/meterpreter/bind_tcp",
             "Shell": "cmd/unix/reverse_python",
+            "Shell Bind": "cmd/unix/bind_python",
         },
         "Java/JSP": {
             "JSP Shell": "java/jsp_shell_reverse_tcp",
             "WAR Shell": "java/shell_reverse_tcp",
+            "Java Meterpreter": "java/meterpreter/reverse_tcp",
+            "Java Meterpreter HTTP": "java/meterpreter/reverse_http",
+            "Java Meterpreter HTTPS": "java/meterpreter/reverse_https",
         },
+        "Scripting (Bash/Perl/Ruby)": {
+            "Bash Reverse": "cmd/unix/reverse_bash",
+            "Perl Reverse": "cmd/unix/reverse_perl",
+            "Ruby Reverse": "cmd/unix/reverse_ruby",
+            "Netcat Reverse": "cmd/unix/reverse_netcat",
+            "NodeJS Reverse": "cmd/unix/reverse_nodejs",
+            "Lua Reverse": "cmd/unix/reverse_lua",
+        },
+        "Web (ASP/ASPX)": {
+            "ASP Meterpreter": "windows/meterpreter/reverse_tcp", # ASP wrapper
+            "ASP Shell": "windows/shell/reverse_tcp",
+            "ASPX Meterpreter": "windows/x64/meterpreter/reverse_tcp", # ASPX wrapper 
+            "ASPX Shell": "windows/x64/shell/reverse_tcp",
+        }
     }
 
     ENCODERS = {
@@ -154,7 +194,7 @@ class MSFVenomToolView(StyledToolView, ToolExecutionMixin):
         self.lhost_input.textChanged.connect(self.update_command)
         conn_layout.addWidget(self.lhost_input, 1)
 
-        detect_btn = BrowseButton("📍 Detect") # Reuse browse button style for detect
+        detect_btn = RunButton("Detect") # Reuse browse button style for detect
         detect_btn.setToolTip("Auto-detect IP")
         detect_btn.clicked.connect(self._detect_ip)
         conn_layout.addWidget(detect_btn)

@@ -30,7 +30,7 @@ from ui.styles import (
     StyledComboBox, StyledCheckBox, StyledSpinBox, StyledLabel, StyledLineEdit,
     HeaderLabel, CommandDisplay, OutputView, RunButton, StopButton,
     StyledGroupBox, SafeStop, OutputHelper, ToolSplitter, StyledToolView,
-    COLOR_TEXT_PRIMARY
+    COLOR_TEXT_PRIMARY, COLOR_BG_INPUT, COLOR_BORDER_DEFAULT, COLOR_ACCENT_PRIMARY
 )
 
 
@@ -751,14 +751,14 @@ class PortScannerView(StyledToolView, ToolExecutionMixin, SafeStop, OutputHelper
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet(f"""
             QProgressBar {{
-                background-color: #2A2A3E;
-                border: 1px solid #3d3d5c;
+                background-color: {COLOR_BG_INPUT};
+                border: 1px solid {COLOR_BORDER_DEFAULT};
                 border-radius: 4px;
                 text-align: center;
                 color: {COLOR_TEXT_PRIMARY};
             }}
             QProgressBar::chunk {{
-                background-color: #f97316;
+                background-color: {COLOR_ACCENT_PRIMARY};
                 border-radius: 3px;
             }}
         """)

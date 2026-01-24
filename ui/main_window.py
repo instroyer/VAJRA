@@ -17,13 +17,21 @@ from ui.notification import NotificationManager
 from ui.settingpanel import SettingsPanel
 from ui.styles import (
     MAIN_WINDOW_STYLE, TAB_WIDGET_STYLE,
-    COLOR_BG_SECONDARY, COLOR_BORDER_DEFAULT, COLOR_TEXT_SECONDARY, COLOR_TEXT_PRIMARY,
-    COLOR_BG_PRIMARY, TOOL_HEADER_STYLE, LABEL_STYLE,
-    TARGET_INPUT_STYLE, RUN_BUTTON_STYLE, STOP_BUTTON_STYLE,
-    OUTPUT_TEXT_EDIT_STYLE, TOOL_VIEW_STYLE, FONT_FAMILY_UI
+    COLOR_BORDER_DEFAULT, COLOR_TEXT_SECONDARY, COLOR_TEXT_PRIMARY,
+    FONT_FAMILY_UI
 )
 from ui.styles import OutputView  # Import OutputView from styles
 from core.tgtinput import TargetInput
+
+# =============================================================================
+# LOCAL MAIN WINDOW STYLES & COLORS
+# =============================================================================
+
+# Main Window Layout Colors
+COLOR_MAIN_BG = "#1e1e1e"           # Local constant: Editor background
+COLOR_STATUS_BAR_BG = "#0d0b0b"     # Local constant: Blue Status Bar (VS Code style)
+COLOR_TITLE_BAR_BORDER = "#454545"
+COLOR_TITLE_BAR_BUTTON_HOVER = "#334155"
 
 class WelcomeWidget(QWidget):
     def __init__(self):
@@ -135,7 +143,8 @@ class MainWindow(QMainWindow):
         # --- Title Bar ---
         title_bar = QWidget()
         title_bar.setFixedHeight(40)
-        title_bar.setStyleSheet(f"background-color: {COLOR_BG_PRIMARY}; border-bottom: 1px solid {COLOR_BORDER_DEFAULT};")
+        # Use local constant COLOR_MAIN_BG
+        title_bar.setStyleSheet(f"background-color: {COLOR_MAIN_BG}; border-bottom: 1px solid {COLOR_TITLE_BAR_BORDER};")
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(5, 0, 5, 0)
         title_layout.setSpacing(10)
@@ -150,7 +159,7 @@ class MainWindow(QMainWindow):
                 font-size: 20px;
             }}
             QPushButton:hover {{
-                background-color: #334155;
+                background-color: {COLOR_TITLE_BAR_BUTTON_HOVER};
             }}
         ''')
         self.sidepanel_toggle_btn.setCursor(Qt.PointingHandCursor)
@@ -189,10 +198,11 @@ class MainWindow(QMainWindow):
 
         # --- Status Bar ---
         self.status_bar = QStatusBar()
+        # Use local constant COLOR_STATUS_BAR_BG
         self.status_bar.setStyleSheet(f'''QStatusBar {{
-                background-color: {COLOR_BG_SECONDARY};
+                background-color: {COLOR_STATUS_BAR_BG};
                 border-top: 1px solid {COLOR_BORDER_DEFAULT};
-                color: {COLOR_TEXT_SECONDARY};
+                color: {COLOR_TEXT_PRIMARY}; 
                 padding: 0 10px;
             }}
         ''')

@@ -1,441 +1,719 @@
 # Contributing to VAJRA-OSP
 
-Thank you for your interest in contributing to VAJRA! This guide will help you understand how to add new tools and contribute effectively to the project.
+Thank you for your interest in contributing to VAJRA! This document provides guidelines and instructions for contributing.
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
-1. [Who This Is For](#who-this-is-for)
-2. [Core Principles](#core-principles)
-3. [Project Structure](#project-structure)
-4. [Adding a New Tool](#adding-a-new-tool)
-5. [Golden Tool Template](#golden-tool-template)
-6. [Contribution Workflow](#contribution-workflow)
-7. [Code Style Guidelines](#code-style-guidelines)
-8. [Pull Request Process](#pull-request-process)
-
----
-
-## 👥 Who This Is For
-
-- **Core developers** maintaining the platform
-- **Contributors** adding new tools or features
-- **Reviewers** evaluating pull requests
-- **Automated agents** (LLMs) generating code
+1. [Code of Conduct](#code-of-conduct)
+2. [How Can I Contribute?](#how-can-i-contribute)
+3. [Development Setup](#development-setup)
+4. [Contribution Workflow](#contribution-workflow)
+5. [Adding New Tools](#adding-new-tools)
+6. [Code Style Guidelines](#code-style-guidelines)
+7. [Pull Request Process](#pull-request-process)
+8. [Recognition](#recognition)
 
 ---
 
-## 🎯 Core Principles
+## Code of Conduct
 
-VAJRA is a **platform**, not a collection of scripts. All contributions must preserve:
+### Our Pledge
 
-### ✅ You MUST
+We are committed to providing a welcoming and inspiring community for all. Please be respectful in all interactions.
 
-- Follow the plugin architecture (`ToolBase` inheritance)
-- Use centralized styles from `ui/styles.py`
-- Use `OutputHelper` for all output formatting
-- Use `SafeStop` mixin for process management
-- Use `build_command()` pattern for command generation
-- Keep UI, output, and logic centralized
-- Add Google-style docstrings to public methods
+### Expected Behavior
 
-### ❌ You MUST NOT
+- ✅ Use welcoming and inclusive language
+- ✅ Be respectful of differing viewpoints
+- ✅ Accept constructive criticism gracefully
+- ✅ Focus on what's best for the community
+- ✅ Show empathy towards others
 
-- Add inline styles inside tools (use `ui/styles.py`)
-- Use raw shell command strings without `shlex.quote()`
-- Add duplicate output formatting
-- Add new colors outside the theme palette
-- Touch core architecture without discussion
-- Embed `sudo` directly in commands
-- Manage notifications directly in tools
-- Manage output paths manually (use `core/fileops.py`)
-- Implement custom execution lifecycles (use `ToolExecutionMixin`)
+### Unacceptable Behavior
+
+- ❌ Harassment or discriminatory language
+- ❌ Trolling or insulting comments
+- ❌ Personal or political attacks
+- ❌ Publishing others' private information
+- ❌ Unprofessional conduct
 
 ---
 
-## 📁 Project Structure
+## How Can I Contribute?
 
-```
-VAJRA-OSP/
-├── core/              # Core utilities (NO Qt imports allowed)
-│   ├── config.py      # Configuration management
-│   ├── fileops.py     # File operations, directory creation
-│   ├── jsonparser.py  # JSON parsing and aggregation
-│   ├── reportgen.py   # HTML/PDF report generation
-│   ├── tgtinput.py    # Target input parsing
-│   └── tool_installer.py # Dynamic tool installer
-│
-├── builder/           # Build scripts (Nuitka)
-│   └── build_nuitka.sh
-│
-├── ui/                # User interface (Qt widgets, styles)
-│   ├── styles.py      # ALL styles and reusable widgets
-│   ├── worker.py      # ProcessWorker, ToolExecutionMixin
-│   ├── main_window.py # Main window with plugin discovery
-│   └── sidepanel.py   # Navigation sidebar
-│
-├── modules/           # Tool plugins (one file per tool)
-│   ├── bases.py       # ToolBase, ToolCategory (DO NOT MODIFY)
-│   └── <tool>.py      # Individual tool implementations
-│
-└── main.py            # Application entry point
+### 🐛 Reporting Bugs
+
+**Before submitting:**
+1. Check existing issues to avoid duplicates
+2. Collect information about your environment
+3. Gather reproduction steps
+
+**Bug Report Template:**
+
+```markdown
+### Description
+Clear description of the bug
+
+### Steps to Reproduce
+1. Go to '...'
+2. Click on '...'
+3. See error
+
+### Expected Behavior
+What should happen
+
+### Actual Behavior
+What actually happens
+
+### Environment
+- OS: [e.g., Ubuntu 22.04]
+- Python: [e.g., 3.11.2]
+- VAJRA Version: [e.g., commit hash]
+
+### Additional Context
+Any other relevant information
 ```
 
+### 💡 Suggesting Enhancements
+
+**Enhancement Request Template:**
+
+```markdown
+### Feature Description
+Clear description of the proposed feature
+
+### Use Case
+Why is this feature needed?
+
+### Proposed Solution
+How should it work?
+
+### Alternatives Considered
+Other approaches you've thought about
+
+### Additional Context
+Screenshots, mockups, examples
+```
+
+### 🔧 Contributing Code
+
+We welcome:
+- **New tools** - Add security tool integrations
+- **Bug fixes** - Fix reported issues
+- **Improvements** - Enhance existing features
+- **Documentation** - Improve docs and examples
+- **Tests** - Add test coverage (when testing framework exists)
+
 ---
 
-## 🔧 Adding a New Tool
+## Development Setup
 
-### Step 1: Choose a Category
-
-Select the appropriate `ToolCategory` from `modules/bases.py`:
-
-| Category | Use Case |
-|----------|----------|
-| `AUTOMATION` | Multi-step pipelines |
-| `INFO_GATHERING` | WHOIS, DNS, OSINT |
-| `SUBDOMAIN_ENUMERATION` | Subdomain discovery |
-| `LIVE_SUBDOMAINS` | Live host detection |
-| `PORT_SCANNING` | Port/service scanning |
-| `WEB_SCANNING` | Directory brute-forcing, fuzzing |
-| `WEB_SCREENSHOTS` | Screenshot capture |
-| `VULNERABILITY_SCANNER` | Vuln scanning |
-| `CRACKER` | Password cracking, hashing |
-| `PAYLOAD_GENERATOR` | Payload/shell generation |
-| `FILE_ANALYSIS` | Binary/file analysis |
-
-### Step 2: Create the Tool File
-
-Create `modules/<tool_name>.py` using the template below.
-
-### Step 3: Test Locally
+### Prerequisites
 
 ```bash
+# Required
+- Python 3.10+ (3.11+ recommended)
+- Git
+- pip
+
+# Optional
+- Virtual environment tool (venv/virtualenv)
+```
+
+### Setup Steps
+
+```bash
+# 1. Fork the repository on GitHub
+
+# 2. Clone YOUR fork
+git clone https://github.com/YOUR_USERNAME/VAJRA-OSP.git
+cd VAJRA-OSP
+
+# 3. Add upstream remote
+git remote add upstream https://github.com/ORIGINAL_OWNER/VAJRA-OSP.git
+
+# 4. Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # Linux/macOS
+# venv\Scripts\activate  # Windows
+
+# 5. Install dependencies
+pip install -r requirements.txt
+
+# 6. Verify installation
 python main.py
 ```
 
-Your tool should automatically appear in the sidebar under its category.
+---
+
+## Contribution Workflow
+
+### 1. Create a Branch
+
+```bash
+# Update your main branch
+git checkout main
+git pull upstream main
+
+# Create feature branch
+git checkout -b feature/my-new-tool
+# or
+git checkout -b fix/issue-123
+```
+
+**Branch naming conventions:**
+- `feature/` - New features or tools
+- `fix/` - Bug fixes
+- `docs/` - Documentation updates
+- `refactor/` - Code refactoring
+
+### 2. Make Changes
+
+- Write clean, readable code
+- Follow existing patterns
+- Add comments for complex logic
+- Test your changes locally
+
+### 3. Commit Changes
+
+```bash
+# Stage changes
+git add modules/mytool.py
+
+# Commit with clear message
+git commit -m "Add MyTool integration for XYZ scanning"
+```
+
+**Commit message format:**
+```
+<type>: <short summary>
+
+<optional detailed description>
+
+<optional footer>
+```
+
+**Types:**
+- `feat:` - New feature
+- `fix:` - Bug fix
+- `docs:` - Documentation
+- `style:` - Code style (formatting)
+- `refactor:` - Code restructuring
+- `perf:` - Performance improvement
+- `test:` - Adding tests
+
+**Examples:**
+```bash
+git commit -m "feat: Add Nuclei vulnerability scanner integration"
+git commit -m "fix: Resolve port parsing issue in Nmap module"
+git commit -m "docs: Update CONTRIBUTING.md with new guidelines"
+```
+
+### 4. Push to Your Fork
+
+```bash
+git push origin feature/my-new-tool
+```
+
+### 5. Create Pull Request
+
+1. Go to your fork on GitHub
+2. Click "Pull Request"
+3. Select `base: main` ← `compare: feature/my-new-tool`
+4. Fill out PR template
+5. Submit!
 
 ---
 
-## 📝 Golden Tool Template
+## Adding New Tools
 
-Copy this template for new tools:
+### Quick Start Template
+
+Create `modules/mytool.py`:
 
 ```python
-# =============================================================================
-# modules/<tool_name>.py
-#
-# <Tool Name> - <Brief Description>
-# =============================================================================
+"""
+MyTool - Short description
+"""
 
-import os
-import shlex
-
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout
-from PySide6.QtCore import Qt
-
-from modules.bases import ToolBase, ToolCategory
-from ui.styles import (
-    # Widgets - import only what you need
-    RunButton, StopButton, BrowseButton, CopyButton,
-    StyledLineEdit, StyledSpinBox, StyledCheckBox, StyledComboBox,
-    StyledLabel, HeaderLabel, StyledGroupBox, OutputView, CommandDisplay,
-    ToolSplitter, ConfigTabs, StyledToolView,
-    # Mixins
-    SafeStop, OutputHelper,
-    # Constants (if needed)
-    COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING, COLOR_ERROR
-)
+from modules.bases import ToolBase, ToolCategory, IOMixin, RunMixin
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QCheckBox
+from PySide6.QtCore import Slot
+from ui.styles import get_button_style, SUCCESS, ERROR
 
 
 class MyTool(ToolBase):
-    """
-    <Tool Name> tool plugin for VAJRA.
-    
-    This tool provides <brief description of what the tool does>.
-    
-    Attributes:
-        name: Display name shown in sidebar.
-        category: ToolCategory enum for sidebar grouping.
-    """
+    """MyTool implementation"""
     
     name = "My Tool"
-    category = ToolCategory.INFO_GATHERING  # Change as appropriate
+    category = ToolCategory.INFO_GATHERING
     
-    @property
-    def description(self) -> str:
-        """Return a brief description of the tool."""
-        return "Brief description for tooltips"
-    
-    @property
-    def icon(self) -> str:
-        """Return an emoji icon for the tool."""
-        return "🔧"
-    
-    def get_widget(self, main_window: QWidget) -> QWidget:
-        """
-        Create and return the tool's UI widget.
-        
-        Args:
-            main_window: Reference to the MainWindow instance.
-            
-        Returns:
-            The tool's view widget instance.
-        """
-        return MyToolView(main_window)
+    def get_widget(self, main_window):
+        return MyToolWidget(main_window)
 
 
-class MyToolView(StyledToolView, SafeStop, OutputHelper):
-    """
-    UI view for <Tool Name>.
+class MyToolWidget(QWidget, IOMixin, RunMixin):
+    """UI for MyTool"""
     
-    This class implements the complete user interface for the tool,
-    including configuration options, command building, and execution.
-    
-    Attributes:
-        tool_name: Name used for logging and display.
-        tool_category: Category string for header breadcrumb.
-    """
-    
-    tool_name = "My Tool"
-    tool_category = "INFO_GATHERING"
-    
-    def __init__(self, main_window: QWidget = None):
-        """
-        Initialize the tool view.
-        
-        Args:
-            main_window: Reference to the MainWindow for notifications.
-        """
+    def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        self.init_safe_stop()  # Initialize stop functionality
-        self._build_ui()
-        self.update_command()
+        self.setup_ui()
     
-    def _build_ui(self) -> None:
-        """Build the complete tool UI."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+    def setup_ui(self):
+        """Setup the user interface"""
+        layout = QVBoxLayout()
         
-        # === Header ===
-        header = HeaderLabel(f"{self.tool_category} › {self.tool_name}")
-        layout.addWidget(header)
+        # Title
+        title = QLabel(f"<h2>{MyTool.name}</h2>")
+        layout.addWidget(title)
         
-        # === Configuration Section ===
-        config_group = StyledGroupBox("Configuration")
-        config_layout = QGridLayout(config_group)
-        config_layout.setSpacing(10)
+        # Description
+        desc = QLabel("Brief description of what this tool does")
+        layout.addWidget(desc)
         
-        # Target input
-        config_layout.addWidget(StyledLabel("Target:"), 0, 0)
-        self.target_input = StyledLineEdit()
-        self.target_input.setPlaceholderText("Enter target (domain / IP / CIDR)")
-        self.target_input.textChanged.connect(self.update_command)
-        config_layout.addWidget(self.target_input, 0, 1)
+        # Target input + output area (from IOMixin)
+        self.setup_io(layout)
         
-        # Add more configuration options here...
-        # Example: checkbox option
-        self.verbose_check = StyledCheckBox("Verbose output")
-        self.verbose_check.stateChanged.connect(self.update_command)
-        config_layout.addWidget(self.verbose_check, 1, 0, 1, 2)
+        # Optional: Add custom options
+        self.verbose_option = QCheckBox("Verbose Output")
+        layout.addWidget(self.verbose_option)
         
-        layout.addWidget(config_group)
+        # Run controls (from RunMixin)
+        self.setup_run_controls(layout)
         
-        # === Command Preview ===
-        cmd_group = StyledGroupBox("Command")
-        cmd_layout = QHBoxLayout(cmd_group)
-        self.command_display = CommandDisplay()
-        cmd_layout.addWidget(self.command_display)
-        layout.addWidget(cmd_group)
-        
-        # === Action Buttons ===
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-        
-        self.run_button = RunButton("Run")
-        self.run_button.clicked.connect(self.run_scan)
-        btn_layout.addWidget(self.run_button)
-        
-        self.stop_button = StopButton("Stop")
-        self.stop_button.clicked.connect(self.stop_scan)
-        self.stop_button.setEnabled(False)
-        btn_layout.addWidget(self.stop_button)
-        
-        layout.addLayout(btn_layout)
-        
-        # === Output Section ===
-        self.output = OutputView()
-        layout.addWidget(self.output, 1)  # Stretch factor 1
+        self.setLayout(layout)
     
-    def build_command(self, preview: bool = False) -> str:
-        """
-        Build the command string from current UI state.
-        
-        Args:
-            preview: If True, format for display only (no file paths).
-            
-        Returns:
-            The complete command string ready for execution.
-        """
-        target = self.target_input.text().strip()
-        if not target:
-            return "mytool --help"
-        
-        cmd_parts = ["mytool"]
-        
-        # Add target
-        cmd_parts.append(shlex.quote(target))
-        
-        # Add options based on UI state
-        if self.verbose_check.isChecked():
-            cmd_parts.append("-v")
-        
-        return " ".join(cmd_parts)
-    
-    def update_command(self) -> None:
-        """Update the command preview display."""
-        cmd = self.build_command(preview=True)
-        self.command_display.setText(cmd)
-    
-    def run_scan(self) -> None:
-        """Execute the tool with current configuration."""
-        target = self.target_input.text().strip()
-        if not target:
-            self._error("Please enter a target")
-            return
+    def build_command(self):
+        """Build the command to execute"""
+        # Get targets
+        targets = self.target_input.get_targets()
+        if not targets:
+            return None
         
         # Build command
+        cmd = ["mytool"]  # Replace with actual tool command
+        
+        # Add options
+        if self.verbose_option.isChecked():
+            cmd.append("-v")
+        
+        # Add target
+        cmd.append(targets[0])
+        
+        return cmd
+    
+    def run_scan(self):
+        """Execute the scan"""
         command = self.build_command()
         
-        # Clear output and show info
-        self.output.clear()
-        self._info(f"Starting scan on {target}")
-        self._section("COMMAND")
-        self.output.appendPlainText(command)
-        self._section("OUTPUT")
+        if not command:
+            self.main_window.notification_manager.show_toast(
+                "Please enter a target", "warning"
+            )
+            return
         
-        # Execute using mixin (handles button states, worker lifecycle)
-        self.start_execution(command, shell=True)
+        # Notify user
+        self.main_window.notification_manager.show_toast(
+            "Starting scan...", "info"
+        )
+        
+        # Start worker (from RunMixin)
+        self.start_worker(command, tool_name="mytool")
     
-    def on_execution_finished(self) -> None:
-        """Handle scan completion."""
-        self._success("Scan completed")
+    @Slot(str)
+    def handle_output(self, line):
+        """Handle output from worker"""
+        # Optional: Colorize output
+        colored_line = self.colorize_line(line)
+        self.output_area.append(colored_line)
     
-    def on_new_output(self, line: str) -> None:
-        """
-        Process each line of output from the tool.
-        
-        Override this to add custom output formatting/parsing.
-        
-        Args:
-            line: A single line of output from the subprocess.
-        """
-        self.output.appendPlainText(line)
+    def colorize_line(self, line):
+        """Add color coding to output"""
+        if "error" in line.lower() or "failed" in line.lower():
+            return f'<span style="color: {ERROR};">{line}</span>'
+        elif "success" in line.lower() or "found" in line.lower():
+            return f'<span style="color: {SUCCESS};">{line}</span>'
+        return line
+    
+    @Slot(int)
+    def handle_scan_finished(self, exit_code):
+        """Handle scan completion"""
+        if exit_code == 0:
+            self.main_window.notification_manager.show_toast(
+                "Scan completed successfully", "success"
+            )
+        else:
+            self.main_window.notification_manager.show_toast(
+                f"Scan failed with exit code {exit_code}", "error"
+            )
 ```
 
+### Tool Checklist
+
+Before submitting a new tool:
+
+- [ ] Tool class inherits from `ToolBase`
+- [ ] `name` attribute is set
+- [ ] `category` attribute is set (valid `ToolCategory`)
+- [ ] `get_widget()` method is implemented
+- [ ] Widget uses `IOMixin` for input/output
+- [ ] Widget uses `RunMixin` for execution controls
+- [ ] `build_command()` returns a list (not string)
+- [ ] Empty input is handled gracefully
+- [ ] Tool provides user feedback (notifications)
+- [ ] Output is saved to log file automatically (via RunMixin)
+- [ ] Code follows style guidelines
+- [ ] Tool tested locally with real targets
+- [ ] Documentation added (docstrings)
+
 ---
 
-## 🔄 Contribution Workflow
+## Code Style Guidelines
 
-1. **Fork** the repository
-2. **Create a feature branch**: `git checkout -b feature/my-new-tool`
-3. **Read** this guide and `ARCHITECTURE.md`
-4. **Implement** using the Golden Tool Template
-5. **Test locally**: `python main.py`
-6. **Commit**: `git commit -m "Add MyTool for X functionality"`
-7. **Push**: `git push origin feature/my-new-tool`
-8. **Open Pull Request** using the template below
-
----
-
-## 📏 Code Style Guidelines
-
-### Python Style
-
-- **PEP 8** compliance (use `black` formatter recommended)
-- **Google-style docstrings** for all public methods
-- **Type hints** for function parameters and returns
-- **Max line length**: 100 characters (soft limit)
-
-### Naming Conventions
-
-| Type | Convention | Example |
-|------|------------|---------|
-| Tool class | `PascalCase` + `Tool` suffix | `NmapTool` |
-| View class | `PascalCase` + `View` suffix | `NmapView` |
-| Methods | `snake_case` | `build_command()` |
-| Constants | `UPPER_SNAKE` | `COLOR_SUCCESS` |
-| Private methods | `_snake_case` | `_build_ui()` |
-
-### Import Order
+### Python Style (PEP 8)
 
 ```python
-# 1. Standard library
+# Naming conventions
+class MyClass:           # PascalCase for classes
+    CONSTANT = 42        # UPPER_CASE for constants
+    
+    def my_method(self):     # snake_case for functions/methods
+        my_variable = 10     # snake_case for variables
+        _private_var = 20    # _leading underscore for private
+
+# Line length: 88 characters (Black style)
+# Use 4 spaces for indentation (not tabs)
+```
+
+### Imports
+
+```python
+# Order: standard library → third-party → local
 import os
-import shlex
+import sys
+from pathlib import Path
 
-# 2. Third-party (PySide6)
-from PySide6.QtWidgets import QWidget
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QVBoxLayout
+from PySide6.QtCore import Signal, Slot
 
-# 3. Local modules
-from modules.bases import ToolBase, ToolCategory
-from ui.styles import RunButton, StopButton
+from core.config import ConfigManager
+from modules.bases import ToolBase
+```
+
+### Documentation
+
+```python
+def parse_targets(input_text: str) -> list[str]:
+    """
+    Parse target input from user.
+    
+    Handles both single targets and file paths containing
+    multiple targets (one per line).
+    
+    Args:
+        input_text: Raw input string from user
+    
+    Returns:
+        List of parsed target strings
+    
+    Example:
+        >>> parse_targets("example.com")
+        ['example.com']
+        >>> parse_targets("/path/to/targets.txt")
+        ['example.com', 'test.com']
+    """
+    pass
+```
+
+### Type Hints
+
+Use type hints where beneficial:
+
+```python
+from typing import Optional, List, Dict
+
+def create_directory(path: str) -> bool:
+    """Create directory if it doesn't exist"""
+    pass
+
+def get_config(key: str) -> Optional[str]:
+    """Get configuration value"""
+    pass
+
+def parse_output(file_path: str) -> Dict[str, List[str]]:
+    """Parse tool output"""
+    pass
+```
+
+### Error Handling
+
+```python
+# Be specific with exceptions
+try:
+    result = parse_file(path)
+except FileNotFoundError:
+    logger.error(f"File not found: {path}")
+    return None
+except PermissionError:
+    logger.error(f"Permission denied: {path}")
+    return None
+
+# Avoid bare except
+# ❌ BAD
+try:
+    risky_operation()
+except:
+    pass
+
+# ✅ GOOD
+try:
+    risky_operation()
+except Exception as e:
+    logger.error(f"Operation failed: {e}")
+```
+
+### Security
+
+```python
+# Always use list-based commands
+# ✅ GOOD (safe from injection)
+subprocess.run(["nmap", "-p", ports, target])
+
+# ❌ BAD (vulnerable to injection)
+subprocess.run(f"nmap -p {ports} {target}", shell=True)
+
+# Validate user input
+def validate_port(port: str) -> bool:
+    """Validate port number"""
+    try:
+        port_num = int(port)
+        return 1 <= port_num <= 65535
+    except ValueError:
+        return False
+
+# Sanitize file paths
+from pathlib import Path
+
+def safe_path(user_path: str) -> Path:
+    """Ensure path is within allowed directory"""
+    base_dir = Path("/tmp/Vajra-results")
+    full_path = (base_dir / user_path).resolve()
+    
+    if not str(full_path).startswith(str(base_dir)):
+        raise ValueError("Invalid path")
+    
+    return full_path
 ```
 
 ---
 
-## 📬 Pull Request Template
+## Pull Request Process
 
-When opening a PR, include:
+### PR Template
 
 ```markdown
-## Summary
-Brief description of what this PR does.
+## Description
+Brief description of changes
 
-## Type
-- [ ] New Tool
-- [ ] Bug Fix
-- [ ] Refactor
-- [ ] Documentation
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature (tool)
+- [ ] Enhancement (existing feature)
+- [ ] Documentation update
+- [ ] Code refactoring
 
-## Checklist
+## Changes Made
+- Added MyTool integration
+- Fixed XYZ bug in ABC module
+- Updated documentation for DEF
 
-### Architecture Compliance
-- [ ] Inherits from `ToolBase`
-- [ ] Uses `StyledToolView`, `SafeStop`, `OutputHelper`
-- [ ] No Qt imports in `core/`
-- [ ] No inline styles (all from `ui/styles.py`)
-
-### Code Quality
-- [ ] Google-style docstrings on public methods
-- [ ] Type hints on function signatures
-- [ ] `shlex.quote()` used for shell arguments
-- [ ] `build_command()` pattern implemented
-
-### Testing
-- [ ] Application launches without errors
-- [ ] Tool appears in correct sidebar category
-- [ ] Tool executes correctly
-- [ ] Output displays properly
-- [ ] Stop button terminates process
+## Testing
+- [ ] Tested locally
+- [ ] Tested with real targets
+- [ ] No errors in console
 
 ## Screenshots (if applicable)
+Attach screenshots of new UI features
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] Self-review completed
+- [ ] Comments added for complex code
+- [ ] Documentation updated
+- [ ] No new warnings introduced
+```
+
+### Review Process
+
+1. **Automated checks** (if configured)
+   - Linting
+   - Style checking
+
+2. **Code review** by maintainers
+   - Functionality
+   - Code quality
+   - Security
+   - Documentation
+
+3. **Feedback**
+   - Address review comments
+   - Push updates to same branch
+   - PR updates automatically
+
+4. **Approval & Merge**
+   - Maintainer approves
+   - PR is merged to main
+   - Branch can be deleted
+
+### After Your PR is Merged
+
+```bash
+# Update your local repo
+git checkout main
+git pull upstream main
+
+# Delete feature branch
+git branch -d feature/my-new-tool
+
+# Update your fork
+git push origin main
 ```
 
 ---
 
-## 🆘 Getting Help
+## Common Contribution Scenarios
 
-- **Issues**: Open a GitHub issue for bugs or feature requests
-- **Discussions**: Use GitHub Discussions for questions
-- **Code Review**: Tag maintainers for architecture questions
+### Scenario 1: Fix a Bug
+
+```bash
+# 1. Create fix branch
+git checkout -b fix/port-parsing-issue
+
+# 2. Make changes
+# Edit modules/nmap.py
+
+# 3. Test fix
+python main.py
+# Verify the bug is fixed
+
+# 4. Commit
+git add modules/nmap.py
+git commit -m "fix: Resolve port range parsing in Nmap module"
+
+# 5. Push and create PR
+git push origin fix/port-parsing-issue
+```
+
+### Scenario 2: Add New Tool
+
+```bash
+# 1. Create feature branch
+git checkout -b feature/add-masscan
+
+# 2. Create tool file
+touch modules/masscan.py
+
+# 3. Implement tool (use template above)
+
+# 4. Test thoroughly
+python main.py
+# Navigate to tool and test with real target
+
+# 5. Commit
+git add modules/masscan.py
+git commit -m "feat: Add Masscan port scanner integration
+
+- Implements Masscan as a new port scanning tool
+- Supports rate limiting and port range options
+- Includes color-coded output parsing"
+
+# 6. Push and create PR
+git push origin feature/add-masscan
+```
+
+### Scenario 3: Update Documentation
+
+```bash
+# 1. Create docs branch
+git checkout -b docs/improve-readme
+
+# 2. Edit documentation
+# Edit README.md, DEVELOPMENT.md, etc.
+
+# 3. Commit
+git add README.md
+git commit -m "docs: Improve installation instructions in README"
+
+# 4. Push and create PR
+git push origin docs/improve-readme
+```
 
 ---
 
-## 📜 License
+## Recognition
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+### Contributors
+
+All contributors will be:
+- Listed in project acknowledgments
+- Credited in release notes
+- Recognized in the community
+
+### Contribution Types
+
+We value all contributions:
+- 💻 **Code** - Tools, features, fixes
+- 📖 **Documentation** - Guides, examples, tutorials
+- 🐛 **Bug Reports** - Detailed issue reports
+- 💡 **Ideas** - Feature suggestions, improvements
+- 🎨 **Design** - UI/UX enhancements
+- 🧪 **Testing** - Finding and reporting bugs
+
+---
+
+## Questions?
+
+### Getting Help
+
+- **Documentation**: Check [DEVELOPMENT.md](DEVELOPMENT.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
+- **Issues**: Browse existing issues for similar questions
+- **Code Examples**: Look at existing tools in `modules/`
+
+### Contact
+
+- Open an issue for questions
+- Tag with `question` label
+- Be specific and provide context
+
+---
+
+## Final Notes
+
+### Do's ✅
+
+- Write clean, readable code
+- Test thoroughly before submitting
+- Follow existing patterns and conventions
+- Be respectful and professional
+- Ask questions when unclear
+
+### Don'ts ❌
+
+- Don't commit sensitive data (API keys, passwords)
+- Don't include large binary files
+- Don't break existing functionality
+- Don't ignore code review feedback
+- Don't submit untested code
+
+---
+
+**Thank you for contributing to VAJRA! 🙏**
+
+Your contributions make this project better for everyone.
+
+---
+
+**Last Updated:** 2026-01-22

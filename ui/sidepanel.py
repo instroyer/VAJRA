@@ -7,10 +7,88 @@ from collections import defaultdict
 from modules.bases import ToolCategory
 from ui.styles import (
     COLOR_BG_SECONDARY, COLOR_BORDER_DEFAULT, COLOR_TEXT_SECONDARY, 
-    COLOR_TEXT_PRIMARY, FONT_FAMILY_UI, SIDE_PANEL_STYLE, SIDE_PANEL_BUTTON_STYLE,
-    SIDE_PANEL_CATEGORY_STYLE, SIDE_PANEL_HEADER_STYLE, COLOR_ACCENT_PRIMARY
+    COLOR_TEXT_PRIMARY, FONT_FAMILY_UI, COLOR_ACCENT_PRIMARY,
+    COLOR_BG_ELEVATED, COLOR_ACCENT_HOVER
 )
 
+# =============================================================================
+# LOCAL SIDEPANEL STYLES & COLORS
+# =============================================================================
+
+# Side Panel Colors
+COLOR_SIDEPANEL_BG = "#111112"      # Local constant: VS Code Sidebar
+COLOR_SIDEPANEL_HEADER = "#252522"  # Local constant: Sidebar Header
+COLOR_SIDEPANEL_HOVER = "#2a2d2e"   # Local constant: List Item Hover
+COLOR_SIDEPANEL_ACTIVE = "#37373d"  # Local constant: List Item Active
+
+# Side Panel Styles
+SIDE_PANEL_STYLE = f"""
+    QWidget {{
+        background-color: {COLOR_SIDEPANEL_BG};
+        border-right: 1px solid {COLOR_BORDER_DEFAULT};
+    }}
+"""
+
+SIDE_PANEL_BUTTON_STYLE = f"""
+    QPushButton {{
+        background: transparent;
+        color: {COLOR_TEXT_SECONDARY};
+        border: none;
+        border-left: 3px solid transparent;
+        padding: 12px 18px;
+        text-align: left;
+        font-family: {FONT_FAMILY_UI};
+        font-size: 15px;
+        font-weight: 500;
+        outline: none;
+    }}
+    QPushButton:focus {{
+        border: none;
+        outline: none;
+    }}
+    QPushButton:hover {{
+        background-color: {COLOR_SIDEPANEL_HOVER};
+        color: {COLOR_TEXT_PRIMARY};
+        border-left: 3px solid {COLOR_ACCENT_HOVER};
+    }}
+    QPushButton:checked {{
+        background-color: {COLOR_SIDEPANEL_ACTIVE};
+        color: {COLOR_ACCENT_PRIMARY};
+        border-left: 3px solid {COLOR_ACCENT_PRIMARY};
+        font-weight: 600;
+    }}
+"""
+
+SIDE_PANEL_CATEGORY_STYLE = f"""
+    QPushButton {{
+        color: {COLOR_ACCENT_PRIMARY};
+        font-size: 15px;
+        font-weight: 700;
+        text-align: left;
+        border: none;
+        border-bottom: 1px solid {COLOR_BORDER_DEFAULT};
+        padding: 12px 5px 8px 5px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: transparent;
+        outline: none;
+    }}
+    QPushButton:focus {{
+        outline: none;
+        border: none;
+        border-bottom: 1px solid {COLOR_BORDER_DEFAULT};
+    }}
+    QPushButton:hover {{
+        color: {COLOR_ACCENT_HOVER};
+    }}
+"""
+
+SIDE_PANEL_HEADER_STYLE = f"""
+    QWidget {{
+        background-color: {COLOR_SIDEPANEL_HEADER};
+        border-bottom: 1px solid {COLOR_BORDER_DEFAULT};
+    }}
+"""
 
 class Sidepanel(QWidget):
     """Collapsible sidepanel for tool navigation."""
@@ -41,12 +119,20 @@ class Sidepanel(QWidget):
         header_layout.setSpacing(5)
 
         title = QLabel("⚡ VAJRA")
-        title.setStyleSheet(f"color: {COLOR_ACCENT_PRIMARY}; font-size: 22px; font-weight: 800; background: transparent; border: none; font-family: {FONT_FAMILY_UI};")
+        # Gradient text: orange to teal
+        title.setStyleSheet(f"""
+            color: {COLOR_ACCENT_PRIMARY}; 
+            font-size: 22px; 
+            font-weight: 800; 
+            background: transparent; 
+            border: none; 
+            font-family: {FONT_FAMILY_UI};
+        """)
         title.setAlignment(Qt.AlignCenter)
         header_layout.addWidget(title)
         
         subtitle = QLabel("Offensive Security Platform")
-        subtitle.setStyleSheet(f"color: #6b7280; font-size: 10px; font-weight: 500; background: transparent; border: none; font-family: {FONT_FAMILY_UI};")
+        subtitle.setStyleSheet(f"color: {COLOR_ACCENT_PRIMARY}; font-size: 10px; font-weight: 600; background: transparent; border: none; font-family: {FONT_FAMILY_UI};")
         subtitle.setAlignment(Qt.AlignCenter)
         header_layout.addWidget(subtitle)
 
@@ -80,16 +166,16 @@ class Sidepanel(QWidget):
         self.settings_btn.setStyleSheet(f"""
             QPushButton {{
                 color: {COLOR_TEXT_SECONDARY};
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1a1a1a, stop:1 #2d1f1f);
-                border: 1px solid #3d3d3d;
+                background: {COLOR_BG_ELEVATED};
+                border: 1px solid {COLOR_BORDER_DEFAULT};
                 border-radius: 6px;
                 padding: 10px;
                 font-weight: 600;
                 font-family: {FONT_FAMILY_UI};
             }}
             QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2d1f1f, stop:1 #3d2f2f);
-                color: #e5e7eb;
+                background: {COLOR_BG_SECONDARY};
+                color: {COLOR_TEXT_PRIMARY};
                 border-color: {COLOR_ACCENT_PRIMARY};
             }}
         """)
@@ -113,7 +199,7 @@ class Sidepanel(QWidget):
             
             toggle = QPushButton(f"{category_name}  ▾")
             toggle.setCursor(Qt.PointingHandCursor)
-            toggle.setStyleSheet(self._get_category_toggle_style())
+            toggle.setStyleSheet(SIDE_PANEL_CATEGORY_STYLE) # Use local style
             self.tools_layout.addWidget(toggle)
 
             container = QWidget()
@@ -151,27 +237,7 @@ class Sidepanel(QWidget):
 
         self.tool_clicked.emit(tool)
 
-    def _get_category_toggle_style(self):
-        return f'''
-            QPushButton {{
-                color: #f97316;
-                font-size: 14px;
-                font-weight: 700;
-                text-align: left;
-                border: none;
-                border-bottom: 1px solid #2d2d4d;
-                padding: 12px 5px 8px 5px;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-                background: transparent;
-            }}
-            QPushButton:hover {{
-                color: #fb923c;
-                background: transparent;
-            }}
-        '''
-
-    # Removed _get_tool_button_style as it's now replaced by SIDE_PANEL_BUTTON_STYLE
+    # Removed _get_category_toggle_style as it's now a constant
 
     def _add_tool_button(self, tool, layout):
         btn = QPushButton(tool.name)

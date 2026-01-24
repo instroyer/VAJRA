@@ -14,6 +14,12 @@ import platform
 
 from core.config import ConfigManager
 from core.privileges import PrivilegeManager as CorePrivilegeManager
+from ui.styles import (
+    COLOR_BG_PRIMARY, COLOR_BG_SECONDARY, COLOR_BG_INPUT,
+    COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY, COLOR_BORDER_DEFAULT,
+    COLOR_ACCENT_PRIMARY, COLOR_ACCENT_BLUE, FONT_FAMILY_UI,
+    TAB_WIDGET_STYLE, COLOR_SUCCESS, COLOR_WARNING, COLOR_CRITICAL
+)
 
 
 # =============================================================================
@@ -54,25 +60,40 @@ class SettingsPanel(QWidget):
         self._build_ui()
         self._load_settings()
 
+
     def _build_ui(self):
-        self.setStyleSheet("""
-            QWidget { background-color: #1C1C1C; color: white; }
-            QLabel { font-size: 13px; }
-            QCheckBox { color: white; spacing: 8px; font-size: 13px; }
-            QLineEdit { background-color: #3C3C3C; color: white; border: 1px solid #333333; padding: 8px; border-radius: 4px; }
-            QPushButton { background-color: #3C3C3C; border: 1px solid #333333; padding: 6px 12px; border-radius: 4px; color: white; }
-            QPushButton:hover { background-color: #4A4A4A; }
-            QTabWidget::pane { border: 1px solid #333333; background: #1C1C1C; }
-            QTabBar::tab { background: #2D2D2D; color: #888; padding: 8px 12px; border: 1px solid #333333; border-bottom: none; border-top-left-radius: 4px; border-top-right-radius: 4px; margin-right: 2px; }
-            QTabBar::tab:selected { background: #1C1C1C; color: white; border-bottom: 2px solid #58A6FF; }
-        """)
+        # Apply global theme
+        self.setStyleSheet(f"""
+            QWidget {{ 
+                background-color: {COLOR_BG_PRIMARY}; 
+                color: {COLOR_TEXT_PRIMARY}; 
+                font-family: {FONT_FAMILY_UI};
+            }}
+            QLabel {{ font-size: 15px; }}
+            QCheckBox {{ color: {COLOR_TEXT_PRIMARY}; spacing: 8px; font-size: 15px; }}
+            QLineEdit {{ 
+                background-color: {COLOR_BG_INPUT}; 
+                color: {COLOR_TEXT_PRIMARY}; 
+                border: 1px solid {COLOR_BORDER_DEFAULT}; 
+                padding: 8px; 
+                border-radius: 4px; 
+            }}
+            QPushButton {{ 
+                background-color: {COLOR_BG_INPUT}; 
+                border: 1px solid {COLOR_BORDER_DEFAULT}; 
+                padding: 6px 12px; 
+                border-radius: 4px; 
+                color: {COLOR_TEXT_PRIMARY}; 
+            }}
+            QPushButton:hover {{ background-color: {COLOR_BG_SECONDARY}; }}
+        """ + TAB_WIDGET_STYLE)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
 
         # Title
         header = QLabel("⚙️ Settings")
-        header.setStyleSheet("font-size: 24px; font-weight: 600; color: #58A6FF;")
+        header.setStyleSheet(f"font-size: 24px; font-weight: 600; color: {COLOR_ACCENT_BLUE};")
         layout.addWidget(header)
         layout.addSpacing(20)
 
@@ -97,6 +118,7 @@ class SettingsPanel(QWidget):
 
         # TAB 4: Tool Installer
         self.tab_installer = QWidget()
+
         self._build_installer_tab()
         self.tabs.addTab(self.tab_installer, "Tool Installer")
 
@@ -110,7 +132,7 @@ class SettingsPanel(QWidget):
         btn_layout.addStretch()
         
         save_btn = QPushButton("💾 Save Settings")
-        save_btn.setStyleSheet("background-color: #238636; border: none; font-weight: bold;")
+        save_btn.setStyleSheet(f"background-color: {COLOR_SUCCESS}; border: none; font-weight: bold;")
         save_btn.clicked.connect(self._save_settings)
         btn_layout.addWidget(save_btn)
         
@@ -142,7 +164,7 @@ class SettingsPanel(QWidget):
         row.addWidget(btn_browse)
         
         layout.addLayout(row)
-        layout.addWidget(QLabel("<small style='color:#f1c40f'>Note: This path resets to default <b>/tmp/Vajra-results</b> when you restart the app.</small>"))
+        layout.addWidget(QLabel(f"<small style='color:{COLOR_WARNING}'>Note: This path resets to default <b>/tmp/Vajra-results</b> when you restart the app.</small>"))
 
     def _build_privileges_tab(self):
         layout = QVBoxLayout(self.tab_privileges)
@@ -151,13 +173,13 @@ class SettingsPanel(QWidget):
 
         # Status
         status_box = QFrame()
-        status_box.setStyleSheet("background: #252525; border-radius: 6px; padding: 15px;")
+        status_box.setStyleSheet(f"background: {COLOR_BG_SECONDARY}; border-radius: 6px; padding: 15px;")
         sb_layout = QHBoxLayout(status_box)
         
         is_root = CorePrivilegeManager.is_root()
         icon = "✅" if is_root else "⚠️"
         text = "Running as Root (Privileged)" if is_root else "Running as Standard User"
-        color = "#2ecc71" if is_root else "#f1c40f"
+        color = COLOR_SUCCESS if is_root else COLOR_WARNING
         
         lbl_status = QLabel(f"<span style='font-size:16px; font-weight:bold; color:{color}'>{icon} {text}</span>")
         sb_layout.addWidget(lbl_status)
@@ -174,7 +196,7 @@ class SettingsPanel(QWidget):
         lbl_info = QLabel(info_text)
         lbl_info.setWordWrap(True)
         lbl_info.setTextFormat(Qt.RichText)
-        lbl_info.setStyleSheet("color: #ccc; font-size: 14px; line-height: 1.4;")
+        lbl_info.setStyleSheet(f"color: {COLOR_TEXT_SECONDARY}; font-size: 14px; line-height: 1.4;")
         layout.addWidget(lbl_info)
 
     def _build_installer_tab(self):
@@ -187,7 +209,7 @@ class SettingsPanel(QWidget):
 
         # Title
         title = QLabel("Security Tools Manager")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #58A6FF;")
+        title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLOR_ACCENT_BLUE};")
         layout.addWidget(title)
 
         # Status
@@ -205,7 +227,8 @@ class SettingsPanel(QWidget):
         # Status text
         from ui.styles import (
             COLOR_SUCCESS, COLOR_WARNING, COLOR_CRITICAL, COLOR_TEXT_PRIMARY,
-            COLOR_BG_INPUT, COLOR_BORDER_DEFAULT, COLOR_ACCENT_PRIMARY
+            COLOR_BG_INPUT, COLOR_BORDER_DEFAULT, COLOR_ACCENT_PRIMARY,
+            COLOR_TEXT_SECONDARY, COLOR_BG_SECONDARY, COLOR_ACCENT_HOVER
         )
         
         # Status text colors
@@ -214,7 +237,7 @@ class SettingsPanel(QWidget):
             status_color = COLOR_SUCCESS
         elif installed_pct >= 50:
             status_text = "Some Tools Missing"
-            status_color = "#f59e0b" # Custom Amber
+            status_color = COLOR_WARNING # Custom Amber
         else:
             status_text = "Most Tools Missing"
             status_color = COLOR_CRITICAL
@@ -266,7 +289,7 @@ class SettingsPanel(QWidget):
         if installed_tools:
             if not hasattr(self, 'installed_label'):
                 self.installed_label = QLabel()
-                self.installed_label.setStyleSheet("color: #10b981; font-size: 14px;")
+                self.installed_label.setStyleSheet(f"color: {COLOR_SUCCESS}; font-size: 14px;")
                 self.tab_installer.layout().addWidget(self.installed_label)
             self.installed_label.setText(f"<b>[+] Installed ({len(installed_tools)}):</b>")
             self.installed_label.setVisible(True)
@@ -274,7 +297,7 @@ class SettingsPanel(QWidget):
             if not hasattr(self, 'installed_list'):
                 self.installed_list = QLabel()
                 self.installed_list.setWordWrap(True)
-                self.installed_list.setStyleSheet("color: #ccc; font-size: 13px; padding: 10px; background: #1a1a1a; border-radius: 4px;")
+                self.installed_list.setStyleSheet(f"color: {COLOR_TEXT_SECONDARY}; font-size: 13px; padding: 10px; background: {COLOR_BG_SECONDARY}; border-radius: 4px;")
                 self.tab_installer.layout().addWidget(self.installed_list)
             self.installed_list.setText(", ".join(installed_tools))
             self.installed_list.setVisible(True)
@@ -291,7 +314,7 @@ class SettingsPanel(QWidget):
         if missing_tools:
             if not hasattr(self, 'missing_label'):
                 self.missing_label = QLabel()
-                self.missing_label.setStyleSheet("color: #f87171; font-size: 14px;")
+                self.missing_label.setStyleSheet(f"color: {COLOR_CRITICAL}; font-size: 14px;")
                 self.tab_installer.layout().addWidget(self.missing_label)
             self.missing_label.setText(f"<b>[-] Missing ({len(missing_tools)}):</b>")
             self.missing_label.setVisible(True)
@@ -299,7 +322,7 @@ class SettingsPanel(QWidget):
             if not hasattr(self, 'missing_list'):
                 self.missing_list = QLabel()
                 self.missing_list.setWordWrap(True)
-                self.missing_list.setStyleSheet("color: #ccc; font-size: 13px; padding: 10px; background: #1a1a1a; border-radius: 4px;")
+                self.missing_list.setStyleSheet(f"color: {COLOR_TEXT_SECONDARY}; font-size: 13px; padding: 10px; background: {COLOR_BG_SECONDARY}; border-radius: 4px;")
                 self.tab_installer.layout().addWidget(self.missing_list)
             self.missing_list.setText(", ".join(missing_tools))
             self.missing_list.setVisible(True)
@@ -321,33 +344,33 @@ class SettingsPanel(QWidget):
         if stats['missing'] > 0:
             self.btn_install.setText(f"Install Missing Tools ({stats['missing']})")
             self.btn_install.setEnabled(True)
-            self.btn_install.setStyleSheet("""
-                QPushButton {
-                    background: #238636;
+            self.btn_install.setStyleSheet(f"""
+                QPushButton {{
+                    background: {COLOR_SUCCESS};
                     border: none;
                     padding: 12px 24px;
                     border-radius: 6px;
                     color: white;
                     font-size: 14px;
                     font-weight: bold;
-                }
-                QPushButton:hover {
-                    background: #2ea043;
-                }
+                }}
+                QPushButton:hover {{
+                    background: {COLOR_ACCENT_HOVER};
+                }}
             """)
         else:
             self.btn_install.setText("All Tools Installed")
             self.btn_install.setEnabled(False)
-            self.btn_install.setStyleSheet("""
-                QPushButton {
-                    background: #2a2a2a;
+            self.btn_install.setStyleSheet(f"""
+                QPushButton {{
+                    background: {COLOR_BG_INPUT};
                     border: none;
                     padding: 12px 24px;
                     border-radius: 6px;
-                    color: #666;
+                    color: {COLOR_TEXT_SECONDARY};
                     font-size: 14px;
                     font-weight: bold;
-                }
+                }}
             """)
     
     
@@ -480,7 +503,7 @@ class SettingsPanel(QWidget):
         lbl = QLabel(guide_md)
         lbl.setWordWrap(True) # Markdown rendering is limited in QLabel but basic formatting works
         lbl.setTextFormat(Qt.MarkdownText)
-        lbl.setStyleSheet("font-size: 14px; color: #ddd;")
+        lbl.setStyleSheet(f"font-size: 14px; color: {COLOR_TEXT_PRIMARY};")
         c_layout.addWidget(lbl)
         c_layout.addStretch()
         

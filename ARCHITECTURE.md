@@ -1,645 +1,757 @@
-# VAJRA-OSP Architecture
+# VAJRA Architecture
 
-This document describes the architectural design decisions, module relationships, and patterns used in VAJRA.
+**Technical Architecture Overview**
 
----
-
-## 📋 Table of Contents
-
-1. [High-Level Architecture](#-high-level-architecture)
-2. [Directory Structure](#-directory-structure)
-3. [Plugin Discovery System](#-plugin-discovery-system)
-4. [Module Relationships](#-module-relationships)
-5. [Design Patterns](#-design-patterns)
-6. [Data Flow](#-data-flow)
-7. [Styling Architecture](#-styling-architecture)
-8. [Process Management](#-process-management)
-9. [Report Generation Pipeline](#-report-generation-pipeline)
-10. [Design Decisions](#-design-decisions)
+This document describes the internal architecture, design patterns, and technical implementation of VAJRA-OSP.
 
 ---
 
-## 🏗️ High-Level Architecture
+## Table of Contents
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              VAJRA-OSP                                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌──────────────┐    ┌──────────────────────────────────────────────────┐  │
-│  │   main.py    │───▶│               MainWindow                          │  │
-│  │  (Entry)     │    │  ┌──────────┐  ┌───────────────┐  ┌───────────┐  │  │
-│  └──────────────┘    │  │Sidepanel │  │  QTabWidget   │  │Notification│  │  │
-│                      │  │(Nav)     │  │  (Tool Tabs)  │  │  Manager   │  │  │
-│                      │  └────┬─────┘  └───────┬───────┘  └───────────┘  │  │
-│                      └───────┼────────────────┼─────────────────────────┘  │
-│                              │                │                             │
-│                              ▼                ▼                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │                         modules/                                       │ │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐    │ │
-│  │  │ToolBase │◀─│NmapTool │  │HashcatT.│  │NucleiT. │  │  ...    │    │ │
-│  │  │(bases.py│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘    │ │
-│  │  └─────────┘       │            │            │            │          │ │
-│  │                    ▼            ▼            ▼            ▼          │ │
-│  │              ┌──────────────────────────────────────────────────┐    │ │
-│  │              │              Tool Views (UI Widgets)              │    │ │
-│  │              │  Inherits: StyledToolView + SafeStop + OutputHelper│   │ │
-│  │              └──────────────────────────────────────────────────┘    │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
-│                              │                                              │
-│                              ▼                                              │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │                           ui/                                          │ │
-│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────────────┐  │ │
-│  │  │ styles.py │  │ worker.py │  │sidepanel. │  │  notification.py  │  │ │
-│  │  │(Widgets,  │  │(Process   │  │   py      │  │  (Toast system)   │  │ │
-│  │  │ Themes)   │  │ Execution)│  │           │  │                   │  │ │
-│  │  └───────────┘  └───────────┘  └───────────┘  └───────────────────┘  │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
-│                              │                                              │
-│                              ▼                                              │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │                          core/                                         │ │
-│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────────────┐  │ │
-│  │  │ fileops.py│  │jsonparser.│  │reportgen. │  │    config.py      │  │ │
-│  │  │(Dirs,     │  │   py      │  │   py      │  │  (Settings)       │  │ │
-│  │  │ Caching)  │  │(JSON agg) │  │(HTML/PDF) │  │                   │  │ │
-│  │  └───────────┘  └───────────┘  └───────────┘  └───────────────────┘  │ │
-│  │                                                                        │ │
-│  │  ⚠️ NO Qt IMPORTS ALLOWED IN core/                                    │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+1. [System Overview](#system-overview)
+2. [Architectural Principles](#architectural-principles)
+3. [Directory Structure](#directory-structure)
+4. [Core Components](#core-components)
+5. [UI Layer](#ui-layer)
+6. [Plugin System](#plugin-system)
+7. [Process Management](#process-management)
+8. [Data Flow](#data-flow)
+9. [Styling System](#styling-system)
+10. [Build System](#build-system)
+11. [Security Considerations](#security-considerations)
+
+---
+
+## System Overview
+
+VAJRA is architected as a **layered Qt application** with a strict separation between business logic and UI:
+
+```
+┌─────────────────────────────────────┐
+│        Application Layer            │
+│         (main.py)                   │
+└─────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────┐
+│         UI Layer (ui/)              │
+│  - Main Window                      │
+│  - Sidepanel (Navigation)           │
+│  - Settings Panel                   │
+│  - Notification System              │
+└─────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────┐
+│      Plugin Layer (modules/)        │
+│  - 31 Tool Implementations          │
+│  - ToolBase Interface               │
+│  - Auto-discovery System            │
+└─────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────┐
+│       Core Layer (core/)            │
+│  - Configuration                    │
+│  - File Operations                  │
+│  - Privilege Management             │
+│  - Target Parsing                   │
+│  - JSON Aggregation                 │
+│  - Tool Installation                │
+└─────────────────────────────────────┘
 ```
 
 ---
 
-## 📁 Directory Structure
+## Architectural Principles
 
-```text
+### 1. **Qt-Free Core**
+All business logic in `core/` is framework-agnostic Python. This enables:
+- Unit testing without Qt runtime
+- CLI integration potential
+- Cross-platform compatibility
+- Minimal dependencies for core logic
+
+### 2. **Plugin Architecture**
+Tools are self-contained modules that conform to `ToolBase`:
+- **Auto-discovery**: New tools are automatically detected
+- **Loose coupling**: Tools don't depend on each other
+- **Easy extension**: Add tools without modifying core code
+
+### 3. **Worker-Based Concurrency**
+Long-running operations use `QThread` workers:
+- Non-blocking UI during scans
+- Clean process lifecycle management
+- Signal-based communication for thread safety
+
+### 4. **Centralized Styling**
+All UI styling lives in `ui/styles.py`:
+- Single source of truth for colors and fonts
+- Consistent look across components
+- Easy theming support
+
+### 5. **Dependency Injection**
+Tools receive `main_window` reference for:
+- Access to shared services (config, notifications)
+- Controlled coupling to UI layer
+- Testability
+
+---
+
+## Directory Structure
+
+```
 VAJRA-OSP/
+├── main.py                     # Application entry point
 │
-├── main.py                 # Application entry point
-│                           # - Initializes QApplication
-│                           # - Sets global font styling
-│                           # - Creates MainWindow
+├── core/                       # Qt-free business logic
+│   ├── config.py              # Settings persistence (QSettings wrapper)
+│   ├── fileops.py             # File I/O, directory creation, caching
+│   ├── privileges.py          # Root/admin privilege detection
+│   ├── tgtinput.py            # Target parsing and validation
+│   ├── jsonparser.py          # Tool output aggregation
+│   ├── tool_installer.py      # Cross-platform tool installation
+│   └── reportgen.py           # HTML/PDF report generation
 │
-├── core/                   # Core utilities (Qt-free zone)
-│   ├── __init__.py
-│   ├── config.py           # ConfigManager - output paths, settings
-│   ├── fileops.py          # create_target_dirs(), caching system
-│   ├── jsonparser.py       # FinalJsonGenerator - aggregates scan data
-│   ├── privileges.py       # Privilege checking for root operations
-│   ├── reportgen.py        # ReportGenerator - HTML/PDF reports
-│   ├── tgtinput.py         # Target parsing and normalization
-│   └── tool_installer.py   # Dynamic tool installer
+├── ui/                        # PySide6 UI components
+│   ├── main_window.py         # Main application window
+│   ├── sidepanel.py           # Tool navigation sidebar
+│   ├── settingpanel.py        # Settings interface
+│   ├── notification.py        # Toast and panel notifications
+│   ├── worker.py              # Generic worker thread base
+│   ├── styles.py              # Unified stylesheet definitions
+│   └── bases.py               # Shared UI mixins
 │
-├── ui/                     # User interface layer
-│   ├── __init__.py
-│   ├── main_window.py      # MainWindow - plugin discovery, tab management
-│   ├── sidepanel.py        # Sidepanel - category navigation
-│   ├── styles.py           # SINGLE SOURCE OF TRUTH for all styling
-│   ├── worker.py           # ProcessWorker, ToolExecutionMixin, SafeStop
-│   ├── notification.py     # NotificationManager - toast system
-│   └── settingpanel.py     # Settings UI panel
+├── modules/                   # Tool plugins (auto-discovered)
+│   ├── bases.py              # ToolBase, ToolCategory definitions
+│   ├── nmap.py               # Nmap scanner
+│   ├── nuclei.py             # Nuclei vulnerability scanner
+│   ├── automation.py         # 8-step recon pipeline
+│   ├── subfinder.py          # Subdomain enumeration
+│   ├── httpx.py              # HTTP probing
+│   ├── gobuster.py           # Web brute-forcing
+│   ├── nikto.py              # Web server scanning
+│   ├── portscanner.py        # Native Python port scanner
+│   ├── shellforge.py         # Reverse shell generator
+│   ├── hashcat.py            # GPU hash cracking
+│   ├── WebInjection/         # Web security testing
+│   │   ├── sqli.py          # SQL injection detection
+│   │   ├── crawler.py       # Web spider
+│   │   ├── apitester.py     # API security auditing
+│   │   └── fuzzer.py        # Endpoint fuzzing
+│   └── [25 more tools...]
 │
-├── modules/                # Tool plugins (auto-discovered)
-│   ├── __init__.py
-│   ├── bases.py            # ToolBase, ToolCategory (contracts)
-│   └── <tool>.py           # Individual tool implementations
+├── builder/                   # Nuitka build scripts
+│   └── compile.sh            # Linux compilation
 │
-├── builder/                # Build system
-│   └── build_nuitka.sh     # Nuitka compilation script
-│
-└── docs/                   # Documentation
-    ├── ARCHITECTURE.md     # This file
-    ├── CONTRIBUTING.md     # Contributor guide
-    ├── DEVELOPMENT.md      # Developer setup
-    └── SECURITY.md         # Security policy
+└── db/                        # Static resources
+    ├── wordlists/            # Fuzzing/brute-force lists
+    └── payloads/             # Injection templates
 ```
 
 ---
 
-## 🔌 Plugin Discovery System
+## Core Components
 
-VAJRA uses dynamic plugin discovery to automatically find and load tools at runtime.
+### ConfigManager (`core/config.py`)
 
-### How It Works
+Manages application settings using Qt's `QSettings`:
 
 ```python
-# ui/main_window.py - MainWindow._discover_tools()
+# Persistent settings (stored in ~/.config/VAJRA/)
+- notifications_enabled: bool
+- output_directory: str
+- privilege_mode: str
 
-def _discover_tools(self):
-    """
-    Hybrid tool discovery mechanism.
-    
-    The discovery process:
-    1. Check if running as frozen executable (PyInstaller)
-    2. If frozen: Use hardcoded fallback list (pkgutil doesn't work)
-    3. If development: Auto-discover using pkgutil.iter_modules()
-    4. Import each module and find ToolBase subclasses
-    5. Store class references (not instances) for lazy loading
-    
-    Returns:
-        Dict[str, Type[ToolBase]]: Mapping of tool names to classes.
-    """
-    tools = {}
-    
-    # Development mode: auto-discover
-    import modules
-    known_modules = [
-        name for _, name, _ in pkgutil.iter_modules(modules.__path__)
-        if name != "bases"
-    ]
-    
-    # Load each module
-    for name in known_modules:
-        module = importlib.import_module(f'modules.{name}')
-        
-        # Find all ToolBase subclasses
-        for _, obj in inspect.getmembers(module, inspect.isclass):
-            if issubclass(obj, ToolBase) and obj is not ToolBase:
-                tool_name = getattr(obj, 'name', None)
-                if tool_name:
-                    tools[tool_name] = obj  # Store CLASS, not instance
-    
-    return tools
+# Session-only settings
+- current_output_dir: str (per-target directory)
 ```
 
-### Discovery Flow
+**Key Methods:**
+- `get_notifications_enabled()` / `set_notifications_enabled()`
+- `get_output_dir()` / `set_output_dir()`
 
-```
-Application Start
-       │
-       ▼
-MainWindow.__init__()
-       │
-       ▼
-_discover_tools()
-       │
-       ├─── Is Frozen (PyInstaller)? ───▶ Use fallback module list
-       │              │
-       │              ▼
-       │         importlib.import_module()
-       │              │
-       ▼              ▼
-pkgutil.iter_modules() ──▶ Get module names
-       │
-       ▼
-For each module:
-  ├── Import module
-  ├── inspect.getmembers(isclass)
-  ├── Filter: issubclass(obj, ToolBase)
-  └── Store: tools[name] = class_reference
-       │
-       ▼
-Return tools dict to Sidepanel
-       │
-       ▼
-Sidepanel groups by ToolCategory
-       │
-       ▼
-User clicks tool → MainWindow.open_tool_tab()
-       │
-       ▼
-Instantiate tool class → tool.get_widget()
+### FileOps (`core/fileops.py`)
+
+Handles file I/O and directory structure:
+
+```python
+DEFAULT_OUTPUT_DIR = "/tmp/Vajra-results/"
+
+# Creates: /tmp/Vajra-results/{target}_{timestamp}/
+create_target_directory(target: str) -> str
+    ├── Logs/
+    ├── JSON/
+    ├── Reports/
+    └── Screenshots/
 ```
 
-### Adding a New Tool
+**Caching System:**
+- Simple pickle-based cache for tool state
+- `save_cache(tool_name, data)` / `load_cache(tool_name)`
 
-Simply create a file in `modules/` with a class that:
-1. Inherits from `ToolBase`
-2. Has a `name` class attribute
-3. Has a `category` class attribute
-4. Implements `get_widget(main_window)`
+### PrivilegeManager (`core/privileges.py`)
 
-The tool will be automatically discovered on the next application launch.
+Cross-platform privilege detection:
+
+```python
+is_running_as_root() -> bool  # Unix: uid == 0, Windows: admin check
+```
+
+Used to warn users when tools require elevated privileges.
+
+### Target Input (`core/tgtinput.py`)
+
+Target parsing utilities:
+
+```python
+normalize_target(target: str) -> str
+    # Cleans URLs: https://example.com/path → example.com
+
+parse_targets(input_text: str) -> list[str]
+    # Handles single targets or file paths
+    # Returns: ["target1", "target2", ...]
+
+parse_port_range(port_str: str) -> list[int]
+    # "80,443,8000-8010" → [80, 443, 8000, 8001, ..., 8010]
+```
+
+### FinalJsonGenerator (`core/jsonparser.py`)
+
+Aggregates tool outputs into `final.json`:
+
+**Supported Parsers:**
+- `parse_whois_output()`
+- `parse_dig_output()`
+- `parse_nmap_output()`
+- `parse_nuclei_output()`
+- `parse_nikto_output()`
+- `parse_eyewitness_output()`
+
+**Output Format:**
+```json
+{
+  "target": "example.com",
+  "scan_time": "2026-01-22 17:00:00",
+  "risk_level": "HIGH",
+  "tools": {
+    "nmap": { "open_ports": [...], "services": [...] },
+    "nuclei": { "vulnerabilities": [...] },
+    ...
+  }
+}
+```
+
+### ToolInstaller (`core/tool_installer.py`)
+
+Automated security tool installation:
+
+**Supported Package Managers:**
+- Debian/Ubuntu/Kali: `apt`
+- Arch Linux: `pacman`
+- Fedora/RHEL: `dnf`
+- macOS: `brew`
+- Go tools: `go install`
+
+**Tool Definitions:**
+```python
+ToolDefinition(
+    name="nmap",
+    command="nmap",
+    package_name={"debian": "nmap", "arch": "nmap", ...},
+    install_method=InstallMethod.PACKAGE_MANAGER
+)
+```
+
+### ReportGen (`core/reportgen.py`)
+
+HTML/PDF report generation:
+- Aggregates findings from `final.json`
+- Generates styled HTML reports
+- Optional PDF conversion (requires wkhtmltopdf)
 
 ---
 
-## 🔗 Module Relationships
+## UI Layer
 
-### Dependency Graph
+### MainWindow (`ui/main_window.py`)
 
-```text
-                    ┌─────────────┐
-                    │   main.py   │
-                    └──────┬──────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-              ┌─────│ MainWindow  │─────┐
-              │     └──────┬──────┘     │
-              │            │            │
-              ▼            ▼            ▼
-        ┌──────────┐ ┌──────────┐ ┌──────────────┐
-        │Sidepanel │ │QTabWidget│ │Notification  │
-        └────┬─────┘ └────┬─────┘ │   Manager    │
-             │            │       └──────────────┘
-             │            │
-             ▼            ▼
-        ┌──────────────────────┐
-        │   modules/bases.py   │
-        │  ┌────────────────┐  │
-        │  │   ToolBase     │  │◀─── All tools inherit
-        │  │   ToolCategory │  │
-        │  └────────────────┘  │
-        └──────────────────────┘
-                   │
-                   ▼
-        ┌──────────────────────┐
-        │   modules/<tool>.py  │
-        │  ┌────────────────┐  │
-        │  │   *Tool class  │  │─── Implements ToolBase
-        │  │   *View class  │──┼───▶ Uses ui/styles.py components
-        │  └────────────────┘  │
-        └──────────────────────┘
-                   │
-                   ▼
-        ┌──────────────────────┐
-        │    ui/styles.py      │
-        │  ┌────────────────┐  │
-        │  │ StyledToolView │  │
-        │  │ SafeStop       │  │◀─── Mixins for tools
-        │  │ OutputHelper   │  │
-        │  │ RunButton, etc │  │◀─── Reusable widgets
-        │  └────────────────┘  │
-        └──────────────────────┘
-                   │
-                   ▼
-        ┌──────────────────────┐
-        │    ui/worker.py      │
-        │  ┌────────────────┐  │
-        │  │ ProcessWorker  │  │◀─── QThread subprocess
-        │  │ToolExecMixin   │  │◀─── Execution lifecycle
-        │  └────────────────┘  │
-        └──────────────────────┘
-                   │
-                   ▼
-        ┌──────────────────────┐
-        │      core/*          │
-        │  (Qt-free utilities) │
-        │  fileops, jsonparser │
-        │  reportgen, config   │
-        └──────────────────────┘
+Central application controller:
+
+**Responsibilities:**
+- Window initialization and layout
+- Tool switching logic
+- Shared service coordination (config, notifications)
+- Keyboard shortcut handling
+
+**Layout:**
+```
+┌──────────────────────────────────────┐
+│  Title Bar                           │
+├─────────┬────────────────────────────┤
+│         │                            │
+│ Side    │   Tool Content Area        │
+│ Panel   │   (Dynamic)                │
+│         │                            │
+│ (Tools) │                            │
+│         │                            │
+├─────────┴────────────────────────────┤
+│  Notification Panel (collapsible)    │
+└──────────────────────────────────────┘
 ```
 
-### Import Rules
+### Sidepanel (`ui/sidepanel.py`)
 
-| From | Can Import | Cannot Import |
-| :--- | :--- | :--- |
-| `main.py` | `ui/*`, `modules/*` | - |
-| `ui/*` | `ui/*`, `modules/bases.py`, `core/*` | - |
-| `modules/*` | `ui/styles.py`, `ui/worker.py`, `core/*`, `modules/bases.py` | `ui/main_window.py` |
-| `core/*` | `core/*` | **Any Qt (`PySide6`)** |
+Dynamic tool navigation:
+
+**Auto-population:**
+1. Imports all modules from `modules/`
+2. Finds classes inheriting from `ToolBase`
+3. Groups by `ToolCategory`
+4. Creates buttons dynamically
+
+**Categories:**
+- AUTOMATION
+- INFO_GATHERING
+- SUBDOMAIN_ENUM
+- LIVE_HOST_DETECTION
+- PORT_SCANNING
+- WEB_SCANNING
+- WEB_INJECTION
+- VULN_SCANNING
+- PASSWORD_CRACKING
+- PAYLOAD_GENERATION
+- FILE_ANALYSIS
+
+### NotificationManager (`ui/notification.py`)
+
+Dual notification system:
+
+**Toast Notifications:**
+- Auto-hide popups (3-4s)
+- Positioned at top-right
+- Color-coded by type (success/error/warning/info)
+
+**Notification Panel:**
+- Persistent notification list
+- Expandable/collapsible
+- Timestamp tracking
+- Clear all functionality
+
+### Worker (`ui/worker.py`)
+
+Generic background worker:
+
+```python
+class GenericWorker(QThread):
+    output_ready = Signal(str)
+    scan_finished = Signal(int)
+    error_occurred = Signal(str)
+    
+    def run(self):
+        # Execute command
+        # Emit output line-by-line
+        # Handle errors
+```
+
+**Benefits:**
+- Non-blocking UI
+- Real-time output streaming
+- Clean process termination
 
 ---
 
-## 🎨 Design Patterns
+## Plugin System
 
-### 1. Plugin Pattern
+### ToolBase Interface
 
-Tools are plugins that implement the `ToolBase` contract:
+All tools inherit from `ToolBase`:
 
 ```python
 class ToolBase:
-    name = None          # Required: Display name
-    category = None      # Required: ToolCategory enum
+    name: str                  # Display name
+    category: ToolCategory     # Sidebar grouping
     
     def get_widget(self, main_window) -> QWidget:
-        raise NotImplementedError
+        """Return the tool's UI widget"""
+        pass
 ```
 
-### 2. Mixin Pattern
+### Auto-Discovery
 
-Tool views combine multiple mixins for functionality:
+Tools are discovered at runtime:
 
 ```python
-class MyToolView(StyledToolView, SafeStop, OutputHelper):
-    # StyledToolView: Base styling and layout
-    # SafeStop: Process termination (stop_scan, worker management)
-    # OutputHelper: _info(), _error(), _success(), _section()
+# In Sidepanel.__init__()
+import modules
+for name in dir(modules):
+    cls = getattr(modules, name)
+    if isinstance(cls, type) and issubclass(cls, ToolBase):
+        # Found a tool! Create button and register it
 ```
 
-### 3. Singleton Tab Pattern
+**To add a new tool:**
+1. Create `modules/newtool.py`
+2. Subclass `ToolBase`
+3. Set `name` and `category`
+4. Implement `get_widget()`
+5. Tool appears automatically in sidebar
 
-Each tool can only have one open tab:
+### Tool Implementation Pattern
 
+**Mixin Composition:**
 ```python
-def open_tool_tab(self, tool_class):
-    if tool.name in self.open_tool_widgets:
-        # Focus existing tab instead of creating new
-        self.tab_widget.setCurrentWidget(self.open_tool_widgets[tool.name])
-        return
+class MyTool(ToolBase, IOMixin, RunMixin):
+    """ToolBase provides interface"""
+    """IOMixin provides input/output widgets"""
+    """RunMixin provides run button and worker management"""
     
-    # Create new tab
-    tool_widget = tool.get_widget(main_window=self)
-    self.open_tool_widgets[tool.name] = tool_widget
+    def get_widget(self, main_window):
+        widget = QWidget()
+        # Build UI
+        return widget
 ```
 
-### 4. Command Builder Pattern
+**Common Mixins:**
+- `IOMixin` - Input field, output text area
+- `RunMixin` - Run/stop buttons, worker lifecycle
+- `CommandBuilderMixin` - Command construction helpers
 
-All tools implement `build_command()` for testable command generation:
+---
 
-```python
-def build_command(self, preview: bool = False) -> str:
-    """Build command from UI state."""
-    cmd_parts = ["nmap"]
-    cmd_parts.append(f"-p {self.ports_input.text()}")
-    cmd_parts.append(shlex.quote(self.target_input.text()))
-    return " ".join(cmd_parts)
+## Process Management
+
+### Worker Lifecycle
+
+```
+User clicks RUN
+    ↓
+Create GenericWorker(command)
+    ↓
+worker.start()  [New thread]
+    ↓
+worker.output_ready → Update UI
+worker.scan_finished → Cleanup
+    ↓
+User clicks STOP (optional)
+    ↓
+worker.terminate()
+worker.wait()
 ```
 
-### 5. Worker Thread Pattern
+### Command Execution
 
-Non-blocking execution using `ProcessWorker`:
+Tools use `subprocess.Popen` with:
+- `stdout=PIPE` for line-by-line streaming
+- `stderr=STDOUT` to merge error output
+- `text=True` for string handling
+- `bufsize=1` for unbuffered output
+
+### Signal-Slot Communication
+
+Thread-safe UI updates:
 
 ```python
-# ui/worker.py
-class ProcessWorker(QThread):
-    output_ready = Signal(str)  # Line-by-line output
-    finished = Signal()         # Completion
-    error = Signal(str)         # Errors
-    
-    def run(self):
-        process = subprocess.Popen(...)
-        for line in process.stdout:
-            self.output_ready.emit(line)
+# In worker thread
+self.output_ready.emit(line)
+
+# In main thread (auto-queued)
+@Slot(str)
+def handle_output(self, line):
+    self.output_area.append(line)
 ```
 
 ---
 
-## 📊 Data Flow
+## Data Flow
 
-### Scan Execution Flow
+### Typical Scan Workflow
 
-```text
-User Input (UI)
-       │
-       ▼
-build_command() ──────▶ Command String
-       │
-       ▼
-start_execution() ────▶ ProcessWorker (QThread)
-       │                      │
-       │                      ▼
-       │               subprocess.Popen()
-       │                      │
-       │                      ▼
-       │               stdout readline loop
-       │                      │
-       ▼                      ▼
-Button States        output_ready.emit(line)
-(disabled)                    │
-       │                      ▼
-       │               on_new_output(line)
-       │                      │
-       │                      ▼
-       │               OutputView.append()
-       │                      │
-       ▼                      ▼
-Process Ends ◀────────── finished.emit()
-       │
-       ▼
-on_execution_finished()
-       │
-       ▼
-Button States (enabled)
+```
+1. User Input
+   └→ Target entered in TargetInput widget
+
+2. Validation
+   └→ normalize_target() / parse_targets()
+
+3. Directory Creation
+   └→ create_target_directory(target)
+      Creates: /tmp/Vajra-results/target_timestamp/
+
+4. Command Building
+   └→ Tool builds command string
+      Example: ["nmap", "-sV", "-p-", "target"]
+
+5. Execution
+   └→ GenericWorker spawns subprocess
+      Streams output to UI in real-time
+
+6. Output Logging
+   └→ Write to Logs/tool_name.log
+
+7. JSON Parsing (optional)
+   └→ FinalJsonGenerator.parse_tool_output()
+      Creates: JSON/final.json
+
+8. Report Generation (automation only)
+   └→ ReportGen.generate_report()
+      Creates: Reports/report.html
 ```
 
-### Report Generation Flow
+### Configuration Flow
 
-```text
-Automation Pipeline Completes
-            │
-            ▼
-    FinalJsonGenerator(target, target_dir)
-            │
-            ▼
-    ┌───────┴───────┐
-    │  Parse Files  │
-    ├───────────────┤
-    │ whois.txt     │
-    │ dig.txt       │
-    │ alive.txt     │
-    │ nmap*.xml     │
-    │ nuclei.json   │
-    │ nikto*.csv    │
-    └───────┬───────┘
-            │
-            ▼
-    Generate final.json
-            │
-            ▼
-    ReportGenerator(target, dir, modules)
-            │
-            ▼
-    ┌───────┴───────┐
-    │ Build HTML    │
-    ├───────────────┤
-    │ Header        │
-    │ Exec Summary  │
-    │ Whois Section │
-    │ DNS Section   │
-    │ ... sections  │
-    │ Footer        │
-    └───────┬───────┘
-            │
-            ▼
-    Save final_report.html
+```
+Application Start
+    ↓
+ConfigManager loads QSettings
+    ├→ notifications_enabled
+    ├→ output_directory
+    └→ [other persistent settings]
+    ↓
+User modifies settings via SettingsPanel
+    ↓
+ConfigManager.set_*() persists changes
+    ↓
+Changes take effect immediately
 ```
 
 ---
 
-## 🎨 Styling Architecture
+## Styling System
 
-### Single Source of Truth: `ui/styles.py`
+### Centralized Design (`ui/styles.py`)
 
-```text
-ui/styles.py
-├── Color Constants
-│   ├── COLOR_BG_PRIMARY, COLOR_BG_SECONDARY
-│   ├── COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY
-│   ├── COLOR_ACCENT_PRIMARY (orange)
-│   ├── COLOR_INFO, COLOR_SUCCESS, COLOR_WARNING, COLOR_ERROR
-│   └── COLOR_BORDER_DEFAULT, COLOR_BORDER_FOCUS
-│
-├── Font Constants
-│   ├── FONT_FAMILY_UI = "Segoe UI"
-│   ├── FONT_FAMILY_MONO = "Consolas"
-│   └── FONT_SIZE = "14px"
-│
-├── Style Strings (QSS)
-│   ├── RUN_BUTTON_STYLE, STOP_BUTTON_STYLE
-│   ├── COMBO_BOX_STYLE, SPINBOX_STYLE
-│   ├── OUTPUT_TEXT_EDIT_STYLE
-│   └── TAB_WIDGET_STYLE, SIDE_PANEL_STYLE
-│
-├── Styled Widgets (Classes)
-│   ├── RunButton, StopButton, BrowseButton, CopyButton
-│   ├── StyledLineEdit, StyledComboBox, StyledSpinBox
-│   ├── StyledCheckBox, StyledLabel, HeaderLabel
-│   ├── StyledGroupBox, CommandDisplay
-│   ├── OutputView, ToolSplitter, ConfigTabs
-│   └── StyledToolView (base for all tool views)
-│
-└── Mixins
-    ├── SafeStop - Process termination
-    └── OutputHelper - Colored output methods
+**Color Palette:**
+```python
+BG_DARK = "#1a1a2e"
+BG_CARD = "#16213e"
+BG_HOVER = "#0f3460"
+ACCENT = "#e94560"
+TEXT_PRIMARY = "#eee"
+TEXT_SECONDARY = "#aaa"
+SUCCESS = "#2ecc71"
+WARNING = "#f39c12"
+ERROR = "#e74c3c"
 ```
 
-### Why Centralized Styling?
+**QSS Stylesheets:**
+- `get_main_window_style()` - Window background and layout
+- `get_sidepanel_style()` - Navigation buttons
+- `get_textbox_style()` - Input fields
+- `get_output_area_style()` - Output console
+- `get_button_style()` - Action buttons
+- `get_settings_style()` - Settings panel
+- `get_notification_style()` - Toast notifications
 
-1. **Consistency**: All tools look identical
-2. **Maintainability**: Change once, apply everywhere
-3. **Theme Support**: Easy to add light mode
-4. **Reduced Bugs**: No ad-hoc color values
+**Usage:**
+```python
+from ui.styles import get_button_style, ACCENT
 
----
-
-## ⚙️ Process Management
-
-### ProcessWorker Lifecycle
-
-```text
-                    ┌─────────────────────┐
-                    │   ProcessWorker     │
-                    │      created        │
-                    └──────────┬──────────┘
-                               │
-                          start()
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │     run() begins    │
-                    │  subprocess.Popen() │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-        Normal Output    Error Output      stop() called
-              │                │                │
-              ▼                ▼                ▼
-      output_ready.emit() error.emit()   SIGTERM → wait → SIGKILL
-              │                │                │
-              │                │                ▼
-              └────────────────┴────────stopped.emit()
-                               │
-                               ▼
-                        finished.emit()
+button = QPushButton("RUN")
+button.setStyleSheet(get_button_style())
 ```
 
-### SafeStop Mixin
+### Color-Coded Output
+
+Tools colorize output for readability:
 
 ```python
-class SafeStop:
-    """Mixin providing graceful process termination."""
-    
-    def init_safe_stop(self):
-        self.worker = None
-        self._stopping = False
-    
-    def stop_scan(self):
-        if self.worker and not self._stopping:
-            self._stopping = True
-            self.worker.stop()  # SIGTERM then SIGKILL
+def colorize_line(line: str) -> str:
+    if "CRITICAL" in line or "FAIL" in line:
+        return f'<span style="color: {ERROR};">{line}</span>'
+    elif "open" in line.lower():
+        return f'<span style="color: {SUCCESS};">{line}</span>'
+    # ... more patterns
 ```
 
 ---
 
-## 📈 Design Decisions
+## Build System
 
-### 1. Qt-Free Core
+### Nuitka Compilation (`builder/compile.sh`)
 
-**Decision**: `core/` modules cannot import PySide6.
+**Build Process:**
+```bash
+python -m nuitka \
+    --standalone \
+    --onefile \
+    --enable-plugin=pyside6 \
+    --include-data-dir=db=db \
+    --linux-icon=icon.png \
+    --output-filename=VAJRA \
+    main.py
+```
 
-**Rationale**:
+**Output:**
+- Single executable: `VAJRA`
+- Bundled dependencies (PySide6, etc.)
+- Embedded resources (`db/` folder)
 
-- Enables CLI tools using core functionality
-- Easier unit testing without Qt event loop
-- Clear separation of concerns
-- Potential for headless automation
+**Build Requirements:**
+- Python 3.10+
+- Nuitka
+- PySide6
+- gcc/clang compiler
 
-### 2. Lazy Tool Loading
+---
 
-**Decision**: Store class references, instantiate on tab open.
+## Security Considerations
 
-**Rationale**:
+### Privilege Escalation
 
-- Faster startup (24 tools × ~50ms = 1.2s saved)
-- Lower memory footprint
-- Tools only loaded when needed
+**Design Decision:** VAJRA runs as normal user by default.
 
-### 3. Single Styling File
+**Tools requiring root:**
+- Nmap (SYN scans)
+- Port Scanner (raw sockets)
 
-**Decision**: All styles in `ui/styles.py`.
+**Approach:**
+1. Check privileges: `PrivilegeManager.is_running_as_root()`
+2. Warn user if insufficient
+3. Let user decide: run with `sudo` or use limited features
 
-**Rationale**:
+### Command Injection Prevention
 
-- Single source of truth
-- Prevents style drift
-- Easy theme switching
-- Consistent component sizing
+**Input Sanitization:**
+```python
+# ❌ UNSAFE
+command = f"nmap {user_input}"
 
-### 4. Mixin-Based Tool Views
+# ✅ SAFE
+command = ["nmap", user_input]  # List form prevents shell injection
+```
 
-**Decision**: Use mixins (`SafeStop`, `OutputHelper`) instead of deep inheritance.
+All tools use **list-based commands**, not shell strings.
 
-**Rationale**:
+### Output Directory Isolation
 
+Each scan gets an isolated directory:
+```
+/tmp/Vajra-results/
+├── example.com_22012026_170000/
+└── test.com_22012026_180000/
+```
+
+Prevents:
+- Output collision between scans
+- Accidental file overwrites
+
+---
+
+## Performance Optimizations
+
+### 1. **Lazy Loading**
+Tools are imported only when accessed:
+```python
+# Sidebar imports all, but widgets created on-demand
+def switch_tool(self, tool_name):
+    widget = tool_class.get_widget(main_window)  # Created here
+```
+
+### 2. **Threaded Execution**
+Long-running scans don't block UI:
+- Worker threads for subprocess execution
+- Signal-based asynchronous communication
+
+### 3. **Smart Caching**
+Avoid redundant computations:
+```python
+# Cache wordlist contents
+cached_wordlists = load_cache("wordlists")
+if not cached_wordlists:
+    cached_wordlists = load_wordlists_from_db()
+    save_cache("wordlists", cached_wordlists)
+```
+
+### 4. **Incremental Output**
+Stream output line-by-line instead of buffering:
+```python
+for line in process.stdout:
+    self.output_ready.emit(line)  # Immediate display
+```
+
+---
+
+## Extension Points
+
+### Adding a New Tool
+
+1. **Create plugin file:**
+```python
+# modules/mytool.py
+from modules.bases import ToolBase, ToolCategory
+
+class MyTool(ToolBase):
+    name = "My Tool"
+    category = ToolCategory.INFO_GATHERING
+    
+    def get_widget(self, main_window):
+        return MyToolWidget(main_window)
+```
+
+2. **Implement widget:**
+```python
+class MyToolWidget(QWidget, IOMixin, RunMixin):
+    def __init__(self, main_window):
+        super().__init__()
+        self.main_window = main_window
+        self.setup_ui()
+    
+    def build_command(self):
+        return ["mytool", "--target", self.target]
+```
+
+3. **Done!** Tool appears in sidebar automatically.
+
+### Adding a New Category
+
+Edit `modules/bases.py`:
+```python
+class ToolCategory:
+    MY_NEW_CATEGORY = "My Category"
+```
+
+### Custom Output Parsers
+
+Add to `core/jsonparser.py`:
+```python
+def parse_mytool_output(self, log_file):
+    # Parse tool-specific output
+    # Return structured dict
+    return {"findings": [...]}
+```
+
+---
+
+## Design Patterns
+
+### 1. **Plugin Pattern**
+- Tools as self-contained plugins
+- Auto-discovery via reflection
+- Loose coupling
+
+### 2. **Observer Pattern**
+- Qt Signals/Slots for event handling
+- Worker → UI communication
+- Settings changes propagation
+
+### 3. **Factory Pattern**
+- Dynamic widget creation
+- Tool instantiation on-demand
+
+### 4. **Singleton Pattern**
+- `ConfigManager` - Single settings instance
+- `NotificationManager` - Centralized notifications
+
+### 5. **Mixin Pattern**
+- `IOMixin`, `RunMixin` for code reuse
 - Composition over inheritance
-- Pick only needed functionality
-- Easier testing of individual mixins
-- Avoids diamond inheritance issues
-
-### 5. Command Builder Pattern
-
-**Decision**: All tools implement `build_command(preview=False)`.
-
-**Rationale**:
-
-- Testable command generation
-- Preview mode for display
-- Consistent pattern across tools
-- Enables command editing before execution
-
-### 6. Plugin Auto-Discovery
-
-**Decision**: Dynamic discovery via `pkgutil` + `inspect`.
-
-**Rationale**:
-
-- Zero configuration for new tools
-- Just create file → tool appears
-- No manual registration
-- Supports both dev and frozen modes
 
 ---
 
-## 🛠️ Build System
+## Related Documentation
 
-VAJRA-OSP uses **Nuitka** to compile the Python application into a standalone native executable.
-
-### Compilation Process (`builder/build_nuitka.sh`)
-
-1. **Environment Setup**: Creates a fresh virtual environment.
-2. **Dependency Install**: Installs PySide6 and Nuitka.
-3. **Compilation**:
-    - `--standalone`: Bundles Python and dependencies.
-    - `--onefile`: Creates a single binary.
-    - `--enable-plugin=pyside6`: Handles Qt plugins.
-    - Includes `modules`, `core`, `ui` packages.
-    - Embeds `db` directory.
-4. **Security**: The resulting binary is harder to reverse-engineer than raw Python bytecode.
+- **[README.md](README.md)** - User-facing overview and quick start
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Development workflow and practices
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
 
 ---
 
-## 🔮 Future Considerations
-
-1. **Plugin Manifest**: Optional `tool.json` for metadata
-2. **Hot Reload**: Reload tools without restart
-3. **Tool Dependencies**: Declare external tool requirements
-4. **Async Execution**: Migrate from QThread to asyncio
-5. **Remote Execution**: Run tools on remote hosts
-6. **Result Database**: SQLite for scan history
+**Last Updated:** 2026-01-22

@@ -269,7 +269,7 @@ class CrawlerView(StyledToolView, ToolExecutionMixin):
         r_layout = QVBoxLayout(res_panel)
         
         # Search Bar
-        self.search_input = StyledLineEdit()
+        self.search_input = StyledLineEdit(show_icon=True)
         self.search_input.setPlaceholderText("Find in site map (e.g. /admin, .xml)...")
         self.search_input.textChanged.connect(self.filter_tree)
         r_layout.addWidget(self.search_input)

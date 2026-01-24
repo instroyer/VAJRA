@@ -30,39 +30,40 @@ FONT_FAMILY_MONO = "Consolas, 'Courier New', monospace"
 FONT_SIZE = "15px"
 
 # Base Colors
-COLOR_BG_PRIMARY   = "#0f0f0f"
-COLOR_BG_SECONDARY = "#18181b"
-COLOR_BG_INPUT     = "#252525"
-COLOR_BG_ELEVATED  = "#2a2a2a"
+COLOR_BG_PRIMARY   = "#1e1e1e"  # VS Code Editor Background
+COLOR_BG_SECONDARY = "#252526"  # VS Code Sidebar/Panel Background
+COLOR_BG_INPUT     = "#3c3c3c"  # Input Fields
+COLOR_BG_ELEVATED  = "#2d2d2d"  # Dropdowns / Widgets
 
 # Text Colors
-COLOR_TEXT_PRIMARY   = "#ffffff"
-COLOR_TEXT_SECONDARY = "#9ca3af"
-COLOR_TEXT_MUTED     = "#6b7280"
+COLOR_TEXT_PRIMARY   = "#d4d4d4"  # Off-white default text
+COLOR_TEXT_SECONDARY = "#adadad"  # Muted text
+COLOR_TEXT_MUTED     = "#858585"  # Comments / Disabled text
 
 # Accents
-COLOR_ACCENT_PRIMARY = "#f97316"
-COLOR_ACCENT_HOVER   = "#fb923c"
+COLOR_ACCENT_PRIMARY = "#f97316"  # Orange - main accent
+COLOR_ACCENT_HOVER   = "#fb923c"  # Lighter orange
 COLOR_ACCENT_BLUE    = "#3b82f6"
+COLOR_ACCENT_TEAL    = "#14b8a6"
+COLOR_ACCENT_TEAL_HOVER = "#2dd4bf"
 
 # Semantic Output
 COLOR_INFO     = "#60a5fa"
-COLOR_SUCCESS  = "#10b981"
-COLOR_WARNING  = "#facc15"
-COLOR_ERROR    = "#f87171"
-COLOR_CRITICAL = "#ef4444"
+COLOR_SUCCESS  = "#4caf50"  # Darker, more readable green (Material Design)
+COLOR_WARNING  = "#cca700"
+COLOR_ERROR    = "#f48771"
+COLOR_CRITICAL = "#f14c4c"
 
 # Borders
-COLOR_BORDER_DEFAULT = "#27272a"
-COLOR_BORDER_FOCUS   = "transparent" 
+COLOR_BORDER_DEFAULT = "#454545"
+COLOR_BORDER_FOCUS   = "#f97316" 
 
 
 # =============================================================================
-# SECTION 2: LEGACY STYLE STRINGS (for backward compatibility)
-# These will be slowly phased out as tools migrate to widget classes
+# SECTION 2: WIDGET STYLE DEFINITIONS
+# Core style strings used by the widget classes below
 # =============================================================================
 
-# Keep these for any tools that still need them during transition
 TOOL_VIEW_STYLE = f"""
     QWidget {{
         background-color: {COLOR_BG_PRIMARY};
@@ -83,7 +84,6 @@ TOOL_HEADER_STYLE = f"""
     border-bottom: 1px solid {COLOR_BORDER_DEFAULT};
 """
 
-# Legacy style strings - keep for compatibility
 RUN_BUTTON_STYLE = f"""
     QPushButton {{
         background-color: {COLOR_ACCENT_PRIMARY};
@@ -273,11 +273,26 @@ COMBO_BOX_STYLE = f"""
         border-top: 5px solid {COLOR_TEXT_PRIMARY}; 
     }}
     QComboBox QAbstractItemView {{
-        background-color: {COLOR_BG_INPUT};
-        color: {COLOR_TEXT_PRIMARY};
-        selection-background-color: {COLOR_ACCENT_PRIMARY};
+        background-color: {COLOR_BG_ELEVATED};
         border: 1px solid {COLOR_BORDER_DEFAULT};
+        selection-background-color: {COLOR_ACCENT_PRIMARY};
+        selection-color: {COLOR_TEXT_PRIMARY};
         outline: none;
+        padding: 4px;
+    }}
+    QComboBox QAbstractItemView::item {{
+        padding: 8px;
+        min-height: 25px;
+        border-radius: 4px;
+        margin-bottom: 2px;
+    }}
+    QComboBox QAbstractItemView::item:hover {{
+        background-color: {COLOR_BG_SECONDARY};
+        border: 1px solid {COLOR_BORDER_DEFAULT};
+    }}
+    QComboBox QAbstractItemView::item:selected {{
+        background-color: {COLOR_ACCENT_PRIMARY};
+        border: 1px solid {COLOR_ACCENT_HOVER};
     }}
 """
 
@@ -393,71 +408,9 @@ DIVIDER_STYLE = f"""
     }}
 """
 
-# Side Panel Styles (for main window)
-SIDE_PANEL_STYLE = f"""
-    QWidget {{
-        background-color: #0a0a0a;
-        border-right: 1px solid {COLOR_BORDER_DEFAULT};
-    }}
-"""
 
-SIDE_PANEL_BUTTON_STYLE = f"""
-    QPushButton {{
-        background: transparent;
-        color: {COLOR_TEXT_SECONDARY};
-        border: none;
-        border-left: 3px solid transparent;
-        padding: 12px 18px;
-        text-align: left;
-        font-family: {FONT_FAMILY_UI};
-        font-size: {FONT_SIZE};
-        font-weight: 500;
-        outline: none;
-    }}
-    QPushButton:focus {{
-        border: none;
-        outline: none;
-    }}
-    QPushButton:hover {{
-        background-color: rgba(249, 115, 22, 0.08);
-        color: {COLOR_TEXT_PRIMARY};
-        border-left: 3px solid rgba(249, 115, 22, 0.5);
-    }}
-    QPushButton:checked {{
-        background-color: rgba(249, 115, 22, 0.15);
-        color: {COLOR_ACCENT_PRIMARY};
-        border-left: 3px solid {COLOR_ACCENT_PRIMARY};
-        font-weight: 600;
-    }}
-"""
+# Side Panel Styles have been moved to ui/sidepanel.py
 
-SIDE_PANEL_CATEGORY_STYLE = f"""
-    QPushButton {{
-        color: {COLOR_ACCENT_PRIMARY};
-        font-size: {FONT_SIZE};
-        font-weight: 700;
-        text-align: left;
-        border: none;
-        border-bottom: 1px solid #2d2d4d;
-        padding: 12px 5px 8px 5px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        background: transparent;
-        outline: none;
-    }}
-    QPushButton:focus {{
-        outline: none;
-        border: none;
-        border-bottom: 1px solid #2d2d4d;
-    }}
-"""
-
-SIDE_PANEL_HEADER_STYLE = f"""
-    QWidget {{
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a1a2e, stop:1 #0a0a0a);
-        border-bottom: 1px solid {COLOR_BORDER_DEFAULT};
-    }}
-"""
 
 TAB_WIDGET_STYLE = f"""
     QTabWidget::pane {{
@@ -507,19 +460,22 @@ TAB_WIDGET_STYLE = f"""
 """
 
 # Global scrollbar styling (thin, subtle)
+# Global scrollbar styling (Improved visibility)
 GLOBAL_SCROLLBAR_STYLE = f"""
     QScrollBar:vertical {{
-        background: transparent;
-        width: 8px;
+        background: {COLOR_BG_SECONDARY};
+        width: 12px;
         margin: 0;
+        border-radius: 6px;
     }}
     QScrollBar::handle:vertical {{
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 4px;
+        background: {COLOR_TEXT_SECONDARY};
+        border-radius: 6px;
         min-height: 30px;
+        border: 2px solid {COLOR_BG_SECONDARY}; 
     }}
     QScrollBar::handle:vertical:hover {{
-        background: rgba(255, 255, 255, 0.25);
+        background: {COLOR_ACCENT_PRIMARY};
     }}
     QScrollBar::add-line:vertical,
     QScrollBar::sub-line:vertical {{
@@ -528,20 +484,23 @@ GLOBAL_SCROLLBAR_STYLE = f"""
     }}
     QScrollBar::add-page:vertical,
     QScrollBar::sub-page:vertical {{
-        background: none;
+        background: {COLOR_BG_INPUT}; 
+        border-radius: 6px;
     }}
     QScrollBar:horizontal {{
-        background: transparent;
-        height: 8px;
+        background: {COLOR_BG_SECONDARY};
+        height: 12px;
         margin: 0;
+        border-radius: 6px;
     }}
     QScrollBar::handle:horizontal {{
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 4px;
+        background: {COLOR_TEXT_SECONDARY};
+        border-radius: 6px;
         min-width: 30px;
+        border: 2px solid {COLOR_BG_SECONDARY};
     }}
     QScrollBar::handle:horizontal:hover {{
-        background: rgba(255, 255, 255, 0.25);
+        background: {COLOR_ACCENT_PRIMARY};
     }}
     QScrollBar::add-line:horizontal,
     QScrollBar::sub-line:horizontal {{
@@ -550,7 +509,8 @@ GLOBAL_SCROLLBAR_STYLE = f"""
     }}
     QScrollBar::add-page:horizontal,
     QScrollBar::sub-page:horizontal {{
-        background: none;
+        background: {COLOR_BG_INPUT};
+        border-radius: 6px;
     }}
 """
 
@@ -571,8 +531,6 @@ MAIN_WINDOW_STYLE = CHECKBOX_STYLE + RADIO_BUTTON_STYLE + SPINBOX_STYLE + GLOBAL
         outline: none;
     }
 """
-
-
 
 # =============================================================================
 # SECTION 3: WIDGET CLASSES - BUTTONS
@@ -694,15 +652,17 @@ class BrowseButton(QPushButton):
 class StyledLineEdit(QLineEdit):
     """Text input with embedded styling, search icon, and Esc handling."""
     
-    def __init__(self, placeholder="", parent=None):
+    def __init__(self, placeholder="", parent=None, show_icon=False):
         super().__init__(parent)
         self.setPlaceholderText(placeholder)
+        self.show_icon = show_icon
         # Ensure cursor starts at beginning (useful for long pasted URLs)
         self.textChanged.connect(lambda: self.setCursorPosition(0) if len(self.text()) > 50 else None)
         # Validation logic for file paths
         self.textChanged.connect(self._validate_input)
 
         # Add padding-left for the icon
+        padding_left = "28px" if show_icon else "8px"
         self.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {COLOR_BG_INPUT};
@@ -712,7 +672,7 @@ class StyledLineEdit(QLineEdit):
                 border: 1px solid {COLOR_BORDER_DEFAULT};
                 border-radius: 4px;
                 padding: 8px;
-                padding-left: 28px; 
+                padding-left: {padding_left}; 
             }}
             QLineEdit:focus {{
                 border: 1px solid {COLOR_TEXT_MUTED};
@@ -725,15 +685,15 @@ class StyledLineEdit(QLineEdit):
         if text.startswith('/') or text.startswith('./'):
             if not os.path.exists(text):
                 self.setStyleSheet(self.styleSheet().replace(f"border: 1px solid {COLOR_TEXT_MUTED}", f"border: 1px solid {COLOR_ERROR}"))
-            else:
+            else:\
                 self.setStyleSheet(self.styleSheet().replace(f"border: 1px solid {COLOR_ERROR}", f"border: 1px solid {COLOR_TEXT_MUTED}"))
 
         
     def paintEvent(self, event):
         super().paintEvent(event)
         
-        # Draw search icon if empty
-        if not self.text():
+        # Draw search icon if empty and enabled
+        if self.show_icon and not self.text():
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing)
             
@@ -782,17 +742,12 @@ class StyledSpinBox(QSpinBox):
         if not enable:
             self.wheelEvent = lambda event: event.ignore()
 
-
-
 class StyledComboBox(QComboBox):
     """Dropdown with embedded styling and custom arrow."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(COMBO_BOX_STYLE)
-
-
-
 
 
 class StyledCheckBox(QCheckBox):
@@ -857,13 +812,12 @@ class HeaderLabel(QLabel):
         self.setStyleSheet(TOOL_HEADER_STYLE)
 
 
-
 class CommandDisplay(QWidget):
     """Terminal-style command preview with embedded styling."""
     
-    TERMINAL_BG = "#0D1117"
-    TERMINAL_TEXT = "#58A6FF"
-    TERMINAL_BORDER = "#30363D"
+    TERMINAL_BG = COLOR_BG_PRIMARY
+    TERMINAL_TEXT = COLOR_INFO
+    TERMINAL_BORDER = COLOR_BORDER_DEFAULT
     
     def __init__(self, parent=None, title="Command", read_only=True):
         super().__init__(parent)
@@ -978,13 +932,8 @@ class OutputView(QWidget):
     def appendHtml(self, html):
         self.output_text.append(html)
 
-    def append(self, text):
-        """Compatibility alias."""
-        self.appendPlainText(text)
-        
     def appendPlainText(self, text):
         self.output_text.append(text)
-
         
     def setText(self, text):
         self.output_text.setText(text)

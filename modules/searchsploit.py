@@ -80,7 +80,7 @@ class SearchSploitToolView(StyledToolView, SafeStop, OutputHelper):
         search_layout = QVBoxLayout(search_group)
         
         search_row = QHBoxLayout()
-        self.search_input = StyledLineEdit()
+        self.search_input = StyledLineEdit(show_icon=True)
         self.search_input.setPlaceholderText("e.g. apache 2.4, wordpress, ssh")
         self.search_input.textChanged.connect(self.update_command)
         self.search_input.returnPressed.connect(self.run_scan)

@@ -5,12 +5,10 @@
 # VAJRA
 ### Offensive Security Platform
 
-
-
-*A unified, professional-grade penetration testing environment integrating 31+ powerful security tools.*
+*A unified, professional-grade penetration testing environment integrating 32+ powerful security tools.*
 
 [![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)](#)
-[![Platform](https://img.shields.io/badge/Platform-Linux-grey.svg)](#)
+[![Platform](https://img.shields.io/badge/Platform-Linux-1c7ed6.svg?logo=linux&logoColor=white)](#)
 [![Interface](https://img.shields.io/badge/Interface-GUI-purple.svg)](#)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](#)
 [![Status](https://img.shields.io/badge/Status-Stable-success.svg)](#)
@@ -38,7 +36,7 @@ Built by **Yash Javiya**
 
 ## 📋 Overview
 
-**VAJRA** is a standalone, professional **GUI-based** offensive security platform designed to streamline the penetration testing workflow. By unifying 31 industry-standard tools into a single, cohesive graphical interface, it eliminates the need for scattered terminal windows and manual command chaining.
+**VAJRA** is a standalone, professional **GUI-based** offensive security platform designed to streamline the penetration testing workflow. By unifying 32+ industry-standard tools into a single, cohesive graphical interface, it eliminates the need for scattered terminal windows and manual command chaining.
 
 Built for speed, efficiency, and depth, VAJRA empowers security professionals to execute complex audits—from reconnaissance to exploitation—with precision, all from a single binary.
 
@@ -50,11 +48,13 @@ Built for speed, efficiency, and depth, VAJRA empowers security professionals to
 
 | Action | Shortcut | Description |
 |--------|----------|-------------|
-| **Command Palette** | `Ctrl+K` | Find any tool or setting instantly |
-| **Terminal Drawer** | `Ctrl+\`` | Toggle the built-in shell |
+| **Command Palette** | `Ctrl+K` | Find any tool or action instantly |
+| **Terminal Drawer** | `Ctrl+`` ` | Toggle the built-in shell |
 | **Run Tool** | `Ctrl+R` | Execute the active tool |
-| **Stop Tool** | `Ctrl+Q` | Terminate current process |
-| **Save Session** | `Ctrl+S` | Save current workspace |
+| **Stop Tool** | `Ctrl+Q` | Terminate the current process |
+| **Clear Output** | `Ctrl+L` | Clear the active output panel |
+| **Focus Input** | `Ctrl+I` | Jump focus to the primary target field |
+| **Save Session** | `Ctrl+S` | Save the current workspace state |
 | **Load Session** | `Ctrl+O` | Load a saved workspace |
 
 ---
@@ -63,23 +63,26 @@ Built for speed, efficiency, and depth, VAJRA empowers security professionals to
 
 ### 🎨 Modern UI/UX
 
-* **Dynamic Theming**: Switch between **GitHub Dark**, **GitHub Light**, **One Dark**, and **Industrial Orange** themes instantly.
-* **Mission Control Dashboard**: Monitor system performance (CPU/RAM), Active Processes, and Local IP Address.
-* **Welcome Experience**: A dedicated landing page ensuring a clean startup environment.
-* **Command Palette**: A Spotlight-like search interface for instant navigation.
-* **Integrated Terminal**: A full-featured terminal drawer with persistent history adjacent to your tools.
-* **Session Management**: Save your entire pentest state and pick up exactly where you left off.
+* **Dynamic Theming**: Switch between **GitHub Dark**, **GitHub Light**, **One Dark**, and **Industrial Orange** themes instantly — every element updates live.
+* **Mission Control Dashboard**: Monitor system performance (CPU/RAM gauges), Active Processes, and Local IP Address at a glance.
+* **Welcome Experience**: A clean landing page shown on freshly opened sessions.
+* **Command Palette** (`Ctrl+K`): A Spotlight-style search interface for instant navigation to any tool, theme, or action.
+* **Integrated Terminal** (`Ctrl+`` `): A full-featured terminal drawer with command history and live streaming output.
+* **Session Management**: Save your entire pentest state and resume exactly where you left off.
+* **Tab System**: Each tool opens in its own moveable, closeable tab — run multiple tools in parallel.
+* **Collapsible Sidebar**: Category-grouped tool navigation, toggleable to maximize screen space.
 
 ### 🛠️ Core Capabilities
 
-* **Integrated Arsenal**: 31+ specialized security tools categorized for efficient workflow.
-* **Automated Pipeline**: A "Fire & Forget" bug bounty workflow that chains reconnaissance tools.
-* **Real-time Streaming**: Watch tool output live with ANSI color support.
+* **Integrated Arsenal**: 32+ specialized security tools categorized for efficient workflow.
+* **Automated Pipeline**: A "Fire & Forget" bug bounty workflow that chains recon → scanning → vulnerability detection.
+* **Real-time Streaming**: Watch tool output live as it is produced.
 * **Smart Installer**: Auto-detects and installs missing external dependencies.
+* **Organized Output**: Every scan auto-creates timestamped `Logs/`, `Reports/`, and `JSON/` folders under `~/Vajra-results/`.
+* **Command Preview**: Every tool shows the exact CLI command it will run — fully transparent.
 
 ### 🎯 Who is this tool for?
 
-VAJRA is tailored for professionals who demand efficiency without compromising depth:
 * **Penetration Testers**: Simplify complex workflows and manage assessments in one place.
 * **Bug Bounty Hunters**: Automate reconnaissance and discovery to find low-hanging fruit faster.
 * **Red Teamers**: Maintain a persistent, organized workspace during engagements.
@@ -104,87 +107,93 @@ VAJRA is tailored for professionals who demand efficiency without compromising d
 [![Cracker](https://img.shields.io/badge/🔐-Cracker-0D1117?style=flat-square)](#-cracker)
 [![Payloads](https://img.shields.io/badge/🚀-Payloads-0D1117?style=flat-square)](#-payload-generator)
 [![Analysis](https://img.shields.io/badge/📄-Analysis-0D1117?style=flat-square)](#-file-analysis)
+[![OSINT](https://img.shields.io/badge/🔎-OSINT-0D1117?style=flat-square)](#-osint)
 
 </div>
 
 ### 🤖 Automation
 | Tool | Description |
 |------|-------------|
-| **Automation Pipeline** | End-to-end reconnaissance workflow (Whois → Nuclei) |
+| **Automation** | End-to-end recon & audit pipeline (Whois → Subdomains → Live Hosts → Nmap → Nuclei → Report) |
 
 ### 📡 Info Gathering
 | Tool | Description |
 |------|-------------|
-| **Whois** | Domain registry lookup |
-| **Dig** | Advanced DNS enumeration |
-| **DNSRecon** | DNS zone transfer and record analysis |
-| **WAFW00F** | WAF detection and fingerprinting |
-| **SearchSploit** | Offline exploit database search |
+| **Whois** | Domain registry & registrar lookup |
+| **Dig** | Advanced DNS record enumeration (A, MX, NS, TXT, SOA) |
+| **DNSRecon** | DNS zone transfers, record analysis & wildcard detection |
+| **WAFW00F** | WAF detection and fingerprinting (Cloudflare, Akamai, Imperva…) |
+| **SearchSploit** | Offline Exploit-DB archive search |
 
 ### 🌐 Subdomain Enumeration
 | Tool | Description |
 |------|-------------|
-| **Subfinder** | Passive subdomain discovery |
-| **Amass** | OWASP attack surface mapping |
-| **TheHarvester** | OSINT intelligence gathering |
-| **Sublist3r** | Search engine-based enumeration |
-| **Chaos** | Public bug bounty dataset integration |
+| **Subfinder** | Passive subdomain discovery via 40+ online sources |
+| **Amass** | In-depth attack surface mapping (active + passive) |
+| **theHarvester** | OSINT — emails, subdomains, hosts from multiple public sources |
+| **Sublist3r** | Search engine-based subdomain enumeration |
+| **Chaos** | ProjectDiscovery internet-wide dataset integration |
 
 ### 🟢 Live Subdomains
 | Tool | Description |
 |------|-------------|
-| **HTTPX** | Fast IP/domain probing |
+| **Httpx** | Fast multi-purpose HTTP probing of live hosts |
 
 ### 🔍 Port Scanning
 | Tool | Description |
 |------|-------------|
-| **Nmap** | Network port scanning (Supports SYN/UDP) |
-| **Port Scanner** | Lightweight custom scanner |
+| **Nmap** | Industry-standard network mapper (SYN/TCP/UDP/ACK scans, NSE scripts) |
+| **Port Scanner** | Custom async multi-threaded TCP scanner with stealth mode & banner grabbing |
 
 ### 📸 Web Screenshots
 | Tool | Description |
 |------|-------------|
-| **EyeWitness** | Automated web screenshots |
+| **Eyewitness** | Automated web screenshots for large host lists |
 
 ### 🕸️ Web Scanning
 | Tool | Description |
 |------|-------------|
-| **FFUF** | Fast web fuzzer |
-| **Gobuster** | Directory and DNS brute-forcing |
+| **FFUF** | Fast web fuzzer for directory, file, and parameter discovery |
+| **Gobuster** | Directory, DNS, and virtual host brute-forcing |
 
 ### 💉 Web Injection
 | Tool | Description |
 |------|-------------|
-| **SQLi Hunter** | Heuristic SQL injection scanner |
-| **Web Fuzzer** | Parameter and endpoint fuzzing |
-| **API Tester** | API endpoint security auditing |
-| **Crawler** | Site mapping and spidering |
+| **SQLi Hunter** | Native Python SQL Injection engine (error-based & boolean-blind) |
+| **Web Fuzzer** | High-performance payload-based endpoint and parameter fuzzer |
+| **API Tester** | REST & GraphQL endpoint security auditing |
+| **Crawler** | Web application spidering and site-map builder |
 
 ### 🔓 Vulnerability Scanner
 | Tool | Description |
 |------|-------------|
-| **Nuclei** | Template-based vulnerability scanner |
+| **Nuclei** | Template-based CVE and misconfiguration scanner |
 | **Nikto** | Comprehensive web server vulnerability scanner |
 
 ### 🔐 Cracker
 | Tool | Description |
 |------|-------------|
-| **Hashcat** | GPU-accelerated password recovery |
-| **John the Ripper** | Advanced password auditor |
-| **Hydra** | Network login cracker |
-| **Hash Finder** | Hash type identifier |
-| **Dencoder** | Encoding/Decoding utility |
+| **Hashcat** | GPU-accelerated password recovery with rule and mask attacks |
+| **John** | CPU-based password auditor (100+ hash formats) |
+| **Hydra** | Parallelized network login cracker (SSH, FTP, HTTP, SMB…) |
+| **Hash Finder** | Heuristic hash-type identifier (200+ algorithm signatures) |
+| **Dencoder** | Universal encoder/decoder (Base64, Hex, URL, ROT13, JWT…) |
 
 ### 🚀 Payload Generator
 | Tool | Description |
 |------|-------------|
-| **MSFVenom** | Metasploit payload builder |
-| **ShellForge** | Reverse shell generator |
+| **MSFVenom** | Metasploit payload builder with encoder and template injection support |
+| **ShellForge** | 100+ reverse/bind shell one-liners with listener auto-generation |
 
 ### 📄 File Analysis
 | Tool | Description |
 |------|-------------|
-| **Strings** | Binary text extractor |
+| **Strings** | Binary printable-text extractor |
+
+### 🔎 OSINT
+| Tool | Description |
+|------|-------------|
+| **HTTrack** | Full website mirroring and offline browsing |
 
 ---
 
@@ -202,60 +211,55 @@ VAJRA is distributed as a portable binary.
    ```bash
    ./vajra
    ```
-   *Note: detailed scanning (e.g., Nmap SYN scans) may require root privileges:*
+   *Note: Raw-socket scans (e.g., Nmap SYN) require root privileges:*
    ```bash
    sudo ./vajra
    ```
 
 ### 2. Install External Tools
-VAJRA orchestrates powerful external tools. You don't need to install them manually.
-
 1. Launch VAJRA.
 2. Go to **Settings (⚙️)** → **Tool Installer**.
 3. Click **"Check Dependencies"**.
-4. The built-in manager will detect your OS (Debian/Arch/Fedora) and install missing tools automatically.
+4. The built-in manager detects your OS (Debian/Arch/Fedora) and installs missing tools automatically.
 
 ---
 
 ## 📖 Output Structure
 
-All scan results are automatically organized by session:
+All scan results are automatically organized by target and session:
 
 ```
-/tmp/Vajra-results/
-└── example.com_SESSION_TIMESTAMP/
-    ├── Logs/              # Raw tool logs (nmap.xml, nuclei.txt)
+~/Vajra-results/
+└── example.com_01032026_191500/
+    ├── Logs/              # Raw tool logs (nmap.xml, nuclei.txt, whois.txt…)
     ├── JSON/              # Consolidated findings (final.json)
-    ├── Reports/           # HTML Reports
+    ├── Reports/           # Generated HTML reports
     └── Screenshots/       # EyeWitness captures
 ```
+
+> For file-input scans (multiple targets): `~/Vajra-results/<group>/<target>_<timestamp>/`
 
 ---
 
 ## 🛡️ Security & Privacy
 
 * **Local Execution**: VAJRA runs entirely on your local machine. No data is sent to the cloud.
-* **Root Privileges**: VAJRA separates UI logic from execution to run safely. Only specific subprocesses (like Nmap) utilize elevated privileges when required.
+* **Root Privileges**: Only specific subprocesses (e.g., Nmap SYN scans) require elevated privileges when needed.
+* **Process Supervision**: Child processes use `PR_SET_PDEATHSIG` — if VAJRA closes, all spawned processes terminate automatically.
 
 ---
 
 ## 💡 Feature Requests & Feedback
-
-We value your feedback! If you have ideas for new features or encounter any bugs, please use the modern standard for collaboration:
 
 - **Feature Requests**: Open an [Issue](https://github.com/instroyer/VAJRA/issues) with the "Enhancement" label.
 - **Bug Reports**: Open an [Issue](https://github.com/instroyer/VAJRA/issues) with the "Bug" label.
 
 ## ❤️ Support the Project
 
-If you find VAJRA useful for your security workflow, please consider supporting the project:
-
-- ⭐ **Star** the repository on GitHub to show your appreciation.
-- 🍴 **Fork** the repository to save it to your profile.
+- ⭐ **Star** the repository on GitHub.
+- 🍴 **Fork** the repository to your profile.
 - 🗣️ **Share** it with your network and fellow security professionals.
-- ☕ **Tip the Developer**: If you love the tool, you can [Buy me a Coffee on Ko-fi](https://ko-fi.com/yashjaviya)!
-
-Your support helps keep the project alive and growing!
+- ☕ **Tip the Developer**: [Buy me a Coffee on Ko-fi](https://ko-fi.com/yashjaviya)!
 
 ---
 
